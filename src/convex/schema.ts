@@ -33,6 +33,11 @@ const schema = defineSchema(
       studentId: v.optional(v.string()),
       phone: v.optional(v.string()),
       active: v.optional(v.boolean()),
+
+      // Real club positions (e.g. رئيس نادي الروبوت, منسق النادي, عضو علمي …)
+      clubRoles: v.optional(v.array(v.string())),
+      academicState: v.optional(v.string()),
+      major: v.optional(v.string()),
     }).index("email", ["email"]), // index for the email. do not remove or modify
 
     // ===== Robotics Club Inventory =====

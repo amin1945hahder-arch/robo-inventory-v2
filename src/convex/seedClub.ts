@@ -426,7 +426,18 @@ export const seedClubData = mutation({
 
     // users — upsert by email so auth accounts merge cleanly
     const userByEmail = new Map<string, string>();
-    const ensureUser = async (name: string, email: string, role: "admin" | "member", phone: string, state: string, job: string, year: string, uniId: string, personalId: string) => {
+    const ensureUser = async (
+      name: string,
+      email: string,
+      role: "admin" | "member",
+      phone: string,
+      academicState: string,
+      major: string,
+      clubRoles: string[],
+      year: string,
+      uniId: string,
+      personalId: string,
+    ) => {
       const key = (email || name).trim().toLowerCase();
       if (userByEmail.has(key)) return userByEmail.get(key)!;
       let id: string | null = null;
@@ -441,6 +452,9 @@ export const seedClubData = mutation({
           if (role === "admin") patch.role = "admin";
           if (year && !existing.studentId) patch.studentId = year;
           if (phone && !existing.phone) patch.phone = phone;
+          if (academicState && !existing.academicState) patch.academicState = academicState;
+          if (major && !existing.major) patch.major = major;
+          if (clubRoles.length > 0 && !existing.clubRoles?.length) patch.clubRoles = clubRoles;
           if (Object.keys(patch).length > 0) await ctx.db.patch(existing._id, patch);
           id = existing._id;
         }
@@ -452,6 +466,9 @@ export const seedClubData = mutation({
           role,
           phone: phone || undefined,
           studentId: uniId || year || undefined,
+          academicState: academicState || undefined,
+          major: major || undefined,
+          clubRoles: clubRoles.length > 0 ? clubRoles : undefined,
         });
       }
       userByEmail.set(key, id);
@@ -460,6 +477,10 @@ export const seedClubData = mutation({
 
     const memberIds: Record<string, string> = {};
     for (const [name, email, positions, state, job, year, uniId, personalId, phone, role] of MEMBERS) {
+      const clubRoles = positions
+        .split(",")
+        .map((s) => s.trim().replace(/^مدرّب$/, "مدرب").replace(/^منسق نادي الروبوت$/, "منسق النادي"))
+        .filter(Boolean);
       const id = await ensureUser(
         name,
         email,
@@ -467,6 +488,7 @@ export const seedClubData = mutation({
         phone,
         state,
         job,
+        clubRoles,
         year,
         uniId,
         personalId,
@@ -566,7 +588,7 @@ export const seedClubData = mutation({
     let historyLoans = 0;
     let skipped = 0;
     for (const [name, phone, state, job, partName, amount, lentDate, returned, returnDate, notes] of LOANS) {
-      const userId = memberIds[name] ?? (await ensureUser(name, "", "member", phone, state, job, "", "", ""));
+      const userId = memberIds[name] ?? (await ensureUser(name, "", "member", phone, state, job, [], "", "", ""));
       const gid = findGroup(partName);
       if (!gid) {
         skipped += 1;

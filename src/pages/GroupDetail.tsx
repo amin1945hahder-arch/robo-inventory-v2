@@ -114,6 +114,14 @@ export default function GroupDetail() {
             </div>
           </header>
 
+          {group.imageUrl && (
+            <img
+              src={group.imageUrl}
+              alt={group.name}
+              className="h-44 w-full rounded-lg border object-cover"
+            />
+          )}
+
           {group.description && (
             <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{group.description}</p>
           )}

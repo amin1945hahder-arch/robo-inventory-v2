@@ -1,6 +1,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { mutation, query, QueryCtx } from "./_generated/server";
+import { requireAdmin } from "./lib";
 import { emailInAdminList } from "./adminConfig";
 
 /**
@@ -90,9 +91,33 @@ export const reconcileProfile = mutation({
     if (!me.name && dup.name) patch.name = dup.name;
     if (!me.studentId && dup.studentId) patch.studentId = dup.studentId;
     if (!me.phone && dup.phone) patch.phone = dup.phone;
+    if (!me.academicState && dup.academicState) patch.academicState = dup.academicState;
+    if (!me.major && dup.major) patch.major = dup.major;
+    if (!me.clubRoles?.length && dup.clubRoles?.length) patch.clubRoles = dup.clubRoles;
     if (dup.role === "admin" && me.role !== "admin") patch.role = "admin";
     if (Object.keys(patch).length > 0) await ctx.db.patch(userId, patch);
     await ctx.db.delete(dup._id);
     return { ok: true, merged: Object.keys(patch) };
+  },
+});
+
+// Admin edits a person's club profile: real positions, academic state, major,
+// and the app-level role (admin/member).
+export const updatePersonProfile = mutation({
+  args: {
+    userId: v.id("users"),
+    role: v.optional(v.union(v.literal("admin"), v.literal("member"))),
+    clubRoles: v.optional(v.array(v.string())),
+    academicState: v.optional(v.string()),
+    major: v.optional(v.string()),
+  },
+  handler: async (ctx, { userId, role, clubRoles, academicState, major }) => {
+    await requireAdmin(ctx);
+    const patch: Record<string, unknown> = {};
+    if (role) patch.role = role;
+    if (clubRoles !== undefined) patch.clubRoles = clubRoles;
+    if (academicState !== undefined) patch.academicState = academicState;
+    if (major !== undefined) patch.major = major;
+    await ctx.db.patch(userId, patch);
   },
 });

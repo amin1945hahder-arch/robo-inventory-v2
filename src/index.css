@@ -198,3 +198,29 @@
     color: black !important;
   }
 }
+
+/* Bulk QR label sheets (Print labels page): show only #print-area */
+@media print {
+  #print-area,
+  #print-area * {
+    visibility: visible;
+  }
+  #print-area {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    padding: 0;
+    margin: 0;
+    background: white;
+  }
+  .print-label {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .no-print {
+    display: none !important;
+  }
+  @page {
+    margin: 8mm;
+  }
+}

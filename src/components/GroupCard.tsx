@@ -44,6 +44,13 @@ export function GroupCard({
   return (
     <Card className="group relative overflow-hidden border-border/80 shadow-none transition-colors hover:border-primary/40">
       <CardContent className="flex flex-col gap-3 p-5">
+        {group.imageUrl && (
+          <img
+            src={group.imageUrl}
+            alt={group.name}
+            className="aspect-[16/9] w-full rounded-md border object-cover"
+          />
+        )}
         <div className="flex items-start justify-between gap-3">
           <Link to={`/group/${group._id}`} className="min-w-0 flex-1">
             <p className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
