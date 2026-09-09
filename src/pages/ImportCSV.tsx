@@ -13,7 +13,7 @@ HC-SR04 Ultrasonic,Sensors,Closet 2,10,Generic,,Distance sensor 2-400cm`;
 
 export default function ImportCSV() {
   const importCsv = useMutation(api.importer.importCsv);
-  const seed = useMutation(api.seed.seedInventory);
+  const seedClub = useMutation(api.seedClub.seedClubData);
   const [csv, setCsv] = useState("");
   const [busy, setBusy] = useState(false);
   const [seeding, setSeeding] = useState(false);
@@ -75,9 +75,11 @@ export default function ImportCSV() {
         </div>
 
         <div className="rounded-lg border border-dashed px-5 py-4">
-          <p className="text-sm font-medium">Starting fresh?</p>
+          <p className="text-sm font-medium">Import the full club dataset</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Load a demo inventory (closets, boards, sensors, a project) to explore the system.
+            Closets 1–8, your real component groups (working/broken per closet), the 14 club
+            projects with assigned parts, all members with roles, and the complete loan history.
+            Re-running wipes inventory tables and rebuilds them cleanly — user accounts are kept.
           </p>
           <Button
             variant="outline"
@@ -87,8 +89,10 @@ export default function ImportCSV() {
             onClick={async () => {
               setSeeding(true);
               try {
-                const res = await seed({});
-                toast.success(res.seeded ? "Demo inventory loaded" : "Already seeded before");
+                const res = await seedClub({});
+                toast.success(
+                  `Club dataset loaded — ${res.groups} groups, ${res.parts} tagged units, ${res.projects} projects, ${res.members} members`,
+                );
               } catch (e) {
                 toast.error(e instanceof Error ? e.message : "Failed");
               } finally {
@@ -96,7 +100,7 @@ export default function ImportCSV() {
               }
             }}
           >
-            <Sparkles className="size-4" /> Load demo inventory
+            <Sparkles className="size-4" /> Import club dataset
           </Button>
         </div>
       </div>

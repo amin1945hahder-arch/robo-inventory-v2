@@ -47,14 +47,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     isAdmin ? {} : "skip",
   );
   const claimAdmin = useMutation(api.users.claimAdminIfNoAdmins);
+  const reconcile = useMutation(api.users.reconcileProfile);
 
-  // First-run bootstrap: if no admins exist yet, the first signed-in user
-  // (you) becomes admin automatically — no env vars required.
+  // First-run bootstrap: (1) merge a pre-seeded club profile (name, ids,
+  // phone, admin role) into this auth account if one exists, and (2) if no
+  // admins exist yet, the first signed-in user becomes admin automatically.
   useEffect(() => {
-    if (user && user.role !== "admin") {
+    if (!user) return;
+    reconcile().catch(() => undefined);
+    if (user.role !== "admin") {
       claimAdmin().catch(() => undefined);
     }
-  }, [user?._id, user?.role, claimAdmin]);
+  }, [user?._id, user?.role, claimAdmin, reconcile]);
 
   const handleScan = (text: string) => {
     setScanOpen(false);

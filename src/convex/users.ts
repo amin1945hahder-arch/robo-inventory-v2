@@ -68,3 +68,31 @@ export const claimAdminIfNoAdmins = mutation({
     return { promoted: true };
   },
 });
+
+// When the club dataset pre-seeds member profiles (before those people have
+// auth accounts), the first time a real person signs in with that email the
+// auth layer creates a fresh user row. Merge the seeded profile (name, ids,
+// phone, admin role) into the auth account and drop the seeded duplicate.
+export const reconcileProfile = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) return { ok: false, reason: "not-signed-in" };
+    const me = await ctx.db.get(userId);
+    if (!me?.email) return { ok: false, reason: "no-email" };
+    const dup = await ctx.db
+      .query("users")
+      .withIndex("email", (q) => q.eq("email", me.email))
+      .filter((q) => q.neq(q.field("_id"), userId))
+      .first();
+    if (!dup) return { ok: false, reason: "no-dup" };
+    const patch: Record<string, unknown> = {};
+    if (!me.name && dup.name) patch.name = dup.name;
+    if (!me.studentId && dup.studentId) patch.studentId = dup.studentId;
+    if (!me.phone && dup.phone) patch.phone = dup.phone;
+    if (dup.role === "admin" && me.role !== "admin") patch.role = "admin";
+    if (Object.keys(patch).length > 0) await ctx.db.patch(userId, patch);
+    await ctx.db.delete(dup._id);
+    return { ok: true, merged: Object.keys(patch) };
+  },
+});

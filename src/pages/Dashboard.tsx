@@ -35,10 +35,10 @@ export default function Dashboard() {
   const projects = useQuery(api.projects.listProjects, { status: "active" });
   const closets = useQuery(api.catalog.listClosets, {});
 
-  // Auto-fill the database with the demo robotics-club dataset on first run
+  // Auto-fill the database with the real club dataset on first run
   // (only when the inventory is completely empty).
-  const isSeeded = useQuery(api.seed.isSeeded, {});
-  const seed = useMutation(api.seed.seedInventory);
+  const isSeeded = useQuery(api.seedClub.isClubSeeded, {});
+  const seed = useMutation(api.seedClub.seedClubData);
   const seedTriedRef = useRef(false);
   useEffect(() => {
     if (!isAdmin || seedTriedRef.current || isSeeded === undefined) return;
@@ -46,11 +46,14 @@ export default function Dashboard() {
       seedTriedRef.current = true;
       seed()
         .then((res) => {
-          if (res.seeded) toast.success("Demo inventory loaded — closets, boards, sensors & a project");
+          if (res.seeded)
+            toast.success(
+              `Club dataset loaded — ${res.groups} groups, ${res.parts} tagged units, ${res.projects} projects`,
+            );
         })
         .catch((e) => {
           seedTriedRef.current = false;
-          console.error("Seed failed:", e);
+          console.error("Club seed failed:", e);
         });
     }
   }, [isAdmin, isSeeded, overview, seed]);
