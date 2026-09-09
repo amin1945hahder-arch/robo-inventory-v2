@@ -3,8 +3,9 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { QrChip } from "@/components/QrChip";
 import { groupQr } from "@/lib/qr";
 import { cn } from "@/lib/utils";
-import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
+import type { Doc } from "@/convex/_generated/dataModel";
+import { Link } from "react-router";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -41,14 +42,10 @@ export function GroupCard({
     stats ?? { total: 0, available: 0, rented: 0, onProject: 0, broken: 0, pending: 0 };
   const total = Math.max(s.total, 1);
   return (
-    <Card className="group relative overflow-hidden border-border/80 shadow-none transition-colors hover:border-foreground/25">
+    <Card className="group relative overflow-hidden border-border/80 shadow-none transition-colors hover:border-primary/40">
       <CardContent className="flex flex-col gap-3 p-5">
         <div className="flex items-start justify-between gap-3">
-          <button
-            type="button"
-            onClick={() => (window.location.href = `/group/${group._id}`)}
-            className="min-w-0 flex-1 text-left"
-          >
+          <Link to={`/group/${group._id}`} className="min-w-0 flex-1">
             <p className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
               {categoryName ?? "Component"}
             </p>
@@ -58,7 +55,7 @@ export function GroupCard({
             <p className="mt-0.5 text-xs text-muted-foreground">
               {[group.brand, group.model].filter(Boolean).join(" · ") || "—"}
             </p>
-          </button>
+          </Link>
           <div className="flex items-center gap-1.5">
             <QrChip payload={groupQr(group.name)} label={group.name} />
             {isAdmin && (
@@ -84,11 +81,7 @@ export function GroupCard({
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => (window.location.href = `/group/${group._id}`)}
-          className="text-left"
-        >
+        <Link to={`/group/${group._id}`} className="block">
           <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-muted">
             <div className="bg-emerald-500/80" style={{ width: `${(s.available / total) * 100}%` }} />
             <div className="bg-sky-500/80" style={{ width: `${(s.rented / total) * 100}%` }} />
@@ -103,7 +96,7 @@ export function GroupCard({
             <span><b className="text-foreground">{s.broken}</b> broken</span>
             <span className="ml-auto font-medium text-foreground">{s.total} total</span>
           </div>
-        </button>
+        </Link>
       </CardContent>
     </Card>
   );

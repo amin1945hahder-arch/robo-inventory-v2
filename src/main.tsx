@@ -13,6 +13,20 @@ import "./index.css";
 const Landing = lazy(() => import("./pages/Landing.tsx"));
 const AuthPage = lazy(() => import("./pages/Auth.tsx"));
 const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
+const Inventory = lazy(() => import("./pages/Inventory.tsx"));
+const GroupDetail = lazy(() => import("./pages/GroupDetail.tsx"));
+const PartDetail = lazy(() => import("./pages/PartDetail.tsx"));
+const RentScan = lazy(() => import("./pages/RentScan.tsx"));
+const QrRoute = lazy(() => import("./pages/QrRoute.tsx"));
+const MyRentals = lazy(() => import("./pages/MyRentals.tsx"));
+const Projects = lazy(() => import("./pages/Projects.tsx"));
+const ProjectDetail = lazy(() => import("./pages/ProjectDetail.tsx"));
+const Closets = lazy(() => import("./pages/Closets.tsx"));
+const ClosetDetail = lazy(() => import("./pages/ClosetDetail.tsx"));
+const AdminRequests = lazy(() => import("./pages/AdminRequests.tsx"));
+const AdminPeople = lazy(() => import("./pages/AdminPeople.tsx"));
+const ImportCSV = lazy(() => import("./pages/ImportCSV.tsx"));
+const Profile = lazy(() => import("./pages/Profile.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
 // Simple loading fallback for route transitions
@@ -129,6 +143,111 @@ createRoot(document.getElementById("root")!).render(
                 element={
                   <RequireAuth>
                     <Dashboard />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/inventory"
+                element={
+                  <RequireAuth>
+                    <Inventory />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/group/:id"
+                element={
+                  <RequireAuth>
+                    <GroupDetail />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/part/:id"
+                element={
+                  <RequireAuth>
+                    <PartDetail />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/rent-scan"
+                element={
+                  <RequireAuth>
+                    <RentScan />
+                  </RequireAuth>
+                }
+              />
+              <Route path="/qr" element={<QrRoute />} />
+              <Route
+                path="/rentals"
+                element={
+                  <RequireAuth>
+                    <MyRentals />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/projects"
+                element={
+                  <RequireAuth>
+                    <Projects />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/projects/:id"
+                element={
+                  <RequireAuth>
+                    <ProjectDetail />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/closets"
+                element={
+                  <RequireAuth>
+                    <Closets />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/closets/:id"
+                element={
+                  <RequireAuth>
+                    <ClosetDetail />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/admin/requests"
+                element={
+                  <RequireAuth>
+                    <AdminRequests />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/people"
+                element={
+                  <RequireAuth>
+                    <AdminPeople />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/import"
+                element={
+                  <RequireAuth>
+                    <ImportCSV />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/profile"
+                element={
+                  <RequireAuth>
+                    <Profile />
                   </RequireAuth>
                 }
               />

@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { api } from "./_generated/api";
 import { requireAdmin, requireUser } from "./lib";
 import { Id } from "./_generated/dataModel";
 
@@ -21,6 +22,81 @@ export const getPart = query({
   handler: async (ctx, { id }) => {
     await requireUser(ctx);
     return await ctx.db.get(id);
+  },
+});
+
+// Full detail payload for the part detail page: part + group + category + closet +
+// the rental the viewer cares about (their own pending/active, or latest for admins)
+// + recent history.
+export const getPartWithRental = query({
+  args: { id: v.id("parts") },
+  handler: async (ctx, { id }) => {
+    const user = await requireUser(ctx);
+    const part = await ctx.db.get(id);
+    if (!part) return null;
+    const group = await ctx.db.get(part.groupId);
+    const category = group ? await ctx.db.get(group.categoryId) : null;
+    const closet = group ? await ctx.db.get(group.closetId) : null;
+
+    const rentals = await ctx.db
+      .query("rentals")
+      .withIndex("by_part", (q) => q.eq("partId", id))
+      .collect();
+    const sorted = rentals.sort((a, b) => b.requestedAt - a.requestedAt);
+
+    const mine = sorted.find(
+      (r) => r.userId === user._id && (r.status === "pending" || r.status === "active"),
+    );
+    const shown =
+      mine ??
+      (user.role === "admin"
+        ? sorted.find((r) => r.status === "pending" || r.status === "active")
+        : undefined);
+
+    let shownRental = null;
+    if (shown) {
+      const holder = await ctx.db.get(shown.userId);
+      const project = shown.projectId ? await ctx.db.get(shown.projectId) : null;
+      shownRental = {
+        _id: shown._id,
+        status: shown.status,
+        requestedAt: shown.requestedAt,
+        note: shown.conditionReport,
+        mine: shown.userId === user._id,
+        holderName: holder?.name ?? holder?.email ?? "A member",
+        holderId: holder?._id,
+        projectName: project?.name,
+      };
+    }
+
+    const history = [];
+    for (const r of sorted.slice(0, 12)) {
+      const holder = await ctx.db.get(r.userId);
+      const project = r.projectId ? await ctx.db.get(r.projectId) : null;
+      history.push({
+        _id: r._id,
+        status: r.status,
+        requestedAt: r.requestedAt,
+        returnedAt: r.returnedAt,
+        returnDestination: r.returnDestination,
+        functional: r.functional,
+        conditionReport: r.conditionReport,
+        holderName: holder?.name ?? holder?.email ?? "—",
+        holderId: holder?._id,
+        projectName: project?.name,
+      });
+    }
+
+    return {
+      part,
+      group,
+      category,
+      closet,
+      shownRental,
+      history,
+      isAdmin: user.role === "admin",
+      isMine: Boolean(mine),
+    };
   },
 });
 
@@ -86,6 +162,23 @@ async function notifyAdmin(ctx: any, text: string, link?: string) {
   await ctx.db.insert("notifications", { forRole: "admin", type: "info", text, link });
 }
 
+async function notifyAdminsByEmail(
+  ctx: any,
+  student: string,
+  partName: string,
+  partTag: string,
+  rentalId: string,
+  note?: string,
+) {
+  await ctx.scheduler.runAfter(0, api.emails.sendRentalRequestEmail, {
+    student,
+    partName,
+    partTag,
+    rentalId,
+    note,
+  });
+}
+
 export const requestRental = mutation({
   args: {
     partId: v.id("parts"),
@@ -114,10 +207,19 @@ export const requestRental = mutation({
       requestedAt: Date.now(),
     });
     await ctx.db.patch(partId, { status: "pending" });
+    const studentLabel = user.name ?? user.email ?? "A member";
     await notifyAdmin(
       ctx,
-      `${user.name ?? user.email ?? "A member"} requested to rent ${group?.name ?? "a part"} (${part.tag})`,
+      `${studentLabel} requested to rent ${group?.name ?? "a part"} (${part.tag})`,
       `/admin/requests`,
+    );
+    await notifyAdminsByEmail(
+      ctx,
+      studentLabel,
+      group?.name ?? "a part",
+      part.tag,
+      rentalId,
+      note,
     );
     return rentalId;
   },
@@ -148,6 +250,14 @@ export const decideRental = mutation({
     } else {
       await ctx.db.patch(rentalId, { status: "denied", decidedAt: Date.now() });
       await ctx.db.patch(part._id, { status: "available" });
+    }
+    if (student?.email) {
+      await ctx.scheduler.runAfter(0, api.emails.sendRentalDecisionEmail, {
+        to: student.email,
+        student: student.name ?? student.email,
+        partName: group?.name ?? "a part",
+        approved: approve,
+      });
     }
     if (token && token === process.env.ADMIN_ACTION_TOKEN) return { ok: true };
     return { ok: true, group: group?.name, student: student?.name ?? student?.email };
@@ -310,9 +420,33 @@ export const listMyRentals = query({
     for (const r of rows.sort((a, b) => b.requestedAt - a.requestedAt)) {
       const part = await ctx.db.get(r.partId);
       const group = part ? await ctx.db.get(part.groupId) : null;
-      out.push({ rental: r, part, group });
+      const project = r.projectId ? await ctx.db.get(r.projectId) : null;
+      out.push({
+        rental: r,
+        part,
+        group,
+        projectName: project?.name,
+      });
     }
     return out;
+  },
+});
+
+// Request counts the dashboard needs (used for the notification dot on My Rentals)
+export const myRequestCounts = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await requireUser(ctx);
+    const rows = await ctx.db
+      .query("rentals")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .collect();
+    return {
+      pending: rows.filter((r) => r.status === "pending").length,
+      active: rows.filter((r) => r.status === "active").length,
+      onProject: rows.filter((r) => r.status === "on_project").length,
+      total: rows.length,
+    };
   },
 });
 

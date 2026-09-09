@@ -106,6 +106,19 @@ export const decideProfileRequest = mutation({
   },
 });
 
+// The signed-in member's own pending profile-change request (if any).
+export const myPendingProfileRequest = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await requireUser(ctx);
+    const rows = await ctx.db
+      .query("profileRequests")
+      .withIndex("by_status", (q) => q.eq("status", "pending"))
+      .collect();
+    return rows.some((r) => r.userId === user._id);
+  },
+});
+
 // ===== Account =====
 
 export const updateImage = mutation({

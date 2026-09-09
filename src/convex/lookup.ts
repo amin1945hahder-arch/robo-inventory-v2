@@ -81,7 +81,7 @@ export const resolve = query({
     if (cat) return { type: "category" as const, id: cat._id, url: `/inventory?category=${cat._id}` };
     const projects = await ctx.db.query("projects").collect();
     const project = projects.find((p) => p.name.toLowerCase() === raw.toLowerCase());
-    if (project) return { type: "type" as const, id: project._id, url: `/projects/${project._id}` };
+    if (project) return { type: "project" as const, id: project._id, url: `/projects/${project._id}` };
     return null;
   },
 });

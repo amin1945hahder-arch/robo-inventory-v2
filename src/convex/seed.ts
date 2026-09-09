@@ -92,7 +92,7 @@ export const seedInventory = mutation({
       description: "Micro metal gear motor, 6V.",
     });
 
-    // one part of each flagship group out on a project
+    // a demo project holding one Arduino unit
     const project = await ctx.db.insert("projects", {
       name: "Line Follower 2026",
       description: "Club competition robot for the national line follower race.",
@@ -104,16 +104,6 @@ export const seedInventory = mutation({
       .collect();
     if (projParts[0]) {
       await ctx.db.patch(projParts[0]._id, { status: "on_project", currentProjectId: project });
-      await ctx.db.insert("rentals", {
-        partId: projParts[0]._id,
-        userId: (projParts[0] as any).currentHolderId ?? (project as any).ownerId ?? (projParts[0]._id as any),
-        status: "on_project",
-        requestedAt: Date.now() - 86400000,
-        pickedUpAt: Date.now() - 86400000,
-        returnedAt: Date.now() - 82800000,
-        projectId: project,
-        returnDestination: "project",
-      });
     }
 
     // mark a couple of broken units

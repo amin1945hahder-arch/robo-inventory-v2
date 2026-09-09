@@ -2,19 +2,19 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 const MAP: Record<string, { label: string; className: string }> = {
-  available: { label: "Available", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
-  pending: { label: "Pending", className: "border-amber-200 bg-amber-50 text-amber-700" },
-  rented: { label: "Rented", className: "border-sky-200 bg-sky-50 text-sky-700" },
-  on_project: { label: "On project", className: "border-violet-200 bg-violet-50 text-violet-700" },
-  broken: { label: "Broken", className: "border-rose-200 bg-rose-50 text-rose-700" },
-  active: { label: "Active", className: "border-sky-200 bg-sky-50 text-sky-700" },
-  on_project_rental: { label: "On project", className: "border-violet-200 bg-violet-50 text-violet-700" },
-  returned: { label: "Returned", className: "border-zinc-200 bg-zinc-50 text-zinc-600" },
-  approved: { label: "Approved", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
-  denied: { label: "Denied", className: "border-rose-200 bg-rose-50 text-rose-700" },
-  canceled: { label: "Canceled", className: "border-zinc-200 bg-zinc-50 text-zinc-600" },
-  completed: { label: "Completed", className: "border-zinc-200 bg-zinc-50 text-zinc-600" },
-  dismantled: { label: "Dismantled", className: "border-rose-200 bg-rose-50 text-rose-700" },
+  available: { label: "Available", className: "border-emerald-500/40 bg-emerald-500/10 text-emerald-400" },
+  pending: { label: "Pending", className: "border-amber-500/40 bg-amber-500/10 text-amber-400" },
+  rented: { label: "Rented", className: "border-sky-500/40 bg-sky-500/10 text-sky-400" },
+  on_project: { label: "On project", className: "border-violet-500/40 bg-violet-500/10 text-violet-400" },
+  broken: { label: "Broken", className: "border-rose-500/40 bg-rose-500/10 text-rose-400" },
+  active: { label: "Active", className: "border-sky-500/40 bg-sky-500/10 text-sky-400" },
+  on_project_rental: { label: "On project", className: "border-violet-500/40 bg-violet-500/10 text-violet-400" },
+  returned: { label: "Returned", className: "border-zinc-500/40 bg-zinc-500/10 text-zinc-400" },
+  approved: { label: "Approved", className: "border-emerald-500/40 bg-emerald-500/10 text-emerald-400" },
+  denied: { label: "Denied", className: "border-rose-500/40 bg-rose-500/10 text-rose-400" },
+  canceled: { label: "Canceled", className: "border-zinc-500/40 bg-zinc-500/10 text-zinc-400" },
+  completed: { label: "Completed", className: "border-zinc-500/40 bg-zinc-500/10 text-zinc-400" },
+  dismantled: { label: "Dismantled", className: "border-rose-500/40 bg-rose-500/10 text-rose-400" },
 };
 
 export function StatusBadge({ status, className }: { status: string; className?: string }) {

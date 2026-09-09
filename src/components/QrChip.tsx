@@ -35,7 +35,7 @@ export function QrChip({ payload, label }: { payload: string; label?: string }) 
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col items-center gap-3 py-2">
-            <div className="rounded-lg border bg-white p-4">
+            <div data-qr-label className="rounded-lg border bg-white p-4">
               <QRCode value={payload} size={180} />
             </div>
             <div className="text-center">
@@ -44,7 +44,7 @@ export function QrChip({ payload, label }: { payload: string; label?: string }) 
               <p className="font-mono text-[10px] text-muted-foreground">{url}/qr?p=…</p>
             </div>
             <Button variant="outline" className="w-full" onClick={() => window.print()}>
-              Print
+              Print label
             </Button>
           </div>
         </DialogContent>
