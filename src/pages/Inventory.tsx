@@ -1,12 +1,10 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { AppShell } from "@/components/AppShell";
 import { GroupCard } from "@/components/GroupCard";
-import { motion } from "framer-motion";
-import { useRevealScroll, animateChildrenOnce } from "@/lib/observe";
 import { GroupFormDialog } from "@/components/GroupFormDialog";
 import { QrScanDialog } from "@/components/QrScanDialog";
 import { QrChip } from "@/components/QrChip";
@@ -21,7 +19,8 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { categoryQr, groupQr } from "@/lib/qr";
+import { motion } from "framer-motion";
+import { categoryQr } from "@/lib/qr";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
 import { PackagePlus, Plus, ScanLine, Search } from "lucide-react";
@@ -39,8 +38,6 @@ export default function Inventory() {
     categoryId: (categoryFilter || undefined) as any,
   });
   const [search, setSearch] = useState("");
-  const inventoryGridRef = useRef<HTMLDivElement | null>(null);
-  const { visible, containerRef } = useRevealScroll(inventoryGridRef);
   const [scanOpen, setScanOpen] = useState(false);
   const [groupFormOpen, setGroupFormOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<Doc<"groups"> | null>(null);
@@ -86,7 +83,7 @@ export default function Inventory() {
       <div className="flex flex-col gap-6">
         <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Inventory</h1>
+            <h1 className="text-2xl font-bold tracking-tight">Inventory</h1>
             <p className="mt-1 text-sm text-muted-foreground">
               {groups?.length ?? 0} component groups · scan any shelf label to jump straight to it
             </p>
@@ -100,7 +97,12 @@ export default function Inventory() {
                 <Button variant="outline" onClick={() => setCatDialogOpen(true)}>
                   <Plus className="size-4" /> Category
                 </Button>
-                <Button onClick={() => { setEditingGroup(null); setGroupFormOpen(true); }}>
+                <Button
+                  onClick={() => {
+                    setEditingGroup(null);
+                    setGroupFormOpen(true);
+                  }}
+                >
                   <PackagePlus className="size-4" /> Add group
                 </Button>
               </>
@@ -128,14 +130,19 @@ export default function Inventory() {
         {categoryFilter && visibleCategories.length === 1 && (
           <div className="flex items-center justify-between rounded-lg border px-4 py-3">
             <div className="flex items-center gap-3">
-              <QrChip payload={categoryQr(visibleCategories[0].name)} label={visibleCategories[0].name} />
+              <QrChip
+                payload={categoryQr(visibleCategories[0].name)}
+                label={visibleCategories[0].name}
+              />
               <div>
                 <p className="text-sm font-medium">{visibleCategories[0].name}</p>
-                <p className="text-xs text-muted-foreground">{visibleCategories[0].description ?? "Category"}</p>
+                <p className="text-xs text-muted-foreground">
+                  {visibleCategories[0].description ?? "Category"}
+                </p>
               </div>
-            </div>        </div>
-        )
-      }
+            </div>
+          </div>
+        )}
 
         {groups === undefined ? (
           <p className="py-16 text-center text-sm text-muted-foreground">Loading inventory…</p>
@@ -144,13 +151,18 @@ export default function Inventory() {
             <p className="text-sm text-muted-foreground">
               Nothing found. {isAdmin ? "Add your first group or import a CSV." : "Try another search."}
             </p>
-          </div>        ) : (
-          <div ref={inventoryGridRef} className="">            {visibleCategories.map((cat, i) => {
+          </div>
+        ) : (
+          <div className="flex flex-col gap-8">
+            {visibleCategories.map((cat, i) => {
               const catGroups = byCategory.get(cat._id) ?? [];
               if (catGroups.length === 0) return null;
               return (
-                <section
+                <motion.section
                   key={cat._id}
+                  initial={{ opacity: 0, y: 14 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.4, delay: i * 0.06, ease: "easeOut" }}
                   className="flex flex-col gap-3"
                 >
                   <div className="flex items-center gap-2">
@@ -160,7 +172,8 @@ export default function Inventory() {
                       <QrChip payload={categoryQr(cat.name)} label={cat.name} />
                     </div>
                   </div>
-                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">                    {catGroups.map((g) => (
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {catGroups.map((g) => (
                       <GroupCard
                         key={g._id}
                         group={g}
@@ -183,14 +196,12 @@ export default function Inventory() {
                       />
                     ))}
                   </div>
-                </section>
+                </motion.section>
               );
-            )}
+            })}
           </div>
-        </div>
-      )
-    }
-  </div>
+        )}
+      </div>
 
       <QrScanDialog open={scanOpen} onOpenChange={setScanOpen} onResult={handleScan} />
       <GroupFormDialog
