@@ -51,7 +51,7 @@ export default function GroupDetail() {
             </Button>
           </div>
 
-          <header className="flex flex-col justify-between gap-4 border-b pb-6 sm:flex-row sm:items-end">
+          <header className="sticky top-0 z-10 flex flex-col justify-between gap-4 border-b bg-background/90 pb-6 backdrop-blur sm:flex-row sm:items-end">
             <div className="flex items-start gap-3">
               <QrChip payload={groupQr(group.name)} label={group.name} />
               <div>
@@ -61,7 +61,7 @@ export default function GroupDetail() {
                 </p>
               </div>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 hidden sm:inline-flex">
               {isAdmin && (
                 <Button variant="outline" onClick={async () => {
                   try {

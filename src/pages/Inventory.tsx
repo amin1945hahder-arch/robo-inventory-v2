@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { AppShell } from "@/components/AppShell";
 import { GroupCard } from "@/components/GroupCard";
+import { useRevealScroll, animateChildrenOnce } from "@/lib/observe";
 import { GroupFormDialog } from "@/components/GroupFormDialog";
 import { QrScanDialog } from "@/components/QrScanDialog";
 import { QrChip } from "@/components/QrChip";
@@ -37,6 +38,7 @@ export default function Inventory() {
     categoryId: (categoryFilter || undefined) as any,
   });
   const [search, setSearch] = useState("");
+  const inventoryGridRef = useRef<HTMLDivElement | null>(null);
   const [scanOpen, setScanOpen] = useState(false);
   const [groupFormOpen, setGroupFormOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<Doc<"groups"> | null>(null);
@@ -129,9 +131,9 @@ export default function Inventory() {
                 <p className="text-sm font-medium">{visibleCategories[0].name}</p>
                 <p className="text-xs text-muted-foreground">{visibleCategories[0].description ?? "Category"}</p>
               </div>
-            </div>
-          </div>
-        )}
+            </div>        </div>
+        )
+      }
 
         {groups === undefined ? (
           <p className="py-16 text-center text-sm text-muted-foreground">Loading inventory…</p>
@@ -140,49 +142,51 @@ export default function Inventory() {
             <p className="text-sm text-muted-foreground">
               Nothing found. {isAdmin ? "Add your first group or import a CSV." : "Try another search."}
             </p>
-          </div>
-        ) : (
-          visibleCategories.map((cat) => {
-            const catGroups = byCategory.get(cat._id) ?? [];
-            if (catGroups.length === 0) return null;
-            return (
-              <section key={cat._id} className="flex flex-col gap-3">
-                <div className="flex items-center gap-2">
-                  <h2 className="text-sm font-semibold">{cat.name}</h2>
-                  <span className="text-xs text-muted-foreground">· {catGroups.length}</span>
-                  <div className="ml-1">
-                    <QrChip payload={categoryQr(cat.name)} label={cat.name} />
+          </div>        ) : (
+          <div ref={inventoryGridRef} className="">            {visibleCategories.map((cat, i) => {
+              const catGroups = byCategory.get(cat._id) ?? [];
+              if (catGroups.length === 0) return null;
+              return (
+                <section
+                  key={cat._id}
+                  className="flex flex-col gap-3"
+                >
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-sm font-semibold">{cat.name}</h2>
+                    <span className="text-xs text-muted-foreground">· {catGroups.length}</span>
+                    <div className="ml-1">
+                      <QrChip payload={categoryQr(cat.name)} label={cat.name} />
+                    </div>
                   </div>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {catGroups.map((g) => (
-                    <GroupCard
-                      key={g._id}
-                      group={g}
-                      stats={stats?.[g._id]}
-                      categoryName={cat.name}
-                      isAdmin={isAdmin}
-                      onEdit={() => {
-                        setEditingGroup(g);
-                        setGroupFormOpen(true);
-                      }}
-                      onDelete={async () => {
-                        if (!confirm(`Delete ${g.name} and all its units?`)) return;
-                        try {
-                          await deleteGroup({ id: g._id });
-                          toast.success("Group deleted");
-                        } catch (e) {
-                          toast.error(e instanceof Error ? e.message : "Failed");
-                        }
-                      }}
-                    />
-                  ))}
-                </div>
-              </section>
-            );
-          })
-        )}
-      </div>
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">                    {catGroups.map((g) => (
+                      <GroupCard
+                        key={g._id}
+                        group={g}
+                        stats={stats?.[g._id]}
+                        categoryName={cat.name}
+                        isAdmin={isAdmin}
+                        onEdit={() => {
+                          setEditingGroup(g);
+                          setGroupFormOpen(true);
+                        }}
+                        onDelete={async () => {
+                          if (!confirm(`Delete ${g.name} and all its units?`)) return;
+                          try {
+                            await deleteGroup({ id: g._id });
+                            toast.success("Group deleted");
+                          } catch (e) {
+                            toast.error(e instanceof Error ? e.message : "Failed");
+                          }
+                        }}
+                      />
+                    ))}
+                  </div>
+                </section>
+              );
+            })}}      </div>
+      )
+    }
+    </div>
 
       <QrScanDialog open={scanOpen} onOpenChange={setScanOpen} onResult={handleScan} />
       <GroupFormDialog

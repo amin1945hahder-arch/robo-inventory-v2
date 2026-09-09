@@ -49,7 +49,7 @@ export function GroupCard({
             <p className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
               {categoryName ?? "Component"}
             </p>
-            <h3 className="mt-0.5 truncate text-base font-semibold leading-tight">
+            <h3 className="mt-1 truncate text-base font-semibold leading-tight">
               {group.name}
             </h3>
             <p className="mt-0.5 text-xs text-muted-foreground">
