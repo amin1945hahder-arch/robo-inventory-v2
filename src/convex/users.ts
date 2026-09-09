@@ -34,9 +34,8 @@ export const getCurrentUser = async (ctx: QueryCtx) => {
   return await ctx.db.get(userId);
 };
 
-// Bootstrap: the first user who signs in with an email on the admin allow-list
+// Bootstrap A: the first user who signs in with an email on the admin allow-list
 // (ADMIN_EMAILS env var, comma-separated) is promoted to admin automatically.
-// Set ADMIN_EMAILS with Dr. Essa's email in the environment settings.
 export const claimAdminIfEligible = mutation({
   args: {},
   handler: async (ctx) => {
@@ -45,6 +44,26 @@ export const claimAdminIfEligible = mutation({
     const user = await ctx.db.get(userId);
     if (!user || !user.email || user.role === "admin") return { promoted: false };
     if (!emailInAdminList(user.email)) return { promoted: false };
+    await ctx.db.patch(userId, { role: "admin" });
+    return { promoted: true };
+  },
+});
+
+// Bootstrap B (no env vars needed): while there are ZERO admins in the system,
+// the signed-in caller is promoted to admin. This guarantees the first real
+// user (e.g. Dr. Essa) always lands in control, even before ADMIN_EMAILS is set.
+export const claimAdminIfNoAdmins = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) return { promoted: false, reason: "not-signed-in" };
+    const user = await ctx.db.get(userId);
+    if (!user) return { promoted: false, reason: "no-user" };
+    if (user.role === "admin") return { promoted: false, alreadyAdmin: true };
+    const all = await ctx.db.query("users").collect();
+    if (all.some((u) => u.role === "admin")) {
+      return { promoted: false, reason: "admins-exist" };
+    }
     await ctx.db.patch(userId, { role: "admin" });
     return { promoted: true };
   },

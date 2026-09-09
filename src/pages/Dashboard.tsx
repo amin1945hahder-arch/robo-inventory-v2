@@ -1,4 +1,5 @@
-import { useQuery } from "convex/react";
+import { useEffect, useRef } from "react";
+import { useMutation, useQuery } from "convex/react";
 import { Link } from "react-router";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
@@ -8,6 +9,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { closetQr, projectQr } from "@/lib/qr";
+import { toast } from "sonner";
 import {
   Boxes,
   CircleDot,
@@ -32,6 +34,26 @@ export default function Dashboard() {
   const my = useQuery(api.parts.listMyRentals, {});
   const projects = useQuery(api.projects.listProjects, { status: "active" });
   const closets = useQuery(api.catalog.listClosets, {});
+
+  // Auto-fill the database with the demo robotics-club dataset on first run
+  // (only when the inventory is completely empty).
+  const isSeeded = useQuery(api.seed.isSeeded, {});
+  const seed = useMutation(api.seed.seedInventory);
+  const seedTriedRef = useRef(false);
+  useEffect(() => {
+    if (!isAdmin || seedTriedRef.current || isSeeded === undefined) return;
+    if (isSeeded === false && (overview?.groups ?? 0) === 0) {
+      seedTriedRef.current = true;
+      seed()
+        .then((res) => {
+          if (res.seeded) toast.success("Demo inventory loaded — closets, boards, sensors & a project");
+        })
+        .catch((e) => {
+          seedTriedRef.current = false;
+          console.error("Seed failed:", e);
+        });
+    }
+  }, [isAdmin, isSeeded, overview, seed]);
 
   const myActive = (my ?? []).filter((r) => r.rental.status === "active");
   const myPending = (my ?? []).filter((r) => r.rental.status === "pending");

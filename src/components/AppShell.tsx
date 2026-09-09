@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -46,6 +46,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     api.notifications.unreadCount,
     isAdmin ? {} : "skip",
   );
+  const claimAdmin = useMutation(api.users.claimAdminIfNoAdmins);
+
+  // First-run bootstrap: if no admins exist yet, the first signed-in user
+  // (you) becomes admin automatically — no env vars required.
+  useEffect(() => {
+    if (user && user.role !== "admin") {
+      claimAdmin().catch(() => undefined);
+    }
+  }, [user?._id, user?.role, claimAdmin]);
 
   const handleScan = (text: string) => {
     setScanOpen(false);
