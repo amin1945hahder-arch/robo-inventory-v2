@@ -35,6 +35,7 @@ type Person = {
     clubRoles?: string[];
     academicState?: string;
     major?: string;
+    studentCode?: string;
   };
   activeRentals: number;
   pending: number;
@@ -102,6 +103,7 @@ function PersonRow({
             {isMe && <span className="ml-2 text-xs text-muted-foreground">(you)</span>}
           </p>
           <p className="truncate text-xs text-muted-foreground">
+            {user.studentCode && <span className="font-mono">{user.studentCode} · </span>}
             {[user.email, user.studentId, user.phone].filter(Boolean).join(" · ") || "—"}
           </p>
           {(user.clubRoles?.length || user.academicState || user.major) && (

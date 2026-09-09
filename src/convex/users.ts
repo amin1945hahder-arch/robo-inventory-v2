@@ -94,6 +94,7 @@ export const reconcileProfile = mutation({
     if (!me.academicState && dup.academicState) patch.academicState = dup.academicState;
     if (!me.major && dup.major) patch.major = dup.major;
     if (!me.clubRoles?.length && dup.clubRoles?.length) patch.clubRoles = dup.clubRoles;
+    if (!me.studentCode && dup.studentCode) patch.studentCode = dup.studentCode;
     if (dup.role === "admin" && me.role !== "admin") patch.role = "admin";
     if (Object.keys(patch).length > 0) await ctx.db.patch(userId, patch);
     await ctx.db.delete(dup._id);

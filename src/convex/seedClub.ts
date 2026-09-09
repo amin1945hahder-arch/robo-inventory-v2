@@ -278,6 +278,22 @@ const MEMBERS: [string, string, string, string, string, string, string, string, 
   ["الرضا منذر محمد", "rida.mmhd@gmail.com", "", "جامعي", "ميكاترونيكس", "4", "3100", "6010029913", "+963996427454", "member"],
 ];
 
+// Students reference sheet — [studentCode, email, name, uniId, phone, academicState, major]
+const STUDENTS: [string, string, string, string, string, string, string][] = [
+  ["STU-0001", "essaalghnnam@gmail.com", "د. عيسى الغنّام", "", "+963996063235", "دكتوراه", "ميكاترونيكس"],
+  ["STU-0002", "amin20haydar@gmail.com", "أمين فايز حيدر", "2872", "+963930756990", "جامعي", "ميكاترونيكس"],
+  ["STU-0003", "nour2001mselmani@gmail.com", "نور فواز مسيلماني", "2880", "+963954231908", "جامعي", "ميكاترونيكس"],
+  ["STU-0004", "tesla1infernal2@gmail.com", "جعفر علي رقماني", "2987", "+963937952557", "جامعي", "ميكاترونيكس"],
+  ["STU-0005", "haide2001rmhrez@gmail.com", "حيدرة علي محرز", "2886", "+963937715044", "جامعي", "ميكاترونيكس"],
+  ["STU-0006", "ss@gmail.com", "علي فيصل يوسف", "2916", "+963932722234", "جامعي", "ميكاترونيكس"],
+  ["STU-0007", "khderissa002@gmail.com", "خضر عماد عيسى", "2986", "+963991855598", "جامعي", "ميكاترونيكس"],
+  ["STU-0008", "ss@gmail.com", "تسنيم لؤي كنيفاتي", "3032", "+963947758481", "جامعي", "ميكاترونيكس"],
+  ["STU-0009", "hasanalwaraa86@gmail.com", "حسن عماد الورعة", "3030", "+963995425327", "جامعي", "ميكاترونيكس"],
+  ["STU-0010", "abodebalash@gmail.com", "عبدالرحمن عبدالسلام بلاش", "3381", "+963998785855", "جامعي", "ميكاترونيكس"],
+  ["STU-0011", "faajeer2003@gmail.com", "فجر أبو الخير", "3198", "+963937557482", "جامعي", "ميكاترونيكس"],
+  ["STU-0012", "abdullah.m.eskef@gmail.com", "عبدالله ميشيل اسكيف", "2274", "+963937001322", "جامعي", "قوى ميكانيكية"],
+];
+
 // Loans — [name, phone, state, job, part, amount, lentDate, returned, returnDate, notes]
 const LOANS: [string, string, string, string, string, number, string, boolean, string, string][] = [
   ["د. عيسى الغنّام", "+963996063235", "دكتوراه", "ميكاترونيكس", "DC-Motor with Encoder (CHR-MG25-370)", 1, "11/30/2021", false, "", ""],
@@ -399,6 +415,24 @@ function parseDate(d: string) {
   return new Date(y, m - 1, day).getTime();
 }
 
+// True once the club seed exists but profiles are missing the newer fields
+// (STU student codes / club positions). Forces one re-import so existing
+// deployments automatically pick up the extended dataset.
+export const needsRefresh = query({
+  args: {},
+  handler: async (ctx) => {
+    const row = await ctx.db
+      .query("seedState")
+      .withIndex("by_key", (q) => q.eq("key", "club"))
+      .first();
+    if (!row) return false;
+    const users = await ctx.db.query("users").collect();
+    const hasCodes = users.some((u) => Boolean(u.studentCode));
+    const hasRoles = users.some((u) => u.clubRoles && u.clubRoles.length > 0);
+    return !hasCodes || !hasRoles;
+  },
+});
+
 export const seedClubData = mutation({
   args: {},
   handler: async (ctx) => {
@@ -494,6 +528,16 @@ export const seedClubData = mutation({
         personalId,
       );
       memberIds[name] = id;
+    }
+
+    // students reference sheet — attach STU codes + active flag to the members
+    for (const [code, email, name, uniId, phone, academicState, major] of STUDENTS) {
+      const key = email.trim().toLowerCase();
+      let id = userByEmail.get(key);
+      if (!id) {
+        id = await ensureUser(name, email, "member", phone, academicState, major, [], "", uniId, "");
+      }
+      await ctx.db.patch(id as any, { studentCode: code, active: true });
     }
 
     // projects

@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { api } from "./_generated/api";
 import { requireAdmin, requireUser } from "./lib";
+import { adminPhones, sendWhatsApp } from "./whatsapp";
 import { Id } from "./_generated/dataModel";
 
 export const listPartsOfGroup = query({
@@ -221,6 +222,13 @@ export const requestRental = mutation({
       rentalId,
       note,
     );
+    // WhatsApp to every admin (no-op until TWILIO_* keys are set)
+    for (const phone of await adminPhones(ctx)) {
+      await sendWhatsApp(
+        phone,
+        `${studentLabel} requested to rent ${group?.name ?? "a part"} (${part.tag}) — review it in the Requests console.`,
+      );
+    }
     return rentalId;
   },
 });
@@ -258,6 +266,14 @@ export const decideRental = mutation({
         partName: group?.name ?? "a part",
         approved: approve,
       });
+    }
+    if (student?.phone) {
+      await sendWhatsApp(
+        student.phone,
+        approve
+          ? `✅ Your request was approved — ${group?.name ?? "a part"} (${part.tag}). You can pick it up from the lab.`
+          : `❌ Your request for ${group?.name ?? "a part"} (${part.tag}) was denied.`,
+      );
     }
     if (token && token === process.env.ADMIN_ACTION_TOKEN) return { ok: true };
     return { ok: true, group: group?.name, student: student?.name ?? student?.email };
@@ -300,6 +316,12 @@ export const adminRentalAction = mutation({
           approved: true,
         });
       }
+      if (student?.phone) {
+        await sendWhatsApp(
+          student.phone,
+          `✅ Your request was approved — ${group?.name ?? "a part"} (${part.tag}). You can pick it up from the lab.`,
+        );
+      }
     } else if (action === "deny") {
       if (rental.status !== "pending") throw new Error("This request was already handled");
       await ctx.db.patch(rentalId, { status: "denied", decidedAt: now });
@@ -311,6 +333,12 @@ export const adminRentalAction = mutation({
           partName: group?.name ?? "a part",
           approved: false,
         });
+      }
+      if (student?.phone) {
+        await sendWhatsApp(
+          student.phone,
+          `❌ Your request for ${group?.name ?? "a part"} (${part.tag}) was denied.`,
+        );
       }
     } else if (action === "mark_returned") {
       if (rental.status !== "active") throw new Error("Rental is not active");

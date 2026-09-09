@@ -148,6 +148,7 @@ export const listPeople = query({
           clubRoles: u.clubRoles,
           academicState: u.academicState,
           major: u.major,
+          studentCode: u.studentCode,
         },
         activeRentals: rentals.filter((r) => r.userId === u._id && (r.status === "active" || r.status === "on_project")).length,
         pending: rentals.filter((r) => r.userId === u._id && r.status === "pending").length,

@@ -35,14 +35,18 @@ export default function Dashboard() {
   const projects = useQuery(api.projects.listProjects, { status: "active" });
   const closets = useQuery(api.catalog.listClosets, {});
 
-  // Auto-fill the database with the real club dataset on first run
-  // (only when the inventory is completely empty).
+  // Auto-fill the database with the real club dataset: on first run (empty
+  // inventory) and whenever the dataset is stale (e.g. after we extended it
+  // with student codes / club positions). Re-importing wipes inventory tables
+  // and rebuilds them cleanly — user accounts are kept.
   const isSeeded = useQuery(api.seedClub.isClubSeeded, {});
+  const refreshNeeded = useQuery(api.seedClub.needsRefresh, {});
   const seed = useMutation(api.seedClub.seedClubData);
   const seedTriedRef = useRef(false);
   useEffect(() => {
-    if (!isAdmin || seedTriedRef.current || isSeeded === undefined) return;
-    if (isSeeded === false && (overview?.groups ?? 0) === 0) {
+    if (!isAdmin || seedTriedRef.current || isSeeded === undefined || refreshNeeded === undefined)
+      return;
+    if (isSeeded === false || refreshNeeded === true) {
       seedTriedRef.current = true;
       seed()
         .then((res) => {
@@ -56,7 +60,7 @@ export default function Dashboard() {
           console.error("Club seed failed:", e);
         });
     }
-  }, [isAdmin, isSeeded, overview, seed]);
+  }, [isAdmin, isSeeded, refreshNeeded, overview, seed]);
 
   const myActive = (my ?? []).filter((r) => r.rental.status === "active");
   const myPending = (my ?? []).filter((r) => r.rental.status === "pending");

@@ -38,6 +38,7 @@ const schema = defineSchema(
       clubRoles: v.optional(v.array(v.string())),
       academicState: v.optional(v.string()),
       major: v.optional(v.string()),
+      studentCode: v.optional(v.string()), // e.g. STU-0002 (reference sheet ID)
     }).index("email", ["email"]), // index for the email. do not remove or modify
 
     // ===== Robotics Club Inventory =====
