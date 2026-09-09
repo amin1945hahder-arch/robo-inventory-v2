@@ -284,16 +284,34 @@ export const adminRentalAction = mutation({
     if (!rental) throw new Error("Rental not found");
     const part = await ctx.db.get(rental.partId);
     if (!part) throw new Error("Part no longer exists");
+    const group = await ctx.db.get(part.groupId);
+    const student = await ctx.db.get(rental.userId);
     const now = Date.now();
 
     if (action === "approve") {
       if (rental.status !== "pending") throw new Error("This request was already handled");
       await ctx.db.patch(rentalId, { status: "active", decidedAt: now, pickedUpAt: now });
       await ctx.db.patch(part._id, { status: "rented", currentHolderId: rental.userId });
+      if (student?.email) {
+        await ctx.scheduler.runAfter(0, api.emails.sendRentalDecisionEmail, {
+          to: student.email,
+          student: student.name ?? student.email,
+          partName: group?.name ?? "a part",
+          approved: true,
+        });
+      }
     } else if (action === "deny") {
       if (rental.status !== "pending") throw new Error("This request was already handled");
       await ctx.db.patch(rentalId, { status: "denied", decidedAt: now });
       if (part.status === "pending") await ctx.db.patch(part._id, { status: "available" });
+      if (student?.email) {
+        await ctx.scheduler.runAfter(0, api.emails.sendRentalDecisionEmail, {
+          to: student.email,
+          student: student.name ?? student.email,
+          partName: group?.name ?? "a part",
+          approved: false,
+        });
+      }
     } else if (action === "mark_returned") {
       if (rental.status !== "active") throw new Error("Rental is not active");
       await ctx.db.patch(rentalId, {

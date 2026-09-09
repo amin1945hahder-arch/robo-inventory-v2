@@ -29,3 +29,17 @@ export function qrUrl(payload: string) {
   const base = typeof window !== "undefined" ? window.location.origin : "";
   return `${base}/qr?p=${encodeURIComponent(payload)}`;
 }
+
+/** A scanned label may contain the absolute app URL (printed labels) or the
+ *  raw payload (old labels / manual entry). Normalize both to the payload. */
+export function normalizeScan(text: string): string {
+  const t = text.trim();
+  try {
+    const u = new URL(t);
+    const p = u.searchParams.get("p");
+    if (p) return p;
+  } catch {
+    // not a URL — treat as raw payload
+  }
+  return t;
+}

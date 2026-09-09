@@ -26,6 +26,7 @@ import {
   Warehouse,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { normalizeScan } from "@/lib/qr";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -48,7 +49,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const handleScan = (text: string) => {
     setScanOpen(false);
-    navigate(`/qr?p=${encodeURIComponent(text)}`);
+    navigate(`/qr?p=${encodeURIComponent(normalizeScan(text))}`);
   };
 
   return (

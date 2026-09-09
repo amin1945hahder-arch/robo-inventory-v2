@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { normalizeScan } from "@/lib/qr";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -58,7 +59,7 @@ export default function RentScan() {
 
   const handleScan = (text: string) => {
     setScanOpen(false);
-    setPayload(text.trim());
+    setPayload(normalizeScan(text));
     setNote("");
   };
 

@@ -20,7 +20,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { motion } from "framer-motion";
-import { categoryQr } from "@/lib/qr";
+import { categoryQr, normalizeScan } from "@/lib/qr";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
 import { PackagePlus, Plus, ScanLine, Search } from "lucide-react";
@@ -75,7 +75,7 @@ export default function Inventory() {
 
   const handleScan = (text: string) => {
     setScanOpen(false);
-    window.location.href = `/qr?p=${encodeURIComponent(text)}`;
+    window.location.href = `/qr?p=${encodeURIComponent(normalizeScan(text))}`;
   };
 
   return (

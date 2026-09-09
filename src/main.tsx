@@ -1,6 +1,7 @@
 import '@vly-ai/integrations';
 import { Toaster } from "@/components/ui/sonner";
 import { RequireAuth } from "@/components/RequireAuth";
+import { RequireAdmin } from "@/components/RequireAdmin";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import { ConvexReactClient } from "convex/react";
@@ -221,7 +222,9 @@ createRoot(document.getElementById("root")!).render(
                 path="/admin/requests"
                 element={
                   <RequireAuth>
-                    <AdminRequests />
+                    <RequireAdmin>
+                      <AdminRequests />
+                    </RequireAdmin>
                   </RequireAuth>
                 }
               />
@@ -229,7 +232,9 @@ createRoot(document.getElementById("root")!).render(
                 path="/people"
                 element={
                   <RequireAuth>
-                    <AdminPeople />
+                    <RequireAdmin>
+                      <AdminPeople />
+                    </RequireAdmin>
                   </RequireAuth>
                 }
               />
@@ -237,7 +242,9 @@ createRoot(document.getElementById("root")!).render(
                 path="/import"
                 element={
                   <RequireAuth>
-                    <ImportCSV />
+                    <RequireAdmin>
+                      <ImportCSV />
+                    </RequireAdmin>
                   </RequireAuth>
                 }
               />

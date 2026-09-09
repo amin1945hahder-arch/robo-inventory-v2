@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { ReturnDialog } from "@/components/ReturnDialog";
 import { groupQr, unitQr } from "@/lib/qr";
 import { toast } from "sonner";
-import { ArrowLeft, PackagePlus, RotateCcw } from "lucide-react";
+import { ArrowLeft, Loader2, PackagePlus, Package, RotateCcw } from "lucide-react";
 
 export default function GroupDetail() {
   const { id } = useParams();
@@ -26,18 +26,38 @@ export default function GroupDetail() {
     isAdmin ? { status: "active" } : "skip",
   );
   const addPart = useMutation(api.catalog.addPartToGroup);
+  const requestRental = useMutation(api.parts.requestRental);
 
   const [returnFor, setReturnFor] = useState<{ rentalId: string; partId: string; tag: string } | null>(null);
+  const [busyTag, setBusyTag] = useState<string | null>(null);
 
-  // active rental ids for this user (to show return/assign options)
   const myActivePartIds = new Set(
     (myRentals ?? [])
       .filter((r) => r.rental.status === "active" && r.part)
       .map((r) => r.part!._id),
   );
+  const myPendingPartIds = new Set(
+    (myRentals ?? [])
+      .filter((r) => r.rental.status === "pending" && r.part)
+      .map((r) => r.part!._id),
+  );
 
   const s = stats?.[id ?? ""];
   const total = s?.total ?? 0;
+  const availableUnits = (parts ?? []).filter((p) => p.status === "available");
+
+  const requestUnit = async (partId: string, tag: string) => {
+    if (!group) return;
+    setBusyTag(tag);
+    try {
+      await requestRental({ partId: partId as any, groupId: group._id });
+      toast.success("Request sent — the lab admin has been notified");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to send request");
+    } finally {
+      setBusyTag(null);
+    }
+  };
 
   return (
     <AppShell>
@@ -61,22 +81,36 @@ export default function GroupDetail() {
                 </p>
               </div>
             </div>
-            <div className="flex gap-2 hidden sm:inline-flex">
+            <div className="flex gap-2">
               {isAdmin && (
-                <Button variant="outline" onClick={async () => {
-                  try {
-                    await addPart({ groupId: group._id, count: 1 });
-                    toast.success("Unit added with a new QR tag");
-                  } catch (e) {
-                    toast.error(e instanceof Error ? e.message : "Failed");
-                  }
-                }}>
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    try {
+                      await addPart({ groupId: group._id, count: 1 });
+                      toast.success("Unit added with a new QR tag");
+                    } catch (e) {
+                      toast.error(e instanceof Error ? e.message : "Failed");
+                    }
+                  }}
+                >
                   <PackagePlus className="size-4" /> Add unit
                 </Button>
               )}
-              <Button asChild>
-                <Link to={`/group/${group._id}/rent`}>Request rental</Link>
-              </Button>
+              {!isAdmin && (
+                <Button
+                  disabled={availableUnits.length === 0 || busyTag !== null}
+                  onClick={async () => {
+                    const first = availableUnits[0];
+                    if (first) await requestUnit(first._id, first.tag);
+                  }}
+                >
+                  <Package className="size-4" />
+                  {availableUnits.length > 0
+                    ? `Request available unit (${availableUnits.length})`
+                    : "No units available"}
+                </Button>
+              )}
             </div>
           </header>
 
@@ -87,14 +121,18 @@ export default function GroupDetail() {
           <section className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border md:grid-cols-5">
             {[
               ["Total", total, ""],
-              ["Available", s?.available ?? 0, "text-emerald-600"],
-              ["Rented", s?.rented ?? 0, "text-sky-600"],
-              ["On projects", s?.onProject ?? 0, "text-violet-600"],
-              ["Broken", s?.broken ?? 0, "text-rose-600"],
+              ["Available", s?.available ?? 0, "text-emerald-400"],
+              ["Rented", s?.rented ?? 0, "text-sky-400"],
+              ["On projects", s?.onProject ?? 0, "text-violet-400"],
+              ["Broken", s?.broken ?? 0, "text-rose-400"],
             ].map(([label, value, cls]) => (
               <div key={label as string} className="bg-background px-5 py-5">
-                <p className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground">{label}</p>
-                <p className={`mt-1 text-2xl font-semibold tabular-nums ${cls ?? ""}`}>{value as number}</p>
+                <p className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
+                  {label}
+                </p>
+                <p className={`mt-1 text-2xl font-semibold tabular-nums ${cls ?? ""}`}>
+                  {value as number}
+                </p>
               </div>
             ))}
           </section>
@@ -123,14 +161,32 @@ export default function GroupDetail() {
               <ul className="divide-y rounded-lg border">
                 {parts.map((p) => {
                   const iHold = myActivePartIds.has(p._id);
+                  const iPending = myPendingPartIds.has(p._id);
                   return (
-                    <li key={p._id} className="flex items-center gap-3 px-4 py-3">
+                    <li key={p._id} className="flex flex-wrap items-center gap-3 px-4 py-3">
                       <QrChip payload={unitQr(p.tag)} label={`${group.name} · ${p.tag}`} />
                       <Link to={`/part/${p._id}`} className="min-w-0 flex-1">
                         <p className="font-mono text-sm font-medium">{p.tag}</p>
                         {p.note && <p className="truncate text-xs text-muted-foreground">{p.note}</p>}
                       </Link>
                       <StatusBadge status={p.status} />
+                      {!isAdmin && p.status === "available" && (
+                        <Button
+                          size="sm"
+                          disabled={busyTag === p.tag}
+                          onClick={() => requestUnit(p._id, p.tag)}
+                        >
+                          {busyTag === p.tag ? (
+                            <Loader2 className="size-4 animate-spin" />
+                          ) : (
+                            <Package className="size-4" />
+                          )}
+                          Request
+                        </Button>
+                      )}
+                      {!isAdmin && p.status === "pending" && iPending && (
+                        <span className="text-xs text-muted-foreground">your request pending</span>
+                      )}
                       {isAdmin && p.status === "rented" && (
                         <Button
                           size="sm"
@@ -147,7 +203,7 @@ export default function GroupDetail() {
                           <RotateCcw className="size-4" /> Return
                         </Button>
                       )}
-                      {iHold && p.status === "rented" && (
+                      {!isAdmin && iHold && p.status === "rented" && (
                         <span className="text-xs text-muted-foreground">with you</span>
                       )}
                     </li>
