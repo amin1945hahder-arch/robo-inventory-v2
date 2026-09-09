@@ -5,6 +5,7 @@ import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { AppShell } from "@/components/AppShell";
 import { GroupCard } from "@/components/GroupCard";
+import { motion } from "framer-motion";
 import { useRevealScroll, animateChildrenOnce } from "@/lib/observe";
 import { GroupFormDialog } from "@/components/GroupFormDialog";
 import { QrScanDialog } from "@/components/QrScanDialog";
@@ -39,6 +40,7 @@ export default function Inventory() {
   });
   const [search, setSearch] = useState("");
   const inventoryGridRef = useRef<HTMLDivElement | null>(null);
+  const { visible, containerRef } = useRevealScroll(inventoryGridRef);
   const [scanOpen, setScanOpen] = useState(false);
   const [groupFormOpen, setGroupFormOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<Doc<"groups"> | null>(null);
@@ -183,10 +185,12 @@ export default function Inventory() {
                   </div>
                 </section>
               );
-            })}}      </div>
+            )}
+          </div>
+        </div>
       )
     }
-    </div>
+  </div>
 
       <QrScanDialog open={scanOpen} onOpenChange={setScanOpen} onResult={handleScan} />
       <GroupFormDialog
