@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
+import { useSound } from "@/hooks/use-sound";
 import { AppShell } from "@/components/AppShell";
 import { QrScanDialog } from "@/components/QrScanDialog";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -52,6 +53,7 @@ export default function RentScan() {
   const partData = useQuery(api.parts.getPartWithRental, unitId ? { id: unitId } : "skip");
   const requestRental = useMutation(api.parts.requestRental);
   const decide = useMutation(api.parts.decideRental);
+  const playSound = useSound();
   const returnDirect = useMutation(api.parts.setPartStatusDirect);
   const assignProject = useMutation(api.parts.assignPartToProject);
   const projects = useQuery(api.projects.listProjects, { status: "active" });
@@ -92,6 +94,7 @@ export default function RentScan() {
     setBusy(true);
     try {
       await decide({ rentalId: r._id, approve });
+      playSound(approve ? "approved" : "denied");
       toast.success(approve ? "Approved — student can pick it up" : "Denied");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
@@ -109,6 +112,7 @@ export default function RentScan() {
         functional,
         conditionReport: note.trim() || undefined,
       });
+      playSound("returned");
       toast.success(functional ? "Returned to shelf" : "Marked broken and shelved");
       setNote("");
     } catch (e) {
@@ -123,6 +127,7 @@ export default function RentScan() {
     setBusy(true);
     try {
       await assignProject({ partId: partData.part._id, projectId: projectId as any, functional: true });
+      playSound("assigned");
       toast.success("Assigned to project — it stays checked out until dismantled");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");

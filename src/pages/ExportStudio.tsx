@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Download, FileDown, Loader2, Printer } from "lucide-react";
+import { Download, FileDown, Grid2x2, Loader2, Printer } from "lucide-react";
 
 /**
  * Export studio — pick a dataset, filter it, see the exact sheet you'll get
@@ -107,6 +107,7 @@ export default function ExportStudio() {
   const [orientation, setOrientation] = useState("landscape");
   const [margin, setMargin] = useState(10); // mm
   const [scale, setScale] = useState(100); // percent
+  const [showGrid, setShowGrid] = useState(true);
 
   const cols = useColumns(dataset);
   const categories = useQuery(api.catalog.listCategories, {});
@@ -206,6 +207,13 @@ export default function ExportStudio() {
             </p>
           </div>
           <div className="flex gap-2">
+            <Button
+              variant={showGrid ? "default" : "outline"}
+              onClick={() => setShowGrid((g) => !g)}
+              title="Toggle the printed table borders"
+            >
+              <Grid2x2 className="size-4" /> Grid
+            </Button>
             <Button variant="outline" onClick={download} disabled={!rows?.length}>
               <FileDown className="size-4" /> Download CSV
             </Button>
@@ -351,7 +359,9 @@ export default function ExportStudio() {
                   {cols.map((c) => (
                     <th
                       key={c.key}
-                      className="border border-neutral-300 bg-neutral-100 px-2 py-1 text-left font-semibold"
+                      className={`bg-neutral-100 px-2 py-1 text-left font-semibold ${
+                        showGrid ? "border border-neutral-300" : ""
+                      }`}
                     >
                       {c.label}
                     </th>
@@ -362,7 +372,10 @@ export default function ExportStudio() {
                 {rows.map((r, i) => (
                   <tr key={i}>
                     {cols.map((c) => (
-                      <td key={c.key} className="border border-neutral-200 px-2 py-1 align-top">
+                      <td
+                        key={c.key}
+                        className={`px-2 py-1 align-top ${showGrid ? "border border-neutral-200" : ""}`}
+                      >
                         {c.get(r) || "—"}
                       </td>
                     ))}

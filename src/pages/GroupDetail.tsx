@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
+import { useSound } from "@/hooks/use-sound";
 import { AppShell } from "@/components/AppShell";
 import { QrChip } from "@/components/QrChip";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -27,6 +28,7 @@ export default function GroupDetail() {
   );
   const addPart = useMutation(api.catalog.addPartToGroup);
   const requestRental = useMutation(api.parts.requestRental);
+  const playSound = useSound();
 
   const [returnFor, setReturnFor] = useState<{ rentalId: string; partId: string; tag: string } | null>(null);
   const [busyTag, setBusyTag] = useState<string | null>(null);
@@ -51,6 +53,7 @@ export default function GroupDetail() {
     setBusyTag(tag);
     try {
       await requestRental({ partId: partId as any, groupId: group._id });
+      playSound("rental_request");
       toast.success("Request sent — the lab admin has been notified");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to send request");
@@ -88,6 +91,7 @@ export default function GroupDetail() {
                   onClick={async () => {
                     try {
                       await addPart({ groupId: group._id, count: 1 });
+                      playSound("assigned");
                       toast.success("Unit added with a new QR tag");
                     } catch (e) {
                       toast.error(e instanceof Error ? e.message : "Failed");

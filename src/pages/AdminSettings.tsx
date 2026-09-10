@@ -7,18 +7,112 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { Loader2, Save, SendHorizonal } from "lucide-react";
+import { Loader2, Plus, Save, SendHorizonal, Trash2, Volume2 } from "lucide-react";
+
+/** A single admin-editable list (positions or academic states). */
+function ListEditor({
+  title,
+  hint,
+  listKey,
+  values,
+}: {
+  title: string;
+  hint: string;
+  listKey: "clubRoles" | "academicStates";
+  values: string[] | undefined;
+}) {
+  const [items, setItems] = useState<string[]>([]);
+  const [newItem, setNewItem] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [synced, setSynced] = useState(false);
+  const saveList = useMutation(api.clubLists.setList);
+
+  useEffect(() => {
+    if (values !== undefined && !synced) {
+      setSynced(true);
+      setItems(values);
+    }
+  }, [values, synced]);
+
+  const save = async (next: string[]) => {
+    setBusy(true);
+    try {
+      await saveList({ key: listKey, values: next });
+      setItems(next);
+      toast.success(`${title} updated`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="grid gap-2">
+      <Label className="text-sm font-semibold">{title}</Label>
+      <p className="text-xs text-muted-foreground">{hint}</p>
+      <div className="flex flex-wrap gap-1.5">
+        {(values ?? items).map((v) => (
+          <span
+            key={v}
+            className="flex items-center gap-1 rounded-full border bg-muted/60 px-2.5 py-1 text-xs"
+          >
+            {v}
+            <button
+              type="button"
+              className="text-muted-foreground transition-colors hover:text-destructive"
+              disabled={busy}
+              onClick={() => save(items.filter((x) => x !== v))}
+              title="Remove"
+            >
+              <Trash2 className="size-3" />
+            </button>
+          </span>
+        ))}
+        {values === undefined && <Loader2 className="size-4 animate-spin" />}
+      </div>
+      <div className="flex max-w-sm gap-2">
+        <Input
+          value={newItem}
+          onChange={(e) => setNewItem(e.target.value)}
+          placeholder={`Add to ${title.toLowerCase()}…`}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && newItem.trim()) {
+              save([...items, newItem.trim()]);
+              setNewItem("");
+            }
+          }}
+        />
+        <Button
+          variant="outline"
+          disabled={busy || !newItem.trim()}
+          onClick={() => {
+            save([...items, newItem.trim()]);
+            setNewItem("");
+          }}
+        >
+          <Plus className="size-4" /> Add
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 /**
  * Admin settings: the Telegram integration (bot token, club group chat id,
- * notifications on/off + test send) and the return-request cooldown period.
+ * notifications on/off + test send), the return-request cooldown period,
+ * the admin-editable club lists, and notification sounds.
  */
 export default function AdminSettings() {
   const tg = useQuery(api.settings.getTelegram, {});
   const cooldown = useQuery(api.settings.getReturnCooldown, {});
+  const roles = useQuery(api.clubLists.getList, { key: "clubRoles" });
+  const states = useQuery(api.clubLists.getList, { key: "academicStates" });
+  const soundCfg = useQuery(api.settings.getSounds, {});
 
   const saveTg = useMutation(api.settings.setTelegram);
   const saveCooldown = useMutation(api.settings.setReturnCooldown);
+  const saveSounds = useMutation(api.settings.setSounds);
   const testSend = useAction(api.settings.sendTestMessage);
 
   const [token, setToken] = useState("");
@@ -29,6 +123,7 @@ export default function AdminSettings() {
   const [testBusy, setTestBusy] = useState(false);
   const [cooldownHours, setCooldownHours] = useState("24");
   const [cdBusy, setCdBusy] = useState(false);
+  const [soundsOn, setSoundsOn] = useState(true);
 
   // Sync once when the settings query resolves.
   const [synced, setSynced] = useState(false);
@@ -42,6 +137,9 @@ export default function AdminSettings() {
   useEffect(() => {
     if (cooldown !== undefined) setCooldownHours(String(cooldown));
   }, [cooldown]);
+  useEffect(() => {
+    if (soundCfg !== undefined) setSoundsOn(soundCfg.enabled);
+  }, [soundCfg]);
 
   return (
     <AppShell>
@@ -211,6 +309,88 @@ export default function AdminSettings() {
               the same rental. 0 = unlimited requests.
             </p>
           </div>
+        </section>
+
+        {/* ===== Club lists (fully admin-editable) ===== */}
+        <section className="flex flex-col gap-5 rounded-lg border p-5">
+          <div>
+            <h2 className="text-sm font-semibold">Club lists</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              The positions and academic states offered across the app — add or remove any entry;
+              changes apply everywhere instantly.
+            </p>
+          </div>
+          <ListEditor
+            title="Positions (ranks)"
+            hint="Shown when editing people and when members request an upgrade."
+            listKey="clubRoles"
+            values={roles}
+          />
+          <ListEditor
+            title="Academic states"
+            hint="Shown on member profiles and in the People editor."
+            listKey="academicStates"
+            values={states}
+          />
+        </section>
+
+        {/* ===== Notification sounds ===== */}
+        <section className="flex flex-col gap-4 rounded-lg border p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="flex items-center gap-2 text-sm font-semibold">
+                <Volume2 className="size-4" /> Notification sounds
+              </h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                A short tone plays for scans, requests, decisions, and updates. This toggles it
+                app-wide.
+              </p>
+            </div>
+            <Switch
+              checked={soundsOn}
+              onCheckedChange={async (v) => {
+                setSoundsOn(v);
+                if (soundCfg) {
+                  try {
+                    await saveSounds({ enabled: v, sounds: soundCfg.sounds });
+                    toast.success(v ? "Sounds enabled" : "Sounds muted app-wide");
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : "Failed");
+                    setSoundsOn(!v);
+                  }
+                }
+              }}
+            />
+          </div>
+          {soundCfg && (
+            <div className="grid gap-2">
+              {Object.entries(soundCfg.sounds).map(([key, spec]) => (
+                <div key={key} className="flex items-center gap-3 rounded-md border px-3 py-2">
+                  <span className="w-40 text-xs font-medium">{key.replace(/_/g, " ")}</span>
+                  <span className="w-14 text-xs text-muted-foreground">{spec.freq} Hz</span>
+                  <input
+                    type="range"
+                    min={150}
+                    max={1400}
+                    step={10}
+                    value={spec.freq}
+                    onChange={async (e) => {
+                      const next = {
+                        ...soundCfg.sounds,
+                        [key]: { ...spec, freq: Number(e.target.value) },
+                      };
+                      try {
+                        await saveSounds({ enabled: soundCfg.enabled, sounds: next });
+                      } catch {
+                        /* non-admins just can't save; UI still previews locally */
+                      }
+                    }}
+                    className="flex-1 accent-[var(--primary)]"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       </div>
     </AppShell>

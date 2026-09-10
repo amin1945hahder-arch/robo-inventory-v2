@@ -44,17 +44,17 @@ type Person = {
   pending: number;
 };
 
-// The club's real positions — matches the reference sheet.
-const CLUB_ROLES = [
+// Club positions and academic states are admin-editable lists stored in the
+// DB (Settings → Club lists). Fall back to these defaults until loaded.
+const FALLBACK_ROLES = [
   "رئيس نادي الروبوت",
   "منسق النادي",
   "عضو علمي",
   "عضو إداري",
   "مدرب",
   "عضو إعلامي",
-] as const;
-
-const ACADEMIC_STATES = ["دكتوراه", "جامعي", "مُتخرج", "ماجستير"] as const;
+];
+const FALLBACK_STATES = ["دكتوراه", "جامعي", "مُتخرج", "ماجستير"];
 
 function ClubRoleChip({ role }: { role: string }) {
   const isHead = role === "رئيس نادي الروبوت";
@@ -186,6 +186,10 @@ function PersonRow({
 export default function AdminPeople() {
   const { user: me } = useAuth();
   const people = useQuery(api.notifications.listPeople, {});
+  const dbRoles = useQuery(api.clubLists.getList, { key: "clubRoles" });
+  const dbStates = useQuery(api.clubLists.getList, { key: "academicStates" });
+  const CLUB_ROLES = dbRoles ?? FALLBACK_ROLES;
+  const ACADEMIC_STATES = dbStates ?? FALLBACK_STATES;
   const updateProfile = useMutation(api.users.updatePersonProfile);
   const setMembership = useMutation(api.users.setMembershipStatus);
   const deletePerson = useMutation(api.users.deletePerson);

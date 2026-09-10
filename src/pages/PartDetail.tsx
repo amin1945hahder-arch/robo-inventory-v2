@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
+import { useSound } from "@/hooks/use-sound";
 import { AppShell } from "@/components/AppShell";
 import { QrChip } from "@/components/QrChip";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -48,6 +49,7 @@ export default function PartDetail() {
   const updatePart = useMutation(api.parts.updatePart);
   const deletePart = useMutation(api.parts.deletePart);
   const returnDirect = useMutation(api.parts.setPartStatusDirect);
+  const playSound = useSound();
 
   const [note, setNote] = useState("");
   const [editOpen, setEditOpen] = useState(false);
@@ -99,6 +101,7 @@ export default function PartDetail() {
     setBusy(true);
     try {
       await requestRental({ partId: part._id, groupId: group._id, note: note.trim() || undefined });
+      playSound("rental_request");
       toast.success("Request sent — the lab admin has been notified by email and dashboard");
       setNote("");
     } catch (e) {

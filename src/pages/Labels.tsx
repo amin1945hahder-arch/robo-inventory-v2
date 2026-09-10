@@ -14,7 +14,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { categoryQr, closetQr, groupQr, projectQr, qrUrl, unitQr } from "@/lib/qr";
-import { Printer, Loader2, QrCode } from "lucide-react";
+import { Printer, Loader2, QrCode, Grid2x2, Download } from "lucide-react";
+
+function toCsv(rows: (string | number)[][]) {
+  const out = rows
+    .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))
+    .join("\n");
+  return `\uFEFF${out}`;
+}
 
 /**
  * Bulk QR label sheets with physical sizing:
@@ -87,6 +94,7 @@ export default function Labels() {
   const [paper, setPaper] = useState("a4");
   const [orientation, setOrientation] = useState("portrait");
   const [margin, setMargin] = useState(8);
+  const [showGrid, setShowGrid] = useState(false);
 
   useEffect(() => {
     const p = PAPERS[paper];
@@ -104,6 +112,11 @@ export default function Labels() {
   }, [paper, orientation, margin]);
 
   const show = (key: Exclude<SectionKey, "all">) => (section === "all" ? true : section === key);
+
+  // Cutting grid: dashed cut lines drawn inside each label cell (screen only).
+  const gridOverlay = showGrid
+    ? { boxShadow: "0 0 0 1px #d4d4d4, inset 0 0 0 0.5px #a3a3a3" }
+    : undefined;
 
   const sizeControl = (key: string, label: string) => (
     <div className="grid gap-1" key={key}>
@@ -151,9 +164,43 @@ export default function Labels() {
               separate size for the many individual unit tags.
             </p>
           </div>
-          <Button onClick={() => window.print()}>
-            <Printer className="size-4" /> Print sheet
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant={showGrid ? "default" : "outline"}
+              onClick={() => setShowGrid((g) => !g)}
+              title="Toggle the cutting grid between labels"
+            >
+              <Grid2x2 className="size-4" /> Grid
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (!data) return;
+                const rows: (string | number)[][] = [
+                  ["Section", "Title", "Sub", "QR payload"],
+                  ...data.closets.map((c) => ["closet", c.name, c.location ?? "", closetQr(c._id)]),
+                  ...data.categories.map((c) => ["category", c.name, "", categoryQr(c.name)]),
+                  ...data.projects.map((p) => ["project", p.name, "", projectQr(p._id)]),
+                  ...data.groups.map(({ group }) => ["group", group.name, "", groupQr(group.name)]),
+                  ...data.groups.flatMap(({ group, parts }) =>
+                    parts.map((p) => ["unit", p.tag, group.name, unitQr(p.tag)]),
+                  ),
+                ];
+                const blob = new Blob([toCsv(rows)], { type: "text/csv;charset=utf-8" });
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(blob);
+                a.download = `qr-labels-${new Date().toISOString().slice(0, 10)}.csv`;
+                a.click();
+                URL.revokeObjectURL(a.href);
+              }}
+              disabled={!data}
+            >
+              <Download className="size-4" /> Export CSV
+            </Button>
+            <Button onClick={() => window.print()}>
+              <Printer className="size-4" /> Print sheet
+            </Button>
+          </div>
         </header>
 
         {/* controls (not printed) */}
@@ -238,13 +285,14 @@ export default function Labels() {
                 </h2>
                 <div style={gridStyle}>
                   {data.closets.map((c) => (
-                    <MmLabel
-                      key={c._id}
-                      value={closetQr(c._id)}
-                      title={c.name}
-                      sub={c.location ?? undefined}
-                      sizeMm={sizes.closets}
-                    />
+                    <div key={c._id} style={gridOverlay} className="print-cell">
+                      <MmLabel
+                        value={closetQr(c._id)}
+                        title={c.name}
+                        sub={c.location ?? undefined}
+                        sizeMm={sizes.closets}
+                      />
+                    </div>
                   ))}
                 </div>
               </section>
@@ -257,7 +305,9 @@ export default function Labels() {
                 </h2>
                 <div style={gridStyle}>
                   {data.categories.map((c) => (
-                    <MmLabel key={c._id} value={categoryQr(c.name)} title={c.name} sizeMm={sizes.categories} />
+                    <div key={c._id} style={gridOverlay} className="print-cell">
+                      <MmLabel value={categoryQr(c.name)} title={c.name} sizeMm={sizes.categories} />
+                    </div>
                   ))}
                 </div>
               </section>
@@ -270,7 +320,9 @@ export default function Labels() {
                 </h2>
                 <div style={gridStyle}>
                   {data.projects.map((p) => (
-                    <MmLabel key={p._id} value={projectQr(p._id)} title={p.name} sizeMm={sizes.projects} />
+                    <div key={p._id} style={gridOverlay} className="print-cell">
+                      <MmLabel value={projectQr(p._id)} title={p.name} sizeMm={sizes.projects} />
+                    </div>
                   ))}
                 </div>
               </section>
@@ -283,7 +335,9 @@ export default function Labels() {
                 </h2>
                 <div style={gridStyle}>
                   {data.groups.map(({ group }) => (
-                    <MmLabel key={group._id} value={groupQr(group.name)} title={group.name} sizeMm={sizes.groups} />
+                    <div key={group._id} style={gridOverlay} className="print-cell">
+                      <MmLabel value={groupQr(group.name)} title={group.name} sizeMm={sizes.groups} />
+                    </div>
                   ))}
                 </div>
               </section>
@@ -297,13 +351,14 @@ export default function Labels() {
                 <div style={gridStyle}>
                   {data.groups.flatMap(({ group, parts }) =>
                     parts.map((p) => (
-                      <MmLabel
-                        key={p._id}
-                        value={unitQr(p.tag)}
-                        title={p.tag}
-                        sub={group.name}
-                        sizeMm={sizes.units}
-                      />
+                      <div key={p._id} style={gridOverlay} className="print-cell">
+                        <MmLabel
+                          value={unitQr(p.tag)}
+                          title={p.tag}
+                          sub={group.name}
+                          sizeMm={sizes.units}
+                        />
+                      </div>
                     )),
                   )}
                 </div>

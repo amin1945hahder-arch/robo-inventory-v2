@@ -12,19 +12,22 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { LogOut, Send } from "lucide-react";
 
-// The club's real positions a member can request (matches the People page).
-const CLUB_ROLES = [
+// A member can request any of the club positions — the list is admin-editable
+// (Settings → Club lists) and falls back to these defaults.
+const FALLBACK_ROLES = [
   "رئيس نادي الروبوت",
   "منسق النادي",
   "عضو علمي",
   "عضو إداري",
   "مدرب",
   "عضو إعلامي",
-] as const;
+];
 
 export default function Profile() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const dbRoles = useQuery(api.clubLists.getList, { key: "clubRoles" });
+  const CLUB_ROLES = dbRoles ?? FALLBACK_ROLES;
   const requestChange = useMutation(api.notifications.requestProfileChange);
   const requestRank = useMutation(api.users.requestRankUpgrade);
   const setTgUser = useMutation(api.users.setMyTelegramUsername);

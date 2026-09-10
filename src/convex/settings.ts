@@ -20,6 +20,59 @@ export type TelegramSettings = {
 const TELEGRAM_KEY = "telegram";
 const COOLDOWN_KEY = "return_request_cooldown_hours";
 
+/** Per-process notification sound config, e.g.
+ *  { enabled, sounds: { rental_request: {freq,dur}, ... } } */
+export type SoundSettings = { enabled: boolean; sounds: Record<string, { freq: number; dur: number }> };
+
+const SOUNDS_KEY = "notification_sounds";
+
+export const DEFAULT_SOUNDS: SoundSettings = {
+  enabled: true,
+  sounds: {
+    scan: { freq: 880, dur: 0.08 },
+    rental_request: { freq: 660, dur: 0.12 },
+    approved: { freq: 988, dur: 0.15 },
+    denied: { freq: 220, dur: 0.25 },
+    returned: { freq: 523, dur: 0.18 },
+    assigned: { freq: 784, dur: 0.12 },
+    notification: { freq: 740, dur: 0.1 },
+  },
+};
+
+export const getSounds = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireUser(ctx);
+    const row = await ctx.db
+      .query("settings")
+      .withIndex("by_key", (q) => q.eq("key", SOUNDS_KEY))
+      .unique();
+    const parsed = row?.value ? (JSON.parse(row.value) as Partial<SoundSettings>) : {};
+    return {
+      enabled: parsed.enabled ?? DEFAULT_SOUNDS.enabled,
+      sounds: { ...DEFAULT_SOUNDS.sounds, ...(parsed.sounds ?? {}) },
+    };
+  },
+});
+
+export const setSounds = mutation({
+  args: {
+    enabled: v.boolean(),
+    sounds: v.record(v.string(), v.object({ freq: v.number(), dur: v.number() })),
+  },
+  handler: async (ctx, { enabled, sounds }) => {
+    await requireAdmin(ctx);
+    const value = JSON.stringify({ enabled, sounds });
+    const row = await ctx.db
+      .query("settings")
+      .withIndex("by_key", (q) => q.eq("key", SOUNDS_KEY))
+      .unique();
+    if (row) await ctx.db.patch(row._id, { value });
+    else await ctx.db.insert("settings", { key: SOUNDS_KEY, value });
+    return { ok: true };
+  },
+});
+
 // The current Telegram settings (any signed-in user may read; the bot token
 // is masked — only its last 4 chars are returned, never the full secret).
 export const getTelegram = query({
@@ -129,7 +182,7 @@ export const setReturnCooldown = mutation({
 });
 
 // Admin test send: posts a message into the club group so the setup can be
-// verified right from the Settings page.
+// verified right from the Settings page. (see also: sounds above)
 export const sendTestMessage = action({
   args: { text: v.string() },
   handler: async (ctx, { text }): Promise<{ sent: boolean; reason?: string }> => {

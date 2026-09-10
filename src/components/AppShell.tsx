@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { normalizeScan } from "@/lib/qr";
+import { useSound } from "@/hooks/use-sound";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -52,6 +53,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
   const claimAdmin = useMutation(api.users.claimAdminIfNoAdmins);
   const reconcile = useMutation(api.users.reconcileProfile);
+  const playSound = useSound();
+  const prevNotifs = useRef<number | null>(null);
 
   // First-run bootstrap: (1) merge a pre-seeded club profile (name, ids,
   // phone, admin role) into this auth account if one exists, and (2) if no
@@ -64,8 +67,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [user?._id, user?.role, claimAdmin, reconcile]);
 
+  // Play the notification sound when new admin notifications arrive while
+  // the shell is open (Convex pushes updates automatically — no reload).
+  useEffect(() => {
+    if (notifData === undefined) return;
+    const prev = prevNotifs.current;
+    if (prev !== null && notifData > prev) playSound("notification");
+    prevNotifs.current = notifData;
+  }, [notifData, playSound]);
+
+  // Short beep on tab navigation (kept subtle).
+  useEffect(() => {
+    playSound("scan");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
+
   const handleScan = (text: string) => {
     setScanOpen(false);
+    playSound("scan");
     navigate(`/qr?p=${encodeURIComponent(normalizeScan(text))}`);
   };
 

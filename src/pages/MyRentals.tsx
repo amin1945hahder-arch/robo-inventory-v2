@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
+import { useSound } from "@/hooks/use-sound";
 import { AppShell } from "@/components/AppShell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { RentCardDialog, type CardRow } from "@/components/RentCardDialog";
@@ -16,6 +17,7 @@ export default function MyRentals() {
   const cooldownHours = useQuery(api.settings.getReturnCooldown, {});
   const cancel = useMutation(api.parts.cancelMyRequest);
   const requestReturn = useMutation(api.parts.requestReturn);
+  const playSound = useSound();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [card, setCard] = useState<{ row: any; tag: string; groupName: string } | null>(null);
 
@@ -86,6 +88,7 @@ export default function MyRentals() {
                             setBusyId(rental._id);
                             try {
                               await cancel({ rentalId: rental._id });
+                              playSound("notification");
                               toast.success("Request canceled");
                             } catch (e) {
                               toast.error(e instanceof Error ? e.message : "Failed");
@@ -111,6 +114,7 @@ export default function MyRentals() {
                             setBusyId(rental._id);
                             try {
                               await requestReturn({ rentalId: rental._id });
+                              playSound("returned");
                               toast.success("Return request sent — bring the part to the lab");
                             } catch (e) {
                               toast.error(e instanceof Error ? e.message : "Failed");
