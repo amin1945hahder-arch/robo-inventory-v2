@@ -122,13 +122,22 @@ export default function Labels() {
     </div>
   );
 
+  // Column basis adapts to the sections actually shown — when a single section
+  // is selected, its own size drives the grid instead of the global minimum.
   const gridStyle = useMemo(
-    () => ({
-      display: "grid",
-      gridTemplateColumns: `repeat(auto-fill, minmax(${Math.min(...Object.values(sizes)) + 22}mm, 1fr))`,
-      gap: "2mm",
-    }),
-    [sizes],
+    () => {
+      const shown =
+        section === "all"
+          ? Object.values(sizes)
+          : [sizes[section] ?? 20];
+      const basis = Math.min(...shown) + 22;
+      return {
+        display: "grid",
+        gridTemplateColumns: `repeat(auto-fill, minmax(${basis}mm, 1fr))`,
+        gap: "2mm",
+      };
+    },
+    [sizes, section],
   );
 
   return (

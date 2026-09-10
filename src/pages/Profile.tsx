@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -29,22 +29,23 @@ export default function Profile() {
   const requestRank = useMutation(api.users.requestRankUpgrade);
   const hasPendingRequest = useQuery(api.notifications.myPendingProfileRequest, {});
   const hasPendingRank = useQuery(api.users.myPendingRankRequest, {});
-  const [name, setName] = useState("");
-  const [studentId, setStudentId] = useState("");
-  const [phone, setPhone] = useState("");
+  const [name, setName] = useState(user?.name ?? "");
+  const [studentId, setStudentId] = useState(user?.studentId ?? "");
+  const [phone, setPhone] = useState(user?.phone ?? "");
   const [busy, setBusy] = useState(false);
 
   // rank request state
   const [wantedRoles, setWantedRoles] = useState<string[]>([]);
   const [rankMsg, setRankMsg] = useState("");
 
-  useEffect(() => {
-    if (user) {
-      setName(user.name ?? "");
-      setStudentId(user.studentId ?? "");
-      setPhone(user.phone ?? "");
-    }
-  }, [user]);
+  // Keep the form in sync when the user object loads/changes after mount.
+  const [syncedFor, setSyncedFor] = useState<string | null>(user?._id ?? null);
+  if (user && syncedFor !== user._id) {
+    setSyncedFor(user._id);
+    setName(user.name ?? "");
+    setStudentId(user.studentId ?? "");
+    setPhone(user.phone ?? "");
+  }
 
   const pendingMine = hasPendingRequest === true;
   const rankMine = hasPendingRank === true;

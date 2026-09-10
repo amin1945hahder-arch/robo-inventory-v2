@@ -200,7 +200,9 @@
 }
 
 /* Bulk QR label sheets (Print labels page) + Export studio: show only #print-area.
-   @page size/margin are injected dynamically by those pages. */
+   @page size/margin are injected dynamically by those pages.
+   Positioned with top/left only (no inset) so tall content paginates across
+   multiple pages instead of being clipped to the first one. */
 @media print {
   #print-area,
   #print-area * {
@@ -208,7 +210,8 @@
   }
   #print-area {
     position: absolute;
-    inset: 0;
+    top: 0;
+    left: 0;
     width: 100%;
     padding: 0;
     margin: 0;
@@ -220,5 +223,12 @@
   }
   .no-print {
     display: none !important;
+  }
+  #print-area table thead {
+    display: table-header-group;
+  }
+  #print-area tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
 }

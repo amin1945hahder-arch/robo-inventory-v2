@@ -55,16 +55,22 @@ export default function PartDetail() {
   const [editNote, setEditNote] = useState("");
   const [editStatus, setEditStatus] = useState<string>("available");
   const [busy, setBusy] = useState(false);
-  const [card, setCard] = useState<RentRow | null>(null);
+  // Print-card projection handed to <RentCardDialog/>.
+  const [card, setCard] = useState<CardRow | null>(null);
 
   const partRentals: RentRow[] = ((rentals ?? []) as RentRow[])
     .filter((r) => r.part?._id === part?._id)
     .map((r) => ({ ...r, projectName: undefined }));
   // The live rental card to surface next to unit details (own, or latest for admins).
   const currentRental = detail?.shownRental ?? null;
-  const currentRentRow = currentRental
-    ? (rentals ?? []).find((r) => r.rental._id === currentRental._id) ?? null
-    : null;
+  // Full row for the current rental: admins from listAllRentals, members from
+  // their own rentals (which carry the real timestamps + student id).
+  const currentRentRow: { rental: any; student?: { studentId?: string } | null } | null =
+    currentRental
+      ? ((rentals ?? []) as any[]).find((r) => r.rental._id === currentRental._id) ??
+        ((myRentals ?? []) as any[]).find((r) => r.rental._id === currentRental._id) ??
+        null
+      : null;
 
   const iHoldIt = (myRentals ?? []).some(
     (r) => r.part?._id === part?._id && r.rental.status === "active",
@@ -204,7 +210,23 @@ export default function PartDetail() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => setCard((currentRentRow ?? ({ rental: { status: currentRental.status, requestedAt: currentRental.requestedAt }, student: { name: currentRental.holderName } } as unknown) as RentRow))}
+                    onClick={() =>
+                      setCard({
+                        groupName: group?.name ?? "Unit",
+                        tag: part.tag,
+                        holderName: currentRental.holderName,
+                        studentId:
+                          currentRentRow?.student?.studentId || user?.studentId || undefined,
+                        statusLabel: currentRental.status,
+                        requestedAt: currentRentRow?.rental.requestedAt ?? currentRental.requestedAt,
+                        decidedAt: currentRentRow?.rental.decidedAt,
+                        pickedUpAt: currentRentRow?.rental.pickedUpAt,
+                        returnedAt: currentRentRow?.rental.returnedAt,
+                        conditionReport:
+                          currentRentRow?.rental.conditionReport ?? currentRental.note,
+                        projectName: currentRental.projectName,
+                      })
+                    }
                     disabled={currentRental.status === "pending"}
                   >
                     <Printer className="size-3.5" />
@@ -344,7 +366,24 @@ export default function PartDetail() {
                       </div>
                       <div className="flex items-center gap-2">
                         {row.rental.status !== "pending" && (
-                          <Button size="sm" variant="ghost" onClick={() => setCard(row)}>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() =>
+                              setCard({
+                                groupName: group?.name ?? "Unit",
+                                tag: part.tag,
+                                holderName: row.student?.name ?? row.student?.email ?? "Member",
+                                studentId: row.student?.studentId || undefined,
+                                statusLabel: row.rental.status,
+                                requestedAt: row.rental.requestedAt,
+                                decidedAt: row.rental.decidedAt,
+                                pickedUpAt: row.rental.pickedUpAt,
+                                returnedAt: row.rental.returnedAt,
+                                conditionReport: row.rental.conditionReport,
+                              })
+                            }
+                          >
                             <Printer className="size-3.5" /> Card
                           </Button>
                         )}
@@ -359,23 +398,7 @@ export default function PartDetail() {
         </section>
       </div>
 
-      {card && (
-        <RentCardDialog
-          r={{
-            groupName: group?.name ?? "Unit",
-            tag: part.tag,
-            holderName: card.student?.name ?? card.student?.email ?? "Member",
-            studentId: card.student?.studentId || undefined,
-            statusLabel: card.rental.status,
-            requestedAt: card.rental.requestedAt,
-            decidedAt: card.rental.decidedAt,
-            pickedUpAt: card.rental.pickedUpAt,
-            returnedAt: card.rental.returnedAt,
-            conditionReport: card.rental.conditionReport,
-          }}
-          onClose={() => setCard(null)}
-        />
-      )}
+      {card && <RentCardDialog r={card} onClose={() => setCard(null)} />}
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="sm:max-w-sm">
