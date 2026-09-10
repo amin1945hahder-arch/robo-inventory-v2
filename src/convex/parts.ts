@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { api } from "./_generated/api";
-import { requireAdmin, requireUser } from "./lib";
+import { requireAdmin, requireNonGuest, requireUser } from "./lib";
 import { adminPhones, sendWhatsApp } from "./whatsapp";
 import { telegramDM, telegramGroup, notifyTelegram } from "./notify";
 import { Id } from "./_generated/dataModel";
@@ -199,7 +199,7 @@ export const requestRental = mutation({
     note: v.optional(v.string()),
   },
   handler: async (ctx, { partId, groupId, note }) => {
-    const user = await requireUser(ctx);
+    const user = await requireNonGuest(ctx);
     const part = await ctx.db.get(partId);
     if (!part) throw new Error("Part not found");
     if (part.status !== "available") {
@@ -257,7 +257,7 @@ export const requestRental = mutation({
 export const deleteMyRentalRequest = mutation({
   args: { rentalId: v.id("rentals") },
   handler: async (ctx, { rentalId }) => {
-    const user = await requireUser(ctx);
+    const user = await requireNonGuest(ctx);
     const rental = await ctx.db.get(rentalId);
     if (!rental) throw new Error("Rental not found");
     if (rental.userId !== user._id) throw new Error("Not your request");
@@ -279,7 +279,7 @@ export const deleteMyRentalRequest = mutation({
 export const requestReturn = mutation({
   args: { rentalId: v.id("rentals") },
   handler: async (ctx, { rentalId }) => {
-    const user = await requireUser(ctx);
+    const user = await requireNonGuest(ctx);
     const rental = await ctx.db.get(rentalId);
     if (!rental) throw new Error("Rental not found");
     if (rental.userId !== user._id) throw new Error("Not your rental");
@@ -651,7 +651,7 @@ export const listAllRentals = query({
 export const cancelMyRequest = mutation({
   args: { rentalId: v.id("rentals") },
   handler: async (ctx, { rentalId }) => {
-    const user = await requireUser(ctx);
+    const user = await requireNonGuest(ctx);
     const rental = await ctx.db.get(rentalId);
     if (!rental) throw new Error("Rental not found");
     if (rental.userId !== user._id) throw new Error("Not your request");

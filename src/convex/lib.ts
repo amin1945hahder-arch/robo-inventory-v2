@@ -16,3 +16,16 @@ export async function requireAdmin(ctx: QueryCtx) {
   }
   return user;
 }
+
+/** Guests (anonymous sessions) can browse everything but never interact. */
+export async function requireNonGuest(ctx: QueryCtx) {
+  const user = await requireUser(ctx);
+  if (user.isAnonymous) {
+    throw new Error("Guests are view-only — sign in to interact");
+  }
+  return user;
+}
+
+export function isGuest(user: { isAnonymous?: boolean } | null) {
+  return Boolean(user?.isAnonymous);
+}

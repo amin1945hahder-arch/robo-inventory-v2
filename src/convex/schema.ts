@@ -151,6 +151,10 @@ const schema = defineSchema(
       key: v.string(),
       value: v.optional(v.string()),
     }).index("by_key", ["key"]),
+    // settings keys used by the app:
+    //  - "telegram"                        { botToken, clubGroupChatId, notificationsOn }
+    //  - "return_request_cooldown_hours"   number as JSON string
+    //  - "notification_sounds"             { enabled, per-process sound specs }
 
     profileRequests: defineTable({
       userId: v.id("users"),
@@ -158,11 +162,23 @@ const schema = defineSchema(
         name: v.optional(v.string()),
         studentId: v.optional(v.string()),
         phone: v.optional(v.string()),
+        // member-requested avatar change (admin approves before it shows)
+        image: v.optional(v.string()),
+        // member-requested Telegram handle/chat-id change
+        telegramUsername: v.optional(v.string()),
+        telegramChatId: v.optional(v.string()),
       }),
       status: v.union(v.literal("pending"), v.literal("approved"), v.literal("denied")),
       requestedAt: v.number(),
       decidedAt: v.optional(v.number()),
     }).index("by_status", ["status"]),
+
+    // Admin-editable club lists: ranks/positions and academic states. Stored
+    // as one row per list; full CRUD from the Settings page (never hardcoded).
+    clubLists: defineTable({
+      listKey: v.string(), // "clubRoles" | "academicStates"
+      values: v.array(v.string()),
+    }).index("by_list_key", ["listKey"]),
 
     // Member-submitted rank/position upgrade requests (e.g. "make me مدرب").
     rankRequests: defineTable({

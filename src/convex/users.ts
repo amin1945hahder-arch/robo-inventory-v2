@@ -1,7 +1,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { mutation, query, QueryCtx } from "./_generated/server";
-import { requireAdmin, requireUser } from "./lib";
+import { requireAdmin, requireNonGuest, requireUser } from "./lib";
 import { emailInAdminList } from "./adminConfig";
 import { notifyTelegram } from "./notify";
 
@@ -141,7 +141,7 @@ export const setMembershipStatus = mutation({
 export const setMyTelegramUsername = mutation({
   args: { username: v.string() },
   handler: async (ctx, { username }) => {
-    const user = await requireUser(ctx);
+    const user = await requireNonGuest(ctx);
     const clean = username.trim().replace(/^@/, "");
     await ctx.db.patch(user._id, {
       telegramUsername: clean === "" ? undefined : clean,
@@ -208,7 +208,7 @@ export const requestRankUpgrade = mutation({
     message: v.optional(v.string()),
   },
   handler: async (ctx, { requestedRoles, message }) => {
-    const user = await requireUser(ctx);
+    const user = await requireNonGuest(ctx);
     const clean = requestedRoles.map((r) => r.trim()).filter(Boolean);
     if (clean.length === 0) throw new Error("Select at least one position");
     const mine = await ctx.db
