@@ -1,8 +1,9 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { mutation, query, QueryCtx } from "./_generated/server";
-import { requireAdmin } from "./lib";
+import { requireAdmin, requireUser } from "./lib";
 import { emailInAdminList } from "./adminConfig";
+import { notifyTelegram } from "./notify";
 
 /**
  * Get the current signed in user. Returns null if the user is not signed in.
@@ -111,14 +112,168 @@ export const updatePersonProfile = mutation({
     clubRoles: v.optional(v.array(v.string())),
     academicState: v.optional(v.string()),
     major: v.optional(v.string()),
+    telegramChatId: v.optional(v.string()),
   },
-  handler: async (ctx, { userId, role, clubRoles, academicState, major }) => {
+  handler: async (ctx, { userId, role, clubRoles, academicState, major, telegramChatId }) => {
     await requireAdmin(ctx);
     const patch: Record<string, unknown> = {};
     if (role) patch.role = role;
     if (clubRoles !== undefined) patch.clubRoles = clubRoles;
     if (academicState !== undefined) patch.academicState = academicState;
     if (major !== undefined) patch.major = major;
+    if (telegramChatId !== undefined) patch.telegramChatId = telegramChatId.trim() || undefined;
     await ctx.db.patch(userId, patch);
+  },
+});
+
+// Mark someone as no longer in the club (ex-member). Their history stays;
+// they just stop counting as an active member.
+export const setMembershipStatus = mutation({
+  args: { userId: v.id("users"), status: v.union(v.literal("active"), v.literal("ex")) },
+  handler: async (ctx, { userId, status }) => {
+    await requireAdmin(ctx);
+    await ctx.db.patch(userId, { membershipStatus: status });
+  },
+});
+
+// Remove a person from the app entirely. Blocked while they still hold parts
+// or have pending requests so inventory never loses track of a unit.
+export const deletePerson = mutation({
+  args: { userId: v.id("users") },
+  handler: async (ctx, { userId }) => {
+    await requireAdmin(ctx);
+    if (userId === (await getAuthUserId(ctx))) {
+      throw new Error("You cannot delete your own account");
+    }
+    const person = await ctx.db.get(userId);
+    if (!person) return;
+
+    const openRentals = await ctx.db
+      .query("rentals")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .filter((q) => q.eq(q.field("status"), "active"))
+      .collect();
+    if (openRentals.length > 0) {
+      throw new Error(
+        `${person.name ?? person.email} still holds ${openRentals.length} rented part(s). Process their returns first.`,
+      );
+    }
+    const pendingRentals = await ctx.db
+      .query("rentals")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .filter((q) => q.eq(q.field("status"), "pending"))
+      .collect();
+    if (pendingRentals.length > 0) {
+      throw new Error("This person still has pending rental requests. Deny them first.");
+    }
+    const onProject = await ctx.db
+      .query("parts")
+      .withIndex("by_group")
+      .filter((q) => q.eq(q.field("currentHolderId"), userId))
+      .collect();
+    if (onProject.length > 0) {
+      throw new Error("This person still holds parts. Process returns first.");
+    }
+
+    // Detach the person from past rental history (keep the rows readable).
+    const allRentals = await ctx.db
+      .query("rentals")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+    void allRentals; // history rows are kept; they render "(removed)" when the user is gone
+
+    await ctx.db.delete(userId);
+  },
+});
+
+// ===== Member rank/position upgrade requests =====
+
+// A member asks the admin for specific club positions (and can add a message).
+export const requestRankUpgrade = mutation({
+  args: {
+    requestedRoles: v.array(v.string()),
+    message: v.optional(v.string()),
+  },
+  handler: async (ctx, { requestedRoles, message }) => {
+    const user = await requireUser(ctx);
+    const clean = requestedRoles.map((r) => r.trim()).filter(Boolean);
+    if (clean.length === 0) throw new Error("Select at least one position");
+    const mine = await ctx.db
+      .query("rankRequests")
+      .withIndex("by_status", (q) => q.eq("status", "pending"))
+      .collect();
+    if (mine.some((r) => r.userId === user._id)) {
+      throw new Error("You already have a pending rank request");
+    }
+    await ctx.db.insert("rankRequests", {
+      userId: user._id,
+      requestedRoles: clean,
+      message: message?.trim() || undefined,
+      status: "pending",
+      requestedAt: Date.now(),
+    });
+  },
+});
+
+// Admin view of all rank requests with the requester joined in.
+export const listRankRequests = query({
+  args: { status: v.optional(v.union(v.literal("pending"), v.literal("approved"), v.literal("denied"))) },
+  handler: async (ctx, { status }) => {
+    await requireAdmin(ctx);
+    const rows = status
+      ? await ctx.db.query("rankRequests").withIndex("by_status", (q) => q.eq("status", status)).collect()
+      : await ctx.db.query("rankRequests").collect();
+    const out = [];
+    for (const r of rows.sort((a, b) => b.requestedAt - a.requestedAt)) {
+      const user = await ctx.db.get(r.userId);
+      out.push({
+        request: r,
+        user: user
+          ? { name: user.name, email: user.email, clubRoles: user.clubRoles, telegramChatId: user.telegramChatId }
+          : null,
+      });
+    }
+    return out;
+  },
+});
+
+// Admin approves (adds the positions to the member) or denies the request.
+export const decideRankRequest = mutation({
+  args: { id: v.id("rankRequests"), approve: v.boolean() },
+  handler: async (ctx, { id, approve }) => {
+    await requireAdmin(ctx);
+    const req = await ctx.db.get(id);
+    if (!req || req.status !== "pending") throw new Error("Request not found or already handled");
+    if (approve) {
+      const user = await ctx.db.get(req.userId);
+      if (user) {
+        const merged = [...new Set([...(user.clubRoles ?? []), ...req.requestedRoles])];
+        await ctx.db.patch(user._id, { clubRoles: merged });
+      }
+    }
+    await ctx.db.patch(id, { status: approve ? "approved" : "denied", decidedAt: Date.now() });
+    const user = await ctx.db.get(req.userId);
+    if (user?.telegramChatId) {
+      await notifyTelegram(
+        ctx,
+        approve
+          ? `🏅 ${user.name ?? user.email} — your rank request was approved. New positions: ${req.requestedRoles.join(", ")}`
+          : `ℹ️ ${user.name ?? user.email} — your rank request (${req.requestedRoles.join(", ")}) was not approved this time.`,
+        user.telegramChatId,
+      );
+    }
+  },
+});
+
+// The signed-in member's own pending rank request (if any).
+export const myPendingRankRequest = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await requireUser(ctx);
+    const rows = await ctx.db
+      .query("rankRequests")
+      .withIndex("by_status", (q) => q.eq("status", "pending"))
+      .collect();
+    return rows.some((r) => r.userId === user._id);
   },
 });

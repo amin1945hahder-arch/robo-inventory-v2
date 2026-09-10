@@ -19,7 +19,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { projectQr, unitQr } from "@/lib/qr";
 import { toast } from "sonner";
-import { ArrowLeft, PackageX, Trash2 } from "lucide-react";
+import { ArrowLeft, PackageX, RotateCcw, Trash2 } from "lucide-react";
 
 export default function ProjectDetail() {
   const { id } = useParams();
@@ -29,6 +29,7 @@ export default function ProjectDetail() {
   const data = useQuery(api.projects.getProject, id ? { id: id as any } : "skip");
   const dismantle = useMutation(api.projects.dismantleProject);
   const complete = useMutation(api.projects.completeProject);
+  const reactivate = useMutation(api.projects.reactivateProject);
   const deleteProject = useMutation(api.projects.deleteProject);
 
   const [dismantleOpen, setDismantleOpen] = useState(false);
@@ -92,21 +93,36 @@ export default function ProjectDetail() {
             </div>
           )}
           {isAdmin && project.status !== "active" && (
-            <Button
-              variant="outline"
-              className="text-destructive"
-              onClick={async () => {
-                try {
-                  await deleteProject({ id: project._id });
-                  toast.success("Project deleted");
-                  navigate("/projects");
-                } catch (e) {
-                  toast.error(e instanceof Error ? e.message : "Failed");
-                }
-              }}
-            >
-              <Trash2 className="size-4" /> Delete record
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  try {
+                    await reactivate({ id: project._id });
+                    toast.success("Project reactivated — parts can be assigned again");
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : "Failed");
+                  }
+                }}
+              >
+                <RotateCcw className="size-4" /> Reactivate
+              </Button>
+              <Button
+                variant="outline"
+                className="text-destructive"
+                onClick={async () => {
+                  try {
+                    await deleteProject({ id: project._id });
+                    toast.success("Project deleted");
+                    navigate("/projects");
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : "Failed");
+                  }
+                }}
+              >
+                <Trash2 className="size-4" /> Delete record
+              </Button>
+            </div>
           )}
         </header>
 

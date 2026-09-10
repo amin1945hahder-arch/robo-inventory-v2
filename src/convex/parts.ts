@@ -3,6 +3,7 @@ import { mutation, query } from "./_generated/server";
 import { api } from "./_generated/api";
 import { requireAdmin, requireUser } from "./lib";
 import { adminPhones, sendWhatsApp } from "./whatsapp";
+import { notifyTelegram } from "./notify";
 import { Id } from "./_generated/dataModel";
 
 export const listPartsOfGroup = query({
@@ -229,6 +230,11 @@ export const requestRental = mutation({
         `${studentLabel} requested to rent ${group?.name ?? "a part"} (${part.tag}) — review it in the Requests console.`,
       );
     }
+    // Telegram to the club chat (no-op until TELEGRAM_BOT_TOKEN is set)
+    await notifyTelegram(
+      ctx,
+      `📥 ${studentLabel} requested to rent ${group?.name ?? "a part"} (${part.tag})${note ? `\n📝 ${note}` : ""}`,
+    );
     return rentalId;
   },
 });
@@ -273,6 +279,15 @@ export const decideRental = mutation({
         approve
           ? `✅ Your request was approved — ${group?.name ?? "a part"} (${part.tag}). You can pick it up from the lab.`
           : `❌ Your request for ${group?.name ?? "a part"} (${part.tag}) was denied.`,
+      );
+    }
+    if (student?.telegramChatId) {
+      await notifyTelegram(
+        ctx,
+        approve
+          ? `✅ ${student.name ?? student.email}: approved for ${group?.name ?? "a part"} (${part.tag}). Pick it up from the lab.`
+          : `❌ ${student.name ?? student.email}: your request for ${group?.name ?? "a part"} (${part.tag}) was denied.`,
+        student.telegramChatId,
       );
     }
     if (token && token === process.env.ADMIN_ACTION_TOKEN) return { ok: true };
@@ -322,6 +337,13 @@ export const adminRentalAction = mutation({
           `✅ Your request was approved — ${group?.name ?? "a part"} (${part.tag}). You can pick it up from the lab.`,
         );
       }
+      if (student?.telegramChatId) {
+        await notifyTelegram(
+          ctx,
+          `✅ ${student.name ?? student.email}: approved for ${group?.name ?? "a part"} (${part.tag}). Pick it up from the lab.`,
+          student.telegramChatId,
+        );
+      }
     } else if (action === "deny") {
       if (rental.status !== "pending") throw new Error("This request was already handled");
       await ctx.db.patch(rentalId, { status: "denied", decidedAt: now });
@@ -340,6 +362,13 @@ export const adminRentalAction = mutation({
           `❌ Your request for ${group?.name ?? "a part"} (${part.tag}) was denied.`,
         );
       }
+      if (student?.telegramChatId) {
+        await notifyTelegram(
+          ctx,
+          `❌ ${student.name ?? student.email}: your request for ${group?.name ?? "a part"} (${part.tag}) was denied.`,
+          student.telegramChatId,
+        );
+      }
     } else if (action === "mark_returned") {
       if (rental.status !== "active") throw new Error("Rental is not active");
       await ctx.db.patch(rentalId, {
@@ -354,6 +383,10 @@ export const adminRentalAction = mutation({
       } else {
         await ctx.db.patch(part._id, { status: "available", currentHolderId: undefined });
       }
+      await notifyTelegram(
+        ctx,
+        `↩️ ${group?.name ?? "Part"} (${part.tag}) returned${functional === false ? " — marked BROKEN" : " — back on the shelf"}.`,
+      );
     } else if (action === "assign_project") {
       if (rental.status !== "active") throw new Error("Rental is not active");
       if (!projectId) throw new Error("Select a project");
@@ -368,6 +401,10 @@ export const adminRentalAction = mutation({
         conditionReport: conditionReport?.trim(),
       });
       await ctx.db.patch(part._id, { status: "on_project", currentProjectId: projectId, currentHolderId: undefined });
+      await notifyTelegram(
+        ctx,
+        `🤖 ${group?.name ?? "Part"} (${part.tag}) assigned to project “${project.name}” until it is dismantled.`,
+      );
     } else if (action === "mark_broken") {
       if (rental.status !== "active") throw new Error("Rental is not active");
       await ctx.db.patch(rentalId, { status: "returned", returnedAt: now, returnDestination: "shelf", functional: false, conditionReport: conditionReport?.trim() });

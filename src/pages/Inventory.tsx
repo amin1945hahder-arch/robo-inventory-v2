@@ -19,11 +19,20 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { motion } from "framer-motion";
 import { categoryQr, normalizeScan } from "@/lib/qr";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
-import { PackagePlus, Plus, ScanLine, Search } from "lucide-react";
+import { PackagePlus, Plus, ScanLine, Search, SlidersHorizontal } from "lucide-react";
+
+type SortKey = "name" | "total" | "available" | "broken";
 
 export default function Inventory() {
   const { user } = useAuth();
@@ -32,12 +41,16 @@ export default function Inventory() {
   const categoryFilter = searchParams.get("category") ?? "";
 
   const categories = useQuery(api.catalog.listCategories, {});
+  const closets = useQuery(api.catalog.listClosets, {});
   const stats = useQuery(api.stats.groupStats, {});
   const groups = useQuery(api.catalog.listGroups, {
     search: "",
     categoryId: (categoryFilter || undefined) as any,
   });
   const [search, setSearch] = useState("");
+  const [closetFilter, setClosetFilter] = useState("all");
+  const [availFilter, setAvailFilter] = useState("all");
+  const [sortKey, setSortKey] = useState<SortKey>("name");
   const [scanOpen, setScanOpen] = useState(false);
   const [groupFormOpen, setGroupFormOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<Doc<"groups"> | null>(null);
@@ -49,7 +62,7 @@ export default function Inventory() {
 
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
-    return (groups ?? []).filter(
+    let list = (groups ?? []).filter(
       (g) =>
         !s ||
         g.name.toLowerCase().includes(s) ||
@@ -57,7 +70,29 @@ export default function Inventory() {
         (g.model ?? "").toLowerCase().includes(s) ||
         (g.description ?? "").toLowerCase().includes(s),
     );
-  }, [groups, search]);
+    if (closetFilter !== "all") list = list.filter((g) => g.closetId === closetFilter);
+    if (availFilter !== "all") {
+      list = list.filter((g) => {
+        const st = stats?.[g._id];
+        if (!st) return false;
+        if (availFilter === "available") return st.available > 0;
+        if (availFilter === "out") return st.rented + st.onProject > 0;
+        if (availFilter === "broken") return st.broken > 0;
+        if (availFilter === "none") return st.available === 0;
+        return true;
+      });
+    }
+    const sorted = [...list];
+    sorted.sort((a, b) => {
+      const sa = stats?.[a._id];
+      const sb = stats?.[b._id];
+      if (sortKey === "total") return (sb?.total ?? 0) - (sa?.total ?? 0);
+      if (sortKey === "available") return (sb?.available ?? 0) - (sa?.available ?? 0);
+      if (sortKey === "broken") return (sb?.broken ?? 0) - (sa?.broken ?? 0);
+      return a.name.localeCompare(b.name);
+    });
+    return sorted;
+  }, [groups, search, closetFilter, availFilter, sortKey, stats]);
 
   const byCategory = useMemo(() => {
     const map = new Map<string, Doc<"groups">[]>();
@@ -78,6 +113,20 @@ export default function Inventory() {
     window.location.href = `/qr?p=${encodeURIComponent(normalizeScan(text))}`;
   };
 
+  const resetFilters = () => {
+    setSearch("");
+    setClosetFilter("all");
+    setAvailFilter("all");
+    setSortKey("name");
+    setSearchParams({});
+  };
+  const filtersActive =
+    Boolean(search) ||
+    closetFilter !== "all" ||
+    availFilter !== "all" ||
+    sortKey !== "name" ||
+    Boolean(categoryFilter);
+
   return (
     <AppShell>
       <div className="flex flex-col gap-6">
@@ -85,7 +134,7 @@ export default function Inventory() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Inventory</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              {groups?.length ?? 0} component groups · scan any shelf label to jump straight to it
+              {filtered.length} of {groups?.length ?? 0} component groups · scan any shelf label to jump straight to it
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -110,21 +159,69 @@ export default function Inventory() {
           </div>
         </header>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-56 flex-1">
-            <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search parts, brands, models…"
-              className="pl-9"
-            />
+        {/* Filter bar — search, category, closet, availability, sort */}
+        <div className="flex flex-col gap-2 rounded-lg border bg-card/40 p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-56 flex-1">
+              <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search parts, brands, models…"
+                className="pl-9"
+              />
+            </div>
+            <Select value={categoryFilter || "all"} onValueChange={(v) => setSearchParams(v === "all" ? {} : { category: v })}>
+              <SelectTrigger className="w-44">
+                <SelectValue placeholder="Category" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All categories</SelectItem>
+                {(categories ?? []).map((c) => (
+                  <SelectItem key={c._id} value={c._id}>{c.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={closetFilter} onValueChange={setClosetFilter}>
+              <SelectTrigger className="w-40">
+                <SelectValue placeholder="Closet" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All closets</SelectItem>
+                {(closets ?? []).map((c) => (
+                  <SelectItem key={c._id} value={c._id}>{c.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={availFilter} onValueChange={setAvailFilter}>
+              <SelectTrigger className="w-44">
+                <SelectValue placeholder="Availability" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any availability</SelectItem>
+                <SelectItem value="available">Has available units</SelectItem>
+                <SelectItem value="none">Nothing available</SelectItem>
+                <SelectItem value="out">Any unit out (rented/project)</SelectItem>
+                <SelectItem value="broken">Has broken units</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
+              <SelectTrigger className="w-40">
+                <SelectValue placeholder="Sort" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="name">Sort: name A→Z</SelectItem>
+                <SelectItem value="total">Sort: most units</SelectItem>
+                <SelectItem value="available">Sort: most available</SelectItem>
+                <SelectItem value="broken">Sort: most broken</SelectItem>
+              </SelectContent>
+            </Select>
+            {filtersActive && (
+              <Button variant="ghost" size="sm" onClick={resetFilters}>
+                <SlidersHorizontal className="size-3.5" /> Reset
+              </Button>
+            )}
           </div>
-          {categoryFilter && (
-            <Button variant="ghost" onClick={() => setSearchParams({})}>
-              Clear category filter
-            </Button>
-          )}
         </div>
 
         {categoryFilter && visibleCategories.length === 1 && (
@@ -149,8 +246,13 @@ export default function Inventory() {
         ) : filtered.length === 0 ? (
           <div className="rounded-lg border border-dashed px-6 py-16 text-center">
             <p className="text-sm text-muted-foreground">
-              Nothing found. {isAdmin ? "Add your first group or import a CSV." : "Try another search."}
+              Nothing matches these filters. {isAdmin ? "Adjust them or import a CSV." : "Try another search."}
             </p>
+            {filtersActive && (
+              <Button variant="outline" size="sm" className="mt-3" onClick={resetFilters}>
+                Reset filters
+              </Button>
+            )}
           </div>
         ) : (
           <div className="flex flex-col gap-8">

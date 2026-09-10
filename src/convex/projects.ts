@@ -87,6 +87,19 @@ export const completeProject = mutation({
   },
 });
 
+// Re-open a completed (or dismantled-with-parts-still-assigned) project for
+// development — it becomes active again and parts can be assigned to it.
+export const reactivateProject = mutation({
+  args: { id: v.id("projects") },
+  handler: async (ctx, { id }) => {
+    await requireAdmin(ctx);
+    const project = await ctx.db.get(id);
+    if (!project) throw new Error("Project not found");
+    if (project.status === "active") throw new Error("Project is already active");
+    await ctx.db.patch(id, { status: "active" });
+  },
+});
+
 export const deleteProject = mutation({
   args: { id: v.id("projects") },
   handler: async (ctx, { id }) => {

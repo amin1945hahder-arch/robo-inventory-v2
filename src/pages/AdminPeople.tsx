@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -21,7 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Pencil, ShieldCheck, Users } from "lucide-react";
+import { Pencil, ShieldCheck, Trash2, UserMinus, UserPlus, Users } from "lucide-react";
 
 type Person = {
   user: {
@@ -36,6 +37,8 @@ type Person = {
     academicState?: string;
     major?: string;
     studentCode?: string;
+    telegramChatId?: string;
+    membershipStatus?: string;
   };
   activeRentals: number;
   pending: number;
@@ -76,15 +79,20 @@ function PersonRow({
   isMe,
   isAdminGroup,
   onEdit,
+  onDelete,
+  onToggleMembership,
 }: {
   person: Person;
   isMe: boolean;
   isAdminGroup: boolean;
   onEdit: () => void;
+  onDelete: () => void;
+  onToggleMembership: () => void;
 }) {
   const { user, activeRentals, pending } = person;
+  const isEx = user.membershipStatus === "ex";
   return (
-    <li className="flex flex-wrap items-center gap-3 px-4 py-3">
+    <li className={`flex flex-wrap items-center gap-3 px-4 py-3 ${isEx ? "opacity-60" : ""}`}>
       <div className="flex min-w-0 flex-1 items-center gap-3">
         <div
           className={`flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
@@ -101,12 +109,17 @@ function PersonRow({
           <p className="truncate text-sm font-medium">
             {user.name ?? "Unnamed"}
             {isMe && <span className="ml-2 text-xs text-muted-foreground">(you)</span>}
+            {isEx && (
+              <span className="ml-2 rounded-full border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                ex-member
+              </span>
+            )}
           </p>
           <p className="truncate text-xs text-muted-foreground">
             {user.studentCode && <span className="font-mono">{user.studentCode} · </span>}
             {[user.email, user.studentId, user.phone].filter(Boolean).join(" · ") || "—"}
           </p>
-          {(user.clubRoles?.length || user.academicState || user.major) && (
+          {(user.clubRoles?.length || user.academicState || user.major || user.telegramChatId) && (
             <div className="mt-1 flex flex-wrap items-center gap-1">
               {(user.clubRoles ?? []).map((r) => (
                 <ClubRoleChip key={r} role={r} />
@@ -119,6 +132,11 @@ function PersonRow({
               {user.major && (
                 <span className="rounded-full bg-muted/60 px-2 py-0.5 text-[11px] text-muted-foreground">
                   {user.major}
+                </span>
+              )}
+              {user.telegramChatId && (
+                <span className="rounded-full border border-sky-500/40 bg-sky-500/10 px-2 py-0.5 text-[10px] text-sky-400">
+                  Telegram ✓
                 </span>
               )}
             </div>
@@ -137,9 +155,30 @@ function PersonRow({
       <span className="text-xs text-muted-foreground">
         {activeRentals} active · {pending} pending
       </span>
-      <Button variant="ghost" size="icon" className="size-7" title="Edit profile" onClick={onEdit}>
-        <Pencil className="size-3.5" />
-      </Button>
+      <div className="flex items-center gap-1">
+        <Button variant="ghost" size="icon" className="size-7" title="Edit profile" onClick={onEdit}>
+          <Pencil className="size-3.5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          title={isEx ? "Mark as active member" : "Mark as ex-member"}
+          onClick={onToggleMembership}
+        >
+          {isEx ? <UserPlus className="size-3.5" /> : <UserMinus className="size-3.5" />}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7 text-destructive"
+          title="Delete from app"
+          disabled={activeRentals > 0 || pending > 0}
+          onClick={onDelete}
+        >
+          <Trash2 className="size-3.5" />
+        </Button>
+      </div>
     </li>
   );
 }
@@ -148,8 +187,11 @@ export default function AdminPeople() {
   const { user: me } = useAuth();
   const people = useQuery(api.notifications.listPeople, {});
   const updateProfile = useMutation(api.users.updatePersonProfile);
+  const setMembership = useMutation(api.users.setMembershipStatus);
+  const deletePerson = useMutation(api.users.deletePerson);
 
   const [editing, setEditing] = useState<Person | null>(null);
+  const [deleting, setDeleting] = useState<Person | null>(null);
   const [busy, setBusy] = useState(false);
 
   // edit form state
@@ -157,6 +199,7 @@ export default function AdminPeople() {
   const [editRoles, setEditRoles] = useState<string[]>([]);
   const [editAcademic, setEditAcademic] = useState("");
   const [editMajor, setEditMajor] = useState("");
+  const [editTelegram, setEditTelegram] = useState("");
 
   const openEdit = (p: Person) => {
     setEditing(p);
@@ -164,6 +207,7 @@ export default function AdminPeople() {
     setEditRoles(p.user.clubRoles ?? []);
     setEditAcademic(p.user.academicState ?? "");
     setEditMajor(p.user.major ?? "");
+    setEditTelegram(p.user.telegramChatId ?? "");
   };
 
   const toggleRole = (r: string) => {
@@ -182,6 +226,7 @@ export default function AdminPeople() {
         clubRoles: editRoles,
         academicState: editAcademic || undefined,
         major: editMajor.trim() || undefined,
+        telegramChatId: editTelegram.trim() || undefined,
       });
       toast.success("Profile updated");
       setEditing(null);
@@ -192,8 +237,38 @@ export default function AdminPeople() {
     }
   };
 
-  const admins = (people ?? []).filter((p) => p.user.role === "admin");
-  const members = (people ?? []).filter((p) => p.user.role !== "admin");
+  const toggleMembership = async (p: Person) => {
+    const toEx = p.user.membershipStatus !== "ex";
+    try {
+      await setMembership({ userId: p.user._id as any, status: toEx ? "ex" : "active" });
+      toast.success(
+        toEx
+          ? `${p.user.name ?? "Person"} marked as ex-member`
+          : `${p.user.name ?? "Person"} marked as active member`,
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleting) return;
+    setBusy(true);
+    try {
+      await deletePerson({ userId: deleting.user._id as any });
+      toast.success("Person removed from the app");
+      setDeleting(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const all = people ?? [];
+  const admins = all.filter((p) => p.user.role === "admin");
+  const activeMembers = all.filter((p) => p.user.role !== "admin" && p.user.membershipStatus !== "ex");
+  const exMembers = all.filter((p) => p.user.role !== "admin" && p.user.membershipStatus === "ex");
 
   return (
     <AppShell>
@@ -202,12 +277,12 @@ export default function AdminPeople() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight">People</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Club members, their real positions (رئيس / منسق / علمي / إداري / مدرب / إعلامي),
-              and rental activity.
+              Club members, their positions (رئيس / منسق / علمي / إداري / مدرب / إعلامي), Telegram
+              delivery, and rental activity.
             </p>
           </div>
           <p className="text-xs text-muted-foreground">
-            Use the <Pencil className="inline size-3" /> icon next to a name to edit roles.
+            ✏️ edit roles · ➖ ex-member · 🗑 remove (blocked while they hold parts)
           </p>
         </header>
 
@@ -238,6 +313,8 @@ export default function AdminPeople() {
                       isMe={p.user._id === me?._id}
                       isAdminGroup
                       onEdit={() => openEdit(p)}
+                      onDelete={() => setDeleting(p)}
+                      onToggleMembership={() => toggleMembership(p)}
                     />
                   ))}
                 </ul>
@@ -246,26 +323,49 @@ export default function AdminPeople() {
 
             <section className="flex flex-col gap-3">
               <h2 className="flex items-center gap-2 text-sm font-semibold">
-                <Users className="size-4 text-muted-foreground" /> Members ({members.length})
+                <Users className="size-4 text-muted-foreground" /> Members ({activeMembers.length})
               </h2>
-              {members.length === 0 ? (
+              {activeMembers.length === 0 ? (
                 <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
-                  No members yet — share the sign-in link with the club.
+                  No active members yet — share the sign-in link with the club.
                 </p>
               ) : (
                 <ul className="divide-y rounded-lg border">
-                  {members.map((p) => (
+                  {activeMembers.map((p) => (
                     <PersonRow
                       key={p.user._id}
                       person={p}
                       isMe={p.user._id === me?._id}
                       isAdminGroup={false}
                       onEdit={() => openEdit(p)}
+                      onDelete={() => setDeleting(p)}
+                      onToggleMembership={() => toggleMembership(p)}
                     />
                   ))}
                 </ul>
               )}
             </section>
+
+            {exMembers.length > 0 && (
+              <section className="flex flex-col gap-3">
+                <h2 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+                  <UserMinus className="size-4" /> Ex-members ({exMembers.length})
+                </h2>
+                <ul className="divide-y rounded-lg border border-dashed">
+                  {exMembers.map((p) => (
+                    <PersonRow
+                      key={p.user._id}
+                      person={p}
+                      isMe={p.user._id === me?._id}
+                      isAdminGroup={false}
+                      onEdit={() => openEdit(p)}
+                      onDelete={() => setDeleting(p)}
+                      onToggleMembership={() => toggleMembership(p)}
+                    />
+                  ))}
+                </ul>
+              </section>
+            )}
           </div>
         )}
       </div>
@@ -348,6 +448,19 @@ export default function AdminPeople() {
                   />
                 </div>
               </div>
+
+              <div className="grid gap-2">
+                <Label>Telegram chat ID</Label>
+                <Input
+                  value={editTelegram}
+                  onChange={(e) => setEditTelegram(e.target.value)}
+                  placeholder="e.g. 7895718 — for direct Telegram updates"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  The member can find their chat id by messaging the club bot; decisions and updates
+                  are delivered there when TELEGRAM_BOT_TOKEN is set.
+                </p>
+              </div>
             </div>
           )}
           <DialogFooter>
@@ -356,6 +469,27 @@ export default function AdminPeople() {
             </Button>
             <Button onClick={submit} disabled={busy}>
               {busy ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation */}
+      <Dialog open={Boolean(deleting)} onOpenChange={(v) => !v && setDeleting(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Remove {deleting?.user.name ?? "this person"}?</DialogTitle>
+            <DialogDescription>
+              This permanently deletes their account from the app. Past rental history stays
+              readable as “(removed)”. They cannot hold any parts — process returns first.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleting(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete} disabled={busy}>
+              <Trash2 className="size-4" /> {busy ? "Removing…" : "Delete permanently"}
             </Button>
           </DialogFooter>
         </DialogContent>

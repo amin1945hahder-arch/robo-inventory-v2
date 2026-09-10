@@ -19,7 +19,77 @@ import {
 } from "@/components/ui/dialog";
 import { unitQr } from "@/lib/qr";
 import { toast } from "sonner";
-import { ArrowLeft, History, Pencil, Trash2 } from "lucide-react";
+import { ArrowLeft, History, Pencil, Printer, Trash2 } from "lucide-react";
+
+const fmt = (n?: number) => (n ? new Date(n).toLocaleString() : "—");
+
+/** Printable rent card — a receipt with the club logo mark, part, holder and dates. */
+function RentCard({ r, onClose }: { r: CardRow; onClose: () => void }) {
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Rent card</DialogTitle>
+        </DialogHeader>
+        <div data-qr-label className="rounded-lg border bg-white p-5 text-black">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-neutral-500">
+            Robotics Club · Rental Receipt
+          </p>
+          <p className="mt-1 text-lg font-bold leading-tight">{r.groupName}</p>
+          <p className="font-mono text-xs text-neutral-600">{r.tag}</p>
+          <dl className="mt-4 space-y-1.5 text-[13px]">
+            <Row k="Student" v={r.holderName} />
+            {r.studentId && <Row k="Student ID" v={r.studentId} />}
+            <Row k="Status" v={r.statusLabel} />
+            <Row k="Requested" v={fmt(r.requestedAt)} />
+            <Row k="Approved / picked up" v={fmt(r.decidedAt ?? r.pickedUpAt)} />
+            <Row k="Returned" v={fmt(r.returnedAt)} />
+            {r.projectName && <Row k="Project" v={r.projectName} />}
+            {r.conditionReport && <Row k="Condition" v={r.conditionReport} />}
+          </dl>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Close</Button>
+          <Button onClick={() => window.print()}>
+            <Printer className="size-4" /> Print rent card
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function Row({ k, v }: { k: string; v: string }) {
+  return (
+    <div className="flex justify-between gap-3 border-b border-dashed border-neutral-200 pb-1">
+      <dt className="text-neutral-500">{k}</dt>
+      <dd className="text-right font-medium">{v}</dd>
+    </div>
+  );
+}
+
+type RentRow = {
+  rental: any;
+  part: any;
+  group: any;
+  student: any;
+  projectName?: string;
+};
+
+// Projection handed to the printable rent card.
+type CardRow = {
+  groupName: string;
+  tag: string;
+  holderName: string;
+  studentId?: string;
+  statusLabel: string;
+  requestedAt?: number;
+  decidedAt?: number;
+  pickedUpAt?: number;
+  returnedAt?: number;
+  conditionReport?: string;
+  projectName?: string;
+};
 
 export default function PartDetail() {
   const { id } = useParams();
@@ -28,6 +98,7 @@ export default function PartDetail() {
   const isAdmin = user?.role === "admin";
   const part = useQuery(api.parts.getPart, id ? { id: id as any } : "skip");
   const group = useQuery(api.catalog.getGroup, part ? { id: part.groupId } : "skip");
+  const detail = useQuery(api.parts.getPartWithRental, id ? { id: id as any } : "skip");
   const rentals = useQuery(api.parts.listAllRentals, isAdmin ? {} : "skip");
   const myRentals = useQuery(api.parts.listMyRentals, {});
 
@@ -42,8 +113,17 @@ export default function PartDetail() {
   const [editNote, setEditNote] = useState("");
   const [editStatus, setEditStatus] = useState<string>("available");
   const [busy, setBusy] = useState(false);
+  const [card, setCard] = useState<RentRow | null>(null);
 
-  const partRentals = (rentals ?? []).filter((r) => r.part?._id === part?._id);
+  const partRentals: RentRow[] = ((rentals ?? []) as RentRow[])
+    .filter((r) => r.part?._id === part?._id)
+    .map((r) => ({ ...r, projectName: undefined }));
+  // The live rental card to surface next to unit details (own, or latest for admins).
+  const currentRental = detail?.shownRental ?? null;
+  const currentRentRow = currentRental
+    ? (rentals ?? []).find((r) => r.rental._id === currentRental._id) ?? null
+    : null;
+
   const iHoldIt = (myRentals ?? []).some(
     (r) => r.part?._id === part?._id && r.rental.status === "active",
   );
@@ -174,6 +254,62 @@ export default function PartDetail() {
           </div>
 
           <div className="flex flex-col gap-6">
+            {/* Rental card — surfaces the live rental (request or active loan) next to the unit. */}
+            {currentRentRow && (
+              <div className="rounded-lg border border-primary/30">
+                <div className="flex items-center justify-between border-b px-5 py-4">
+                  <h2 className="text-sm font-semibold">Rental card</h2>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setCard(currentRentRow as RentRow)}
+
+                    disabled={currentRentRow.rental.status === "pending"}
+                  >
+                    <Printer className="size-3.5" />
+                    {currentRentRow.rental.status === "pending" ? "Print after approval" : "Print rent card"}
+                  </Button>
+                </div>
+                <dl className="divide-y text-sm">
+                  <div className="flex items-center justify-between gap-6 px-5 py-3">
+                    <dt className="text-muted-foreground">Holder</dt>
+                    <dd className="text-right font-medium">
+                      {currentRental!.holderName}
+                      {currentRental!.mine ? " (you)" : ""}
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-6 px-5 py-3">
+                    <dt className="text-muted-foreground">Rental state</dt>
+                    <dd><StatusBadge status={currentRental!.status} /></dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-6 px-5 py-3">
+                    <dt className="text-muted-foreground">Requested</dt>
+                    <dd>{fmt(currentRental!.requestedAt)}</dd>
+                  </div>
+                  {currentRental!.projectName && (
+                    <div className="flex items-center justify-between gap-6 px-5 py-3">
+                      <dt className="text-muted-foreground">Project</dt>
+                      <dd>
+                        {currentRental!.holderId && currentRental!.projectName ? (
+                          <Link to={`/projects/${part.currentProjectId ?? ""}`} className="underline">
+                            {currentRental!.projectName}
+                          </Link>
+                        ) : (
+                          currentRental!.projectName
+                        )}
+                      </dd>
+                    </div>
+                  )}
+                  {currentRental!.note && (
+                    <div className="flex items-start justify-between gap-6 px-5 py-3">
+                      <dt className="text-muted-foreground">Note</dt>
+                      <dd className="text-right">{currentRental!.note}</dd>
+                    </div>
+                  )}
+                </dl>
+              </div>
+            )}
+
             <div className="rounded-lg border">
               <div className="border-b px-5 py-4">
                 <h2 className="text-sm font-semibold">Rental</h2>
@@ -260,18 +396,25 @@ export default function PartDetail() {
                 <p className="px-5 py-6 text-sm text-muted-foreground">No rental history yet.</p>
               ) : (
                 <ul className="divide-y text-sm">
-                  {partRentals.slice(0, 8).map(({ rental, student }) => (
-                    <li key={rental._id} className="flex items-center justify-between gap-3 px-5 py-3">
+                  {partRentals.slice(0, 8).map((row) => (
+                    <li key={row.rental._id} className="flex items-center justify-between gap-3 px-5 py-3">
                       <div className="min-w-0">
                         <p className="truncate font-medium">
-                          {student?.name ?? student?.email ?? "Member"}
+                          {row.student?.name ?? row.student?.email ?? "Member"}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {new Date(rental.requestedAt).toLocaleDateString()}
-                          {rental.conditionReport ? ` · ${rental.conditionReport}` : ""}
+                          {new Date(row.rental.requestedAt).toLocaleDateString()}
+                          {row.rental.conditionReport ? ` · ${row.rental.conditionReport}` : ""}
                         </p>
                       </div>
-                      <StatusBadge status={rental.status} />
+                      <div className="flex items-center gap-2">
+                        {row.rental.status !== "pending" && (
+                          <Button size="sm" variant="ghost" onClick={() => setCard(row)}>
+                            <Printer className="size-3.5" /> Card
+                          </Button>
+                        )}
+                        <StatusBadge status={row.rental.status} />
+                      </div>
                     </li>
                   ))}
                 </ul>
@@ -280,6 +423,24 @@ export default function PartDetail() {
           </div>
         </section>
       </div>
+
+      {card && (
+        <RentCard
+          r={{
+            groupName: group?.name ?? "Unit",
+            tag: part.tag,
+            holderName: card.student?.name ?? card.student?.email ?? "Member",
+            studentId: card.student?.studentId || undefined,
+            statusLabel: card.rental.status,
+            requestedAt: card.rental.requestedAt,
+            decidedAt: card.rental.decidedAt,
+            pickedUpAt: card.rental.pickedUpAt,
+            returnedAt: card.rental.returnedAt,
+            conditionReport: card.rental.conditionReport,
+          }}
+          onClose={() => setCard(null)}
+        />
+      )}
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="sm:max-w-sm">

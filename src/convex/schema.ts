@@ -34,6 +34,12 @@ const schema = defineSchema(
       phone: v.optional(v.string()),
       active: v.optional(v.boolean()),
 
+      // Telegram integration: per-member chat id (set by admin) so updates
+      // and decisions can be delivered straight to the member's chat.
+      telegramChatId: v.optional(v.string()),
+      // "active" = current member, "ex" = no longer in the club (kept for history).
+      membershipStatus: v.optional(v.union(v.literal("active"), v.literal("ex"))),
+
       // Real club positions (e.g. رئيس نادي الروبوت, منسق النادي, عضو علمي …)
       clubRoles: v.optional(v.array(v.string())),
       academicState: v.optional(v.string()),
@@ -147,6 +153,16 @@ const schema = defineSchema(
         studentId: v.optional(v.string()),
         phone: v.optional(v.string()),
       }),
+      status: v.union(v.literal("pending"), v.literal("approved"), v.literal("denied")),
+      requestedAt: v.number(),
+      decidedAt: v.optional(v.number()),
+    }).index("by_status", ["status"]),
+
+    // Member-submitted rank/position upgrade requests (e.g. "make me مدرب").
+    rankRequests: defineTable({
+      userId: v.id("users"),
+      requestedRoles: v.array(v.string()),
+      message: v.optional(v.string()),
       status: v.union(v.literal("pending"), v.literal("approved"), v.literal("denied")),
       requestedAt: v.number(),
       decidedAt: v.optional(v.number()),
