@@ -212,6 +212,7 @@ export default function PartDetail() {
                     variant="outline"
                     onClick={() =>
                       setCard({
+                        rentalId: currentRental._id,
                         groupName: group?.name ?? "Unit",
                         tag: part.tag,
                         holderName: currentRental.holderName,
@@ -371,6 +372,7 @@ export default function PartDetail() {
                             variant="ghost"
                             onClick={() =>
                               setCard({
+                                rentalId: row.rental._id,
                                 groupName: group?.name ?? "Unit",
                                 tag: part.tag,
                                 holderName: row.student?.name ?? row.student?.email ?? "Member",

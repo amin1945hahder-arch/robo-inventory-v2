@@ -121,6 +121,7 @@ export default function MyRentals() {
       {card && (
         <RentCardDialog
           r={{
+            rentalId: card.row._id ?? card.row.rental?._id,
             groupName: card.groupName,
             tag: card.tag,
             holderName: user?.name ?? user?.email ?? "Member",

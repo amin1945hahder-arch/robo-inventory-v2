@@ -9,6 +9,7 @@ import { requireUser } from "./lib";
 //   cat:<name>             — category view
 //   closet:<id>            — closet view
 //   proj:<id>              — project view
+//   rental:<rentalId>      — printed rent card: opens the unit + that rental
 export const resolve = query({
   args: { payload: v.string() },
   handler: async (ctx, { payload }) => {
@@ -53,6 +54,25 @@ export const resolve = query({
       const project = await ctx.db.get(value as any);
       if (project) return { type: "project" as const, id: project._id, url: `/projects/${project._id}` };
       return null;
+    }
+
+    if (scheme === "rental") {
+      const rental = await ctx.db
+        .query("rentals")
+        .filter((q) => q.eq(q.field("_id"), value))
+        .first();
+      if (!rental) return null;
+      // Admins can open any rent card; members only their own.
+      const me = await requireUser(ctx);
+      const isAdmin = me.role === "admin";
+      if (!isAdmin && rental.userId !== me._id) return null;
+      const part = await ctx.db.get(rental.partId);
+      if (!part) return null;
+      return {
+        type: "unit" as const,
+        id: part._id,
+        url: `/part/${part._id}?rental=${rental._id}`,
+      };
     }
 
     if (scheme === "inv") {

@@ -7,10 +7,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Printer } from "lucide-react";
+import QRCodeReact from "react-qr-code";
+import { qrUrl } from "@/lib/qr";
 
 const fmt = (n?: number) => (n ? new Date(n).toLocaleString() : "—");
 
 export type CardRow = {
+  rentalId: string;
   groupName: string;
   tag: string;
   holderName: string;
@@ -33,8 +36,9 @@ function Row({ k, v }: { k: string; v: string }) {
   );
 }
 
-/** Printable rent card — a receipt with part, holder and dates. Renders as a
- *  dialog; the sheet itself (data-qr-label) is the only thing that prints. */
+/** Printable rent card — a receipt with part, holder, dates and a QR that
+ *  re-opens this rental (rental:<id>). Renders as a dialog; the sheet itself
+ *  (data-qr-label) is the only thing that prints. */
 export function RentCardDialog({ r, onClose }: { r: CardRow; onClose: () => void }) {
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
@@ -43,11 +47,25 @@ export function RentCardDialog({ r, onClose }: { r: CardRow; onClose: () => void
           <DialogTitle>Rent card</DialogTitle>
         </DialogHeader>
         <div data-qr-label className="rounded-lg border bg-white p-5 text-black">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-neutral-500">
-            Robotics Club · Rental Receipt
-          </p>
-          <p className="mt-1 text-lg font-bold leading-tight">{r.groupName}</p>
-          <p className="font-mono text-xs text-neutral-600">{r.tag}</p>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-neutral-500">
+                Robotics Club · Rental Receipt
+              </p>
+              <p className="mt-1 text-lg font-bold leading-tight">{r.groupName}</p>
+              <p className="font-mono text-xs text-neutral-600">{r.tag}</p>
+            </div>
+            {r.rentalId && (
+              <div className="flex shrink-0 flex-col items-center gap-1">
+                <QRCodeReact
+                  value={qrUrl(`rental:${r.rentalId}`)}
+                  size={80}
+                  style={{ height: "auto", maxWidth: "100%" }}
+                />
+                <span className="font-mono text-[8px] text-neutral-400">scan to open</span>
+              </div>
+            )}
+          </div>
           <dl className="mt-4 space-y-1.5 text-[13px]">
             <Row k="Student" v={r.holderName} />
             {r.studentId && <Row k="Student ID" v={r.studentId} />}

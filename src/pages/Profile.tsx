@@ -27,6 +27,7 @@ export default function Profile() {
   const navigate = useNavigate();
   const requestChange = useMutation(api.notifications.requestProfileChange);
   const requestRank = useMutation(api.users.requestRankUpgrade);
+  const setTgUser = useMutation(api.users.setMyTelegramUsername);
   const hasPendingRequest = useQuery(api.notifications.myPendingProfileRequest, {});
   const hasPendingRank = useQuery(api.users.myPendingRankRequest, {});
   const [name, setName] = useState(user?.name ?? "");
@@ -38,6 +39,10 @@ export default function Profile() {
   const [wantedRoles, setWantedRoles] = useState<string[]>([]);
   const [rankMsg, setRankMsg] = useState("");
 
+  // telegram username self-service
+  const [tgName, setTgName] = useState(user?.telegramUsername ?? "");
+  const [tgBusy, setTgBusy] = useState(false);
+
   // Keep the form in sync when the user object loads/changes after mount.
   const [syncedFor, setSyncedFor] = useState<string | null>(user?._id ?? null);
   if (user && syncedFor !== user._id) {
@@ -45,6 +50,7 @@ export default function Profile() {
     setName(user.name ?? "");
     setStudentId(user.studentId ?? "");
     setPhone(user.phone ?? "");
+    setTgName(user.telegramUsername ?? "");
   }
 
   const pendingMine = hasPendingRequest === true;
@@ -126,6 +132,41 @@ export default function Profile() {
           {user?.studentCode && (
             <p className="font-mono text-xs text-muted-foreground">Club code: {user.studentCode}</p>
           )}
+        </section>
+
+        {/* Telegram username self-service */}
+        <section className="flex flex-col gap-4 rounded-lg border p-5">
+          <div>
+            <h2 className="text-sm font-semibold">Telegram</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Add your @username so the club bot can tag you and message you in the club group when
+              something concerns your rentals.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Input
+              value={tgName}
+              onChange={(e) => setTgName(e.target.value)}
+              placeholder="your Telegram @username (e.g. amin20haydar)"
+            />
+            <Button
+              variant="outline"
+              disabled={tgBusy || tgName.trim() === (user?.telegramUsername ?? "")}
+              onClick={async () => {
+                setTgBusy(true);
+                try {
+                  await setTgUser({ username: tgName });
+                  toast.success("Telegram username saved");
+                } catch (e) {
+                  toast.error(e instanceof Error ? e.message : "Failed");
+                } finally {
+                  setTgBusy(false);
+                }
+              }}
+            >
+              Save
+            </Button>
+          </div>
         </section>
 
         <section className="flex flex-col gap-4 rounded-lg border p-5">

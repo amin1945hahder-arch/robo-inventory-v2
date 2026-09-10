@@ -136,6 +136,19 @@ export const setMembershipStatus = mutation({
   },
 });
 
+// Member sets their own Telegram @username so the club bot can tag them in
+// the group and DM them. Self-service — no admin needed.
+export const setMyTelegramUsername = mutation({
+  args: { username: v.string() },
+  handler: async (ctx, { username }) => {
+    const user = await requireUser(ctx);
+    const clean = username.trim().replace(/^@/, "");
+    await ctx.db.patch(user._id, {
+      telegramUsername: clean === "" ? undefined : clean,
+    });
+  },
+});
+
 // Remove a person from the app entirely. Blocked while they still hold parts
 // or have pending requests so inventory never loses track of a unit.
 export const deletePerson = mutation({
