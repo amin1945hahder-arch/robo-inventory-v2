@@ -129,6 +129,12 @@ export default function AdminRequests() {
           {row.student?.studentId ? ` · ${row.student.studentId}` : ""} ·{" "}
           {new Date(row.rental.requestedAt).toLocaleDateString()}
         </p>
+        {row.rental.status === "active" && row.rental.returnRequestedAt !== undefined && (
+          <p className="mt-1 flex items-center gap-1.5 text-xs font-medium text-amber-500">
+            <RotateCcw className="size-3.5" />
+            Member asked to return this · {new Date(row.rental.returnRequestedAt).toLocaleString()}
+          </p>
+        )}
       </div>
       {actions}
     </li>

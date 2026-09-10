@@ -24,6 +24,7 @@ import {
   PackageSearch,
   QrCode,
   ScanLine,
+  Settings,
   UserCircle2,
   Users,
   Warehouse,
@@ -181,6 +182,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               >
                 <BarChart3 className="size-4" />
                 Reports
+              </Link>
+              <Link
+                to="/settings"
+                className={cn(
+                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
+                  location.pathname.startsWith("/settings")
+                    ? "bg-muted font-medium text-foreground"
+                    : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                )}
+              >
+                <Settings className="size-4" />
+                Settings
               </Link>
             </>
           )}

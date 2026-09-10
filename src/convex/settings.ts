@@ -1,6 +1,7 @@
 import { v } from "convex/values";
-import { internalQuery, mutation, query } from "./_generated/server";
+import { internalQuery, mutation, query, action } from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
+import { api, internal } from "./_generated/api";
 import { requireAdmin, requireUser } from "./lib";
 
 /**
@@ -124,5 +125,18 @@ export const setReturnCooldown = mutation({
     if (row) await ctx.db.patch(row._id, { value });
     else await ctx.db.insert("settings", { key: COOLDOWN_KEY, value });
     return { ok: true };
+  },
+});
+
+// Admin test send: posts a message into the club group so the setup can be
+// verified right from the Settings page.
+export const sendTestMessage = action({
+  args: { text: v.string() },
+  handler: async (ctx, { text }): Promise<{ sent: boolean; reason?: string }> => {
+    const me = await ctx.runQuery(api.users.currentUser, {});
+    if (!me || me.role !== "admin") throw new Error("Admin access required");
+    return await ctx.runAction(internal.telegram.sendManual, {
+      text: text.trim() || "✅ Test message from the Robotics Club inventory app",
+    });
   },
 });

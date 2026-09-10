@@ -8,12 +8,14 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { RentCardDialog, type CardRow } from "@/components/RentCardDialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { PackageSearch, Printer, X } from "lucide-react";
+import { PackageSearch, Printer, RotateCcw, X } from "lucide-react";
 
 export default function MyRentals() {
   const { user } = useAuth();
   const rentals = useQuery(api.parts.listMyRentals, {});
+  const cooldownHours = useQuery(api.settings.getReturnCooldown, {});
   const cancel = useMutation(api.parts.cancelMyRequest);
+  const requestReturn = useMutation(api.parts.requestReturn);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [card, setCard] = useState<{ row: any; tag: string; groupName: string } | null>(null);
 
@@ -23,6 +25,13 @@ export default function MyRentals() {
     { title: "Assigned to projects", statuses: ["on_project"] },
     { title: "History", statuses: ["returned", "denied", "canceled"] },
   ];
+
+  // Cooldown: one return request per rental per configured period.
+  const cooldownMs = (cooldownHours ?? 24) * 36e5;
+  const returnPending = (r: any) =>
+    r.returnRequestedAt !== undefined && Date.now() - r.returnRequestedAt < cooldownMs;
+  const hoursLeft = (r: any) =>
+    Math.max(0, Math.ceil((cooldownMs - (Date.now() - r.returnRequestedAt)) / 36e5));
 
   return (
     <AppShell>
@@ -86,6 +95,32 @@ export default function MyRentals() {
                           }}
                         >
                           <X className="size-4" /> Cancel
+                        </Button>
+                      )}
+                      {rental.status === "active" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busyId === rental._id || returnPending(rental)}
+                          title={
+                            returnPending(rental)
+                              ? `You already asked to return this — the admin has been notified.${hoursLeft(rental) > 0 ? ` You can send another one in ${hoursLeft(rental)}h.` : ""}`
+                              : "Notify the admins that you want to return this part"
+                          }
+                          onClick={async () => {
+                            setBusyId(rental._id);
+                            try {
+                              await requestReturn({ rentalId: rental._id });
+                              toast.success("Return request sent — bring the part to the lab");
+                            } catch (e) {
+                              toast.error(e instanceof Error ? e.message : "Failed");
+                            } finally {
+                              setBusyId(null);
+                            }
+                          }}
+                        >
+                          <RotateCcw className="size-4" />
+                          {returnPending(rental) ? "Return requested" : "I want to return"}
                         </Button>
                       )}
                       {rental.status !== "pending" && (
