@@ -41,6 +41,10 @@ const schema = defineSchema(
       telegramUsername: v.optional(v.string()),
       // "active" = current member, "ex" = no longer in the club (kept for history).
       membershipStatus: v.optional(v.union(v.literal("active"), v.literal("ex"))),
+      // Set true when an admin approves the member's profile (name + student id).
+      // Members with seeded/legacy data are grandfathered; brand-new sign-ups
+      // stay view-only until an admin approves their submitted profile.
+      profileApproved: v.optional(v.boolean()),
 
       // Real club positions (e.g. رئيس نادي الروبوت, منسق النادي, عضو علمي …)
       clubRoles: v.optional(v.array(v.string())),
@@ -108,9 +112,34 @@ const schema = defineSchema(
       deleted: v.optional(v.boolean()),
     }).index("by_status", ["status"]),
 
+    // A package bundles several units (possibly from different groups) into one
+    // rental request — "lend me 3 Arduino Unos and 2 servo motors in one go".
+    // Each concrete unit in the package is still a row in `rentals` (so per-part
+    // returns, rent cards and QRs keep working); the package groups them and is
+    // editable/cancellable by the member until an admin approves it.
+    rentalPackages: defineTable({
+      userId: v.id("users"),
+      note: v.optional(v.string()),
+      // [{ groupId, count, note }] — concrete units are chosen at request time
+      // and live on the linked `rentals` rows (by packageId).
+      lines: v.array(
+        v.object({
+          groupId: v.id("groups"),
+          count: v.number(),
+          note: v.optional(v.string()),
+        }),
+      ),
+      requestedAt: v.number(),
+      decidedAt: v.optional(v.number()),
+      // Timestamp of the member's most recent package-level return request.
+      returnRequestedAt: v.optional(v.number()),
+    }).index("by_user", ["userId"]),
+
     rentals: defineTable({
       partId: v.id("parts"),
       userId: v.id("users"),
+      // Set when this unit was requested as part of a package rental.
+      packageId: v.optional(v.id("rentalPackages")),
       status: v.union(
         v.literal("pending"),
         v.literal("approved"),

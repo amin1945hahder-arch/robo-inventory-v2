@@ -48,6 +48,7 @@ type Person = {
     major?: string;
     studentCode?: string;
     telegramChatId?: string;
+    telegramUsername?: string;
     membershipStatus?: string;
   };
   activeRentals: number;
