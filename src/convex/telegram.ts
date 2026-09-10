@@ -110,3 +110,42 @@ export const sendManual = internalAction({
     return { sent: ok };
   },
 });
+
+// Admin → member direct message from the People page. Runs through the bot
+// (the bot is the only sender — that is how Telegram works); the message is
+// signed with the sending admin's name. Falls back to a group post tagging
+// the member when they have no linked chat yet.
+export const dmMember = internalAction({
+  args: {
+    userId: v.id("users"),
+    text: v.string(),
+    fromName: v.string(),
+  },
+  handler: async (ctx, { userId, text, fromName }) => {
+    const member = await ctx.runQuery(internal.users.getUserForDm, { userId });
+    if (!member) return { sent: false, reason: "member-not-found" };
+    const cfg = await ctx.runQuery(internal.settings.getTelegramConfigQuery, {});
+    if (!cfg.notificationsOn) return { sent: false, reason: "disabled-in-settings" };
+    const token = cfg.botToken || process.env.TELEGRAM_BOT_TOKEN || "";
+    if (!token) return { sent: false, reason: "no-bot-token" };
+
+    const message = `💬 ${text}\n— ${fromName} (club admin)`;
+
+    if (member.telegramChatId) {
+      const ok = await postTo(ctx, member.telegramChatId, message, token);
+      return { sent: ok };
+    }
+    // No chat id: fall back to the club group, tagging the member's username.
+    const groupChatId = cfg.clubGroupChatId || process.env.TELEGRAM_CHAT_ID || "";
+    if (groupChatId && member.telegramUsername) {
+      const ok = await postTo(
+        ctx,
+        groupChatId,
+        `${message}\n@${member.telegramUsername.replace(/^@/, "")}`,
+        token,
+      );
+      return { sent: ok };
+    }
+    return { sent: false, reason: "member-has-no-telegram" };
+  },
+});

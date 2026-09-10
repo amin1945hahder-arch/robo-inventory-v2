@@ -150,6 +150,7 @@ export const listPeople = query({
           major: u.major,
           studentCode: u.studentCode,
           telegramChatId: u.telegramChatId,
+          telegramUsername: u.telegramUsername,
           membershipStatus: u.membershipStatus,
         },
         activeRentals: rentals.filter((r) => r.userId === u._id && (r.status === "active" || r.status === "on_project")).length,

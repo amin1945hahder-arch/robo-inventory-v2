@@ -21,8 +21,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Pencil, ShieldCheck, Trash2, UserMinus, UserPlus, Users } from "lucide-react";
+import {
+  MessageSquare,
+  Pencil,
+  Send,
+  ShieldCheck,
+  Trash2,
+  UserMinus,
+  UserPlus,
+  Users,
+} from "lucide-react";
 
 type Person = {
   user: {
@@ -81,6 +91,7 @@ function PersonRow({
   onEdit,
   onDelete,
   onToggleMembership,
+  onMessage,
 }: {
   person: Person;
   isMe: boolean;
@@ -88,6 +99,7 @@ function PersonRow({
   onEdit: () => void;
   onDelete: () => void;
   onToggleMembership: () => void;
+  onMessage: () => void;
 }) {
   const { user, activeRentals, pending } = person;
   const isEx = user.membershipStatus === "ex";
@@ -156,6 +168,9 @@ function PersonRow({
         {activeRentals} active · {pending} pending
       </span>
       <div className="flex items-center gap-1">
+        <Button variant="ghost" size="icon" className="size-7" title="Send a Telegram message" onClick={onMessage}>
+          <MessageSquare className="size-3.5" />
+        </Button>
         <Button variant="ghost" size="icon" className="size-7" title="Edit profile" onClick={onEdit}>
           <Pencil className="size-3.5" />
         </Button>
@@ -193,9 +208,13 @@ export default function AdminPeople() {
   const updateProfile = useMutation(api.users.updatePersonProfile);
   const setMembership = useMutation(api.users.setMembershipStatus);
   const deletePerson = useMutation(api.users.deletePerson);
+  const dmMember = useMutation(api.parts.adminDmMember);
 
   const [editing, setEditing] = useState<Person | null>(null);
   const [deleting, setDeleting] = useState<Person | null>(null);
+  const [messaging, setMessaging] = useState<Person | null>(null);
+  const [messageText, setMessageText] = useState("");
+  const [msgBusy, setMsgBusy] = useState(false);
   const [busy, setBusy] = useState(false);
 
   // edit form state
@@ -269,6 +288,25 @@ export default function AdminPeople() {
     }
   };
 
+  const sendMessage = async () => {
+    if (!messaging) return;
+    setMsgBusy(true);
+    try {
+      await dmMember({ userId: messaging.user._id as any, text: messageText });
+      toast.success(
+        messaging.user.telegramChatId
+          ? "Message sent via the bot"
+          : "No chat linked — posted in the club group tagging them instead",
+      );
+      setMessaging(null);
+      setMessageText("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setMsgBusy(false);
+    }
+  };
+
   const all = people ?? [];
   const admins = all.filter((p) => p.user.role === "admin");
   const activeMembers = all.filter((p) => p.user.role !== "admin" && p.user.membershipStatus !== "ex");
@@ -319,6 +357,10 @@ export default function AdminPeople() {
                       onEdit={() => openEdit(p)}
                       onDelete={() => setDeleting(p)}
                       onToggleMembership={() => toggleMembership(p)}
+                      onMessage={() => {
+                        setMessaging(p);
+                        setMessageText("");
+                      }}
                     />
                   ))}
                 </ul>
@@ -344,6 +386,10 @@ export default function AdminPeople() {
                       onEdit={() => openEdit(p)}
                       onDelete={() => setDeleting(p)}
                       onToggleMembership={() => toggleMembership(p)}
+                      onMessage={() => {
+                        setMessaging(p);
+                        setMessageText("");
+                      }}
                     />
                   ))}
                 </ul>
@@ -365,6 +411,10 @@ export default function AdminPeople() {
                       onEdit={() => openEdit(p)}
                       onDelete={() => setDeleting(p)}
                       onToggleMembership={() => toggleMembership(p)}
+                      onMessage={() => {
+                        setMessaging(p);
+                        setMessageText("");
+                      }}
                     />
                   ))}
                 </ul>
@@ -473,6 +523,39 @@ export default function AdminPeople() {
             </Button>
             <Button onClick={submit} disabled={busy}>
               {busy ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Telegram DM dialog */}
+      <Dialog open={Boolean(messaging)} onOpenChange={(v) => !v && setMessaging(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MessageSquare className="size-4" /> Message {messaging?.user.name ?? "member"}
+            </DialogTitle>
+            <DialogDescription>
+              Sent by the club bot to their Telegram DM
+              {messaging?.user.telegramChatId
+                ? " (chat is linked)"
+                : messaging?.user.telegramUsername
+                  ? " — no chat yet, they'll be tagged in the club group instead"
+                  : " — they haven't linked Telegram yet"}.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            value={messageText}
+            onChange={(e) => setMessageText(e.target.value)}
+            placeholder="e.g. Please return the Arduino Uno by Friday — another project needs it."
+            rows={4}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMessaging(null)}>
+              Cancel
+            </Button>
+            <Button onClick={sendMessage} disabled={msgBusy || !messageText.trim()}>
+              <Send className="size-4" /> {msgBusy ? "Sending…" : "Send via bot"}
             </Button>
           </DialogFooter>
         </DialogContent>

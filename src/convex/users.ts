@@ -1,6 +1,6 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
-import { mutation, query, QueryCtx } from "./_generated/server";
+import { internalQuery, mutation, query, QueryCtx } from "./_generated/server";
 import { requireAdmin, requireNonGuest, requireUser } from "./lib";
 import { emailInAdminList } from "./adminConfig";
 import { notifyTelegram } from "./notify";
@@ -196,6 +196,21 @@ export const deletePerson = mutation({
     void allRentals; // history rows are kept; they render "(removed)" when the user is gone
 
     await ctx.db.delete(userId);
+  },
+});
+
+// Internal: the Telegram action fetches a member's delivery targets (name,
+// chat id, @username) without exposing them through a public query.
+export const getUserForDm = internalQuery({
+  args: { userId: v.id("users") },
+  handler: async (ctx, { userId }) => {
+    const user = await ctx.db.get(userId);
+    if (!user) return null;
+    return {
+      name: user.name,
+      telegramChatId: user.telegramChatId,
+      telegramUsername: user.telegramUsername,
+    };
   },
 });
 

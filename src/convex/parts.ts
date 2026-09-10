@@ -4,6 +4,7 @@ import { api } from "./_generated/api";
 import { requireAdmin, requireNonGuest, requireUser } from "./lib";
 import { adminPhones, sendWhatsApp } from "./whatsapp";
 import { telegramDM, telegramGroup, notifyTelegram } from "./notify";
+import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 
 // Server-side read of the return-request cooldown (hours). Duplicated from
@@ -664,8 +665,24 @@ export const cancelMyRequest = mutation({
   },
 });
 
-export async function ensureAdminUser(ctx: any, email: string) {
-  const existing = await ctx.db
+// Admin sends a one-off Telegram message to one member from the People page.
+// The bot delivers it; the text is signed with the sending admin's name.
+export const adminDmMember = mutation({
+  args: { userId: v.id("users"), text: v.string() },
+  handler: async (ctx, { userId, text }) => {
+    const admin = await requireAdmin(ctx);
+    const clean = text.trim();
+    if (!clean) throw new Error("Message is empty");
+    await ctx.scheduler.runAfter(0, internal.telegram.dmMember, {
+      userId,
+      text: clean.slice(0, 3000),
+      fromName: admin.name ?? admin.email ?? "Club admin",
+    });
+    return { ok: true };
+  },
+});
+
+export async function ensureAdminUser(ctx: any, email: string) {  const existing = await ctx.db
     .query("users")
     .withIndex("email", (q: any) => q.eq("email", email))
     .first();
