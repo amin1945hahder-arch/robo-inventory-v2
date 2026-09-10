@@ -17,6 +17,7 @@ import {
   BarChart3,
   Bell,
   Boxes,
+  FileDown,
   FolderKanban,
   LayoutDashboard,
   LogOut,
@@ -156,6 +157,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               >
                 <QrCode className="size-4" />
                 Print labels
+              </Link>
+              <Link
+                to="/export"
+                className={cn(
+                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
+                  location.pathname.startsWith("/export")
+                    ? "bg-muted font-medium text-foreground"
+                    : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                )}
+              >
+                <FileDown className="size-4" />
+                Export
               </Link>
               <Link
                 to="/admin/reports"

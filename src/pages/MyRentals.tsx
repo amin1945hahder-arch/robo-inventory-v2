@@ -2,16 +2,20 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { useAuth } from "@/hooks/use-auth";
 import { AppShell } from "@/components/AppShell";
 import { StatusBadge } from "@/components/StatusBadge";
+import { RentCardDialog, type CardRow } from "@/components/RentCardDialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { PackageSearch, X } from "lucide-react";
+import { PackageSearch, Printer, X } from "lucide-react";
 
 export default function MyRentals() {
+  const { user } = useAuth();
   const rentals = useQuery(api.parts.listMyRentals, {});
   const cancel = useMutation(api.parts.cancelMyRequest);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [card, setCard] = useState<{ row: any; tag: string; groupName: string } | null>(null);
 
   const groups: { title: string; statuses: string[] }[] = [
     { title: "Awaiting approval", statuses: ["pending"] },
@@ -84,6 +88,22 @@ export default function MyRentals() {
                           <X className="size-4" /> Cancel
                         </Button>
                       )}
+                      {rental.status !== "pending" && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          title="Print rent card"
+                          onClick={() =>
+                            setCard({
+                              row: rental,
+                              tag: part?.tag ?? "—",
+                              groupName: group?.name ?? "Part",
+                            })
+                          }
+                        >
+                          <Printer className="size-4" /> Card
+                        </Button>
+                      )}
                       {part && (
                         <Button size="sm" variant="outline" asChild>
                           <Link to={`/part/${part._id}`}>Details</Link>
@@ -97,6 +117,25 @@ export default function MyRentals() {
           })
         )}
       </div>
+
+      {card && (
+        <RentCardDialog
+          r={{
+            groupName: card.groupName,
+            tag: card.tag,
+            holderName: user?.name ?? user?.email ?? "Member",
+            studentId: user?.studentId || undefined,
+            statusLabel: card.row.status,
+            requestedAt: card.row.requestedAt,
+            decidedAt: card.row.decidedAt,
+            pickedUpAt: card.row.pickedUpAt,
+            returnedAt: card.row.returnedAt,
+            conditionReport: card.row.conditionReport,
+            projectName: card.row.projectName,
+          } as CardRow}
+          onClose={() => setCard(null)}
+        />
+      )}
     </AppShell>
   );
 }

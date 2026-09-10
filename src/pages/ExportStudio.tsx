@@ -339,11 +339,7 @@ export default function ExportStudio() {
         ) : (
           <div
             id="print-area"
-            className="overflow-x-auto rounded-lg border bg-white p-4 text-black shadow-sm dark:text-black"
-            style={{
-              width: orientation === "portrait" ? "100%" : "140%",
-              maxWidth: "none",
-            }}
+            className="w-full overflow-x-auto rounded-lg border bg-white p-4 text-black shadow-sm md:w-[140%] print:w-full"
           >
             <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-neutral-500">
               Robotics Club · {datasets.find(([k]) => k === dataset)?.[1]} · {rows.length} rows ·{" "}

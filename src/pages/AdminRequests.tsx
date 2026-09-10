@@ -25,7 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Check, PackagePlus, RotateCcw, ScanLine, X } from "lucide-react";
+import { Award, Check, PackagePlus, RotateCcw, ScanLine, X } from "lucide-react";
 
 type Row = {
   rental: any;
@@ -41,6 +41,8 @@ export default function AdminRequests() {
   const history = useQuery(api.parts.listAllRentals, { status: "returned" });
   const profileReqs = useQuery(api.notifications.listProfileRequests, { status: "pending" });
   const decideProfile = useMutation(api.notifications.decideProfileRequest);
+  const rankReqs = useQuery(api.users.listRankRequests, { status: "pending" });
+  const decideRank = useMutation(api.users.decideRankRequest);
 
   const act = useMutation(api.parts.adminRentalAction);
   const projects = useQuery(api.projects.listProjects, { status: "active" });
@@ -161,6 +163,9 @@ export default function AdminRequests() {
               On projects {onProject?.length ? `(${onProject.length})` : ""}
             </TabsTrigger>
             <TabsTrigger value="history">History</TabsTrigger>
+            <TabsTrigger value="ranks">
+              Ranks {rankReqs?.length ? `(${rankReqs.length})` : ""}
+            </TabsTrigger>
             <TabsTrigger value="profiles">
               Profiles {profileReqs?.length ? `(${profileReqs.length})` : ""}
             </TabsTrigger>
@@ -273,6 +278,68 @@ export default function AdminRequests() {
                     row={row as Row}
                     actions={<StatusBadge status={row.rental.status} />}
                   />
+                ))}
+              </ul>
+            )}
+          </TabsContent>
+
+          <TabsContent value="ranks" className="mt-4">
+            {rankReqs === undefined ? (
+              <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
+            ) : rankReqs.length === 0 ? (
+              <p className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
+                No rank requests — members can send them from their profile page.
+              </p>
+            ) : (
+              <ul className="divide-y rounded-lg border">
+                {rankReqs.map(({ request, user }) => (
+                  <li key={request._id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                    <Award className="size-4 shrink-0 text-violet-400" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">
+                        {user?.name ?? user?.email ?? "(removed)"}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        wants: {request.requestedRoles.join(" · ")}
+                        {request.message ? ` — “${request.message}”` : ""}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      disabled={busyId === request._id}
+                      onClick={async () => {
+                        setBusyId(request._id);
+                        try {
+                          await decideRank({ id: request._id, approve: true });
+                          toast.success("Positions granted");
+                        } catch (e) {
+                          toast.error(e instanceof Error ? e.message : "Failed");
+                        } finally {
+                          setBusyId(null);
+                        }
+                      }}
+                    >
+                      <Check className="size-4" /> Grant
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busyId === request._id}
+                      onClick={async () => {
+                        setBusyId(request._id);
+                        try {
+                          await decideRank({ id: request._id, approve: false });
+                          toast.success("Request denied");
+                        } catch (e) {
+                          toast.error(e instanceof Error ? e.message : "Failed");
+                        } finally {
+                          setBusyId(null);
+                        }
+                      }}
+                    >
+                      <X className="size-4" />
+                    </Button>
+                  </li>
                 ))}
               </ul>
             )}

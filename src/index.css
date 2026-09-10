@@ -199,7 +199,8 @@
   }
 }
 
-/* Bulk QR label sheets (Print labels page): show only #print-area */
+/* Bulk QR label sheets (Print labels page) + Export studio: show only #print-area.
+   @page size/margin are injected dynamically by those pages. */
 @media print {
   #print-area,
   #print-area * {
@@ -219,8 +220,5 @@
   }
   .no-print {
     display: none !important;
-  }
-  @page {
-    margin: 8mm;
   }
 }

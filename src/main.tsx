@@ -29,6 +29,7 @@ const AdminPeople = lazy(() => import("./pages/AdminPeople.tsx"));
 const ImportCSV = lazy(() => import("./pages/ImportCSV.tsx"));
 const Labels = lazy(() => import("./pages/Labels.tsx"));
 const AdminReports = lazy(() => import("./pages/AdminReports.tsx"));
+const ExportStudio = lazy(() => import("./pages/ExportStudio.tsx"));
 const Profile = lazy(() => import("./pages/Profile.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
@@ -256,6 +257,16 @@ createRoot(document.getElementById("root")!).render(
                   <RequireAuth>
                     <RequireAdmin>
                       <Labels />
+                    </RequireAdmin>
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/export"
+                element={
+                  <RequireAuth>
+                    <RequireAdmin>
+                      <ExportStudio />
                     </RequireAdmin>
                   </RequireAuth>
                 }
