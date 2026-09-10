@@ -34,9 +34,11 @@ const schema = defineSchema(
       phone: v.optional(v.string()),
       active: v.optional(v.boolean()),
 
-      // Telegram integration: per-member chat id (set by admin) so updates
-      // and decisions can be delivered straight to the member's chat.
+      // Telegram integration: per-member chat id (linked via the bot /start
+      // flow) and the member's own @username (used to tag them in the club
+      // group and for t.me deep links).
       telegramChatId: v.optional(v.string()),
+      telegramUsername: v.optional(v.string()),
       // "active" = current member, "ex" = no longer in the club (kept for history).
       membershipStatus: v.optional(v.union(v.literal("active"), v.literal("ex"))),
 
@@ -128,6 +130,10 @@ const schema = defineSchema(
       ),
       conditionReport: v.optional(v.string()),
       functional: v.optional(v.boolean()),
+      // Timestamp of the member's most recent "I want to return this" request.
+      // Cleared when the return is processed; rate-limited by a configurable
+      // cooldown (settings key return_request_cooldown_hours).
+      returnRequestedAt: v.optional(v.number()),
     })
       .index("by_user", ["userId"])
       .index("by_part", ["partId"])

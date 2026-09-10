@@ -3,8 +3,19 @@ import { mutation, query } from "./_generated/server";
 import { api } from "./_generated/api";
 import { requireAdmin, requireUser } from "./lib";
 import { adminPhones, sendWhatsApp } from "./whatsapp";
-import { notifyTelegram } from "./notify";
+import { telegramDM, telegramGroup, notifyTelegram } from "./notify";
 import { Id } from "./_generated/dataModel";
+
+// Server-side read of the return-request cooldown (hours). Duplicated from
+// settings.ts as an inline helper because queries can't be awaited from a
+// mutation handler without scheduling; this reads the settings table directly.
+async function returnCooldownHours(ctx: any): Promise<number> {
+  const row = await ctx.db
+    .query("settings")
+    .withIndex("by_key", (q: any) => q.eq("key", "return_request_cooldown_hours"))
+    .unique();
+  return row?.value ? Number(JSON.parse(row.value)) : 24;
+}
 
 export const listPartsOfGroup = query({
   args: { groupId: v.id("groups") },
@@ -230,12 +241,70 @@ export const requestRental = mutation({
         `${studentLabel} requested to rent ${group?.name ?? "a part"} (${part.tag}) — review it in the Requests console.`,
       );
     }
-    // Telegram to the club chat (no-op until TELEGRAM_BOT_TOKEN is set)
-    await notifyTelegram(
+    // Telegram: post to the club group, tagging the admins who must act
+    // (no-op until a bot token is configured in Settings or env).
+    const admins = await ctx.db.query("users").collect();
+    await telegramGroup(
       ctx,
-      `📥 ${studentLabel} requested to rent ${group?.name ?? "a part"} (${part.tag})${note ? `\n📝 ${note}` : ""}`,
+      `📥 ${studentLabel} requested to rent ${group?.name ?? "a part"} (${part.tag})${note ? `\n📝 ${note}` : ""}\n→ approve in the Requests console`,
+      admins.filter((a) => a.role === "admin" && a.telegramUsername).map((a) => ({ name: a.name, telegramUsername: a.telegramUsername })),
     );
     return rentalId;
+  },
+});
+
+// Member deletes their own pending rental request (before approval).
+export const deleteMyRentalRequest = mutation({
+  args: { rentalId: v.id("rentals") },
+  handler: async (ctx, { rentalId }) => {
+    const user = await requireUser(ctx);
+    const rental = await ctx.db.get(rentalId);
+    if (!rental) throw new Error("Rental not found");
+    if (rental.userId !== user._id) throw new Error("Not your request");
+    if (rental.status !== "pending") {
+      throw new Error("Only pending requests can be deleted — after approval use a return instead");
+    }
+    const part = await ctx.db.get(rental.partId);
+    await ctx.db.delete(rentalId);
+    if (part && part.status === "pending") {
+      await ctx.db.patch(part._id, { status: "available" });
+    }
+    const group = part ? await ctx.db.get(part.groupId) : null;
+    await telegramGroup(ctx, `🗑 ${user.name ?? user.email ?? "A member"} deleted their rental request for ${group?.name ?? "a part"}${part ? ` (${part.tag})` : ""}.`);
+  },
+});
+
+// Member asks to return a rented part. One request per rental per cooldown
+// period (admin-set, default 24h); the admin sees it in the Requests console.
+export const requestReturn = mutation({
+  args: { rentalId: v.id("rentals") },
+  handler: async (ctx, { rentalId }) => {
+    const user = await requireUser(ctx);
+    const rental = await ctx.db.get(rentalId);
+    if (!rental) throw new Error("Rental not found");
+    if (rental.userId !== user._id) throw new Error("Not your rental");
+    if (rental.status !== "active") {
+      throw new Error("Only active rentals can be returned");
+    }
+    const cooldownHours = await returnCooldownHours(ctx);
+    if (rental.returnRequestedAt) {
+      const elapsedH = (Date.now() - rental.returnRequestedAt) / 36e5;
+      if (elapsedH < cooldownHours) {
+        const remaining = Math.ceil(cooldownHours - elapsedH);
+        throw new Error(
+          `You already requested a return for this rental — you can ask again in ${remaining}h`,
+        );
+      }
+    }
+    await ctx.db.patch(rentalId, { returnRequestedAt: Date.now() });
+    const part = await ctx.db.get(rental.partId);
+    const group = part ? await ctx.db.get(part.groupId) : null;
+    const admins = await ctx.db.query("users").collect();
+    await telegramGroup(
+      ctx,
+      `↩️ ${user.name ?? user.email ?? "A member"} wants to return ${group?.name ?? "a part"} (${part?.tag ?? "?"}) — process it in the Requests console.`,
+      admins.filter((a) => a.role === "admin" && a.telegramUsername).map((a) => ({ name: a.name, telegramUsername: a.telegramUsername })),
+    );
   },
 });
 
@@ -281,13 +350,16 @@ export const decideRental = mutation({
           : `❌ Your request for ${group?.name ?? "a part"} (${part.tag}) was denied.`,
       );
     }
-    if (student?.telegramChatId) {
-      await notifyTelegram(
+    if (student?.telegramChatId || student?.telegramUsername) {
+      // DM the member directly; the message already names the deciding admin.
+      // We can't know the actor here (email link path), so it attributes to
+      // "Club admin" unless the dashboard path (adminRentalAction) is used.
+      await telegramDM(
         ctx,
+        { name: student.name ?? student.email, telegramUsername: student.telegramUsername, telegramChatId: student.telegramChatId },
         approve
-          ? `✅ ${student.name ?? student.email}: approved for ${group?.name ?? "a part"} (${part.tag}). Pick it up from the lab.`
-          : `❌ ${student.name ?? student.email}: your request for ${group?.name ?? "a part"} (${part.tag}) was denied.`,
-        student.telegramChatId,
+          ? `✅ Approved: ${group?.name ?? "a part"} (${part.tag}). You can pick it up from the lab.`
+          : `❌ Denied: your request for ${group?.name ?? "a part"} (${part.tag}) was not approved.`,
       );
     }
     if (token && token === process.env.ADMIN_ACTION_TOKEN) return { ok: true };
@@ -310,7 +382,7 @@ export const adminRentalAction = mutation({
     conditionReport: v.optional(v.string()),
   },
   handler: async (ctx, { rentalId, action, projectId, functional, conditionReport }) => {
-    await requireAdmin(ctx);
+    const admin = await requireAdmin(ctx);
     const rental = await ctx.db.get(rentalId);
     if (!rental) throw new Error("Rental not found");
     const part = await ctx.db.get(rental.partId);
@@ -337,13 +409,18 @@ export const adminRentalAction = mutation({
           `✅ Your request was approved — ${group?.name ?? "a part"} (${part.tag}). You can pick it up from the lab.`,
         );
       }
-      if (student?.telegramChatId) {
-        await notifyTelegram(
+      if (student?.telegramChatId || student?.telegramUsername) {
+        await telegramDM(
           ctx,
-          `✅ ${student.name ?? student.email}: approved for ${group?.name ?? "a part"} (${part.tag}). Pick it up from the lab.`,
-          student.telegramChatId,
+          { name: student.name ?? student.email, telegramUsername: student.telegramUsername, telegramChatId: student.telegramChatId },
+          `✅ Approved: ${group?.name ?? "a part"} (${part.tag}). You can pick it up from the lab.`,
+          { name: admin.name ?? admin.email },
         );
       }
+      await telegramGroup(
+        ctx,
+        `✅ ${admin.name ?? admin.email} approved ${student?.name ?? student?.email ?? "a member"}'s rental of ${group?.name ?? "a part"} (${part.tag}).`,
+      );
     } else if (action === "deny") {
       if (rental.status !== "pending") throw new Error("This request was already handled");
       await ctx.db.patch(rentalId, { status: "denied", decidedAt: now });
@@ -362,13 +439,18 @@ export const adminRentalAction = mutation({
           `❌ Your request for ${group?.name ?? "a part"} (${part.tag}) was denied.`,
         );
       }
-      if (student?.telegramChatId) {
-        await notifyTelegram(
+      if (student?.telegramChatId || student?.telegramUsername) {
+        await telegramDM(
           ctx,
-          `❌ ${student.name ?? student.email}: your request for ${group?.name ?? "a part"} (${part.tag}) was denied.`,
-          student.telegramChatId,
+          { name: student.name ?? student.email, telegramUsername: student.telegramUsername, telegramChatId: student.telegramChatId },
+          `❌ Denied: your request for ${group?.name ?? "a part"} (${part.tag}) was not approved.`,
+          { name: admin.name ?? admin.email },
         );
       }
+      await telegramGroup(
+        ctx,
+        `❌ ${admin.name ?? admin.email} denied ${student?.name ?? student?.email ?? "a member"}'s rental request for ${group?.name ?? "a part"} (${part.tag}).`,
+      );
     } else if (action === "mark_returned") {
       if (rental.status !== "active") throw new Error("Rental is not active");
       await ctx.db.patch(rentalId, {
@@ -377,15 +459,16 @@ export const adminRentalAction = mutation({
         returnDestination: "shelf",
         functional,
         conditionReport: conditionReport?.trim(),
+        returnRequestedAt: undefined,
       });
       if (functional === false) {
         await ctx.db.patch(part._id, { status: "broken", currentHolderId: undefined });
       } else {
         await ctx.db.patch(part._id, { status: "available", currentHolderId: undefined });
       }
-      await notifyTelegram(
+      await telegramGroup(
         ctx,
-        `↩️ ${group?.name ?? "Part"} (${part.tag}) returned${functional === false ? " — marked BROKEN" : " — back on the shelf"}.`,
+        `↩️ ${admin.name ?? admin.email} processed the return of ${group?.name ?? "a part"} (${part.tag})${functional === false ? " — marked BROKEN" : " — back on the shelf"}.`,
       );
     } else if (action === "assign_project") {
       if (rental.status !== "active") throw new Error("Rental is not active");
@@ -399,15 +482,16 @@ export const adminRentalAction = mutation({
         projectId,
         functional,
         conditionReport: conditionReport?.trim(),
+        returnRequestedAt: undefined,
       });
       await ctx.db.patch(part._id, { status: "on_project", currentProjectId: projectId, currentHolderId: undefined });
-      await notifyTelegram(
+      await telegramGroup(
         ctx,
-        `🤖 ${group?.name ?? "Part"} (${part.tag}) assigned to project “${project.name}” until it is dismantled.`,
+        `🤖 ${admin.name ?? admin.email} assigned ${group?.name ?? "a part"} (${part.tag}) to project “${project.name}” until it is dismantled.`,
       );
     } else if (action === "mark_broken") {
       if (rental.status !== "active") throw new Error("Rental is not active");
-      await ctx.db.patch(rentalId, { status: "returned", returnedAt: now, returnDestination: "shelf", functional: false, conditionReport: conditionReport?.trim() });
+      await ctx.db.patch(rentalId, { status: "returned", returnedAt: now, returnDestination: "shelf", functional: false, conditionReport: conditionReport?.trim(), returnRequestedAt: undefined });
       await ctx.db.patch(part._id, { status: "broken", currentHolderId: undefined });
     }
     return { ok: true };
