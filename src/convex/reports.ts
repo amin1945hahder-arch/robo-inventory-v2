@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
 import { requireAdmin } from "./lib";
+import { docCache } from "./parts";
 
 // Full rental history — every request ever made, newest first, with the
 // student, part tag, group and project joined in. Optional status + search.
@@ -15,12 +16,15 @@ export const history = query({
     if (status && status !== "all") {
       rows = rows.filter((r) => r.status === status);
     }
+    // Cached joins — see docCache() in parts.ts: users with base64 avatars
+    // appear on many rental rows and would be re-read per row otherwise.
+    const cache = docCache();
     const out = [];
     for (const r of rows.sort((a, b) => b.requestedAt - a.requestedAt)) {
-      const part = await ctx.db.get(r.partId);
-      const group = part ? await ctx.db.get(part.groupId) : null;
-      const project = r.projectId ? await ctx.db.get(r.projectId) : null;
-      const student = await ctx.db.get(r.userId);
+      const part = await cache.get(ctx, r.partId);
+      const group = part ? await cache.get(ctx, part.groupId) : null;
+      const project = r.projectId ? await cache.get(ctx, r.projectId) : null;
+      const student = await cache.get(ctx, r.userId);
       const entry = {
         rental: r,
         part,

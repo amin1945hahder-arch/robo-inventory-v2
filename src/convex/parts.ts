@@ -7,6 +7,31 @@ import { telegramDM, telegramGroup, notifyTelegram } from "./notify";
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 
+/**
+ * Per-execution memo for joined docs.
+ *
+ * Profile pictures are stored as base64 data URLs on user docs (can be
+ * hundreds of KB each). Queries that join a user doc once per rental row can
+ * then re-read the same heavy doc dozens of times in one execution and blow
+ * Convex's 16 MB read limit ("Too many bytes read in a single function
+ * execution") — which crashed the admin Requests console and the unit detail
+ * page. Caching each doc read once per execution fixes it and is much faster.
+ */
+export function docCache() {
+  const cache = new Map<string, Promise<any>>();
+  return {
+    get: (ctx: any, id: string | undefined) => {
+      if (!id) return Promise.resolve(null);
+      let hit = cache.get(id);
+      if (!hit) {
+        hit = ctx.db.get(id);
+        cache.set(id, hit);
+      }
+      return hit;
+    },
+  };
+}
+
 // Server-side read of the return-request cooldown (hours). Duplicated from
 // settings.ts as an inline helper because queries can't be awaited from a
 // mutation handler without scheduling; this reads the settings table directly.
@@ -107,10 +132,11 @@ export const getPartWithRental = query({
       };
     }
 
+    const cache = docCache();
     const history = [];
     for (const r of sorted.slice(0, 12)) {
-      const holder = await ctx.db.get(r.userId);
-      const project = r.projectId ? await ctx.db.get(r.projectId) : null;
+      const holder = await cache.get(ctx, r.userId);
+      const project = r.projectId ? await cache.get(ctx, r.projectId) : null;
       history.push({
         _id: r._id,
         status: r.status,
@@ -707,11 +733,12 @@ export const listMyRentals = query({
       .query("rentals")
       .withIndex("by_user", (q) => q.eq("userId", user._id))
       .collect();
+    const cache = docCache();
     const out = [];
     for (const r of rows.sort((a, b) => b.requestedAt - a.requestedAt)) {
-      const part = await ctx.db.get(r.partId);
-      const group = part ? await ctx.db.get(part.groupId) : null;
-      const project = r.projectId ? await ctx.db.get(r.projectId) : null;
+      const part = await cache.get(ctx, r.partId);
+      const group = part ? await cache.get(ctx, part.groupId) : null;
+      const project = r.projectId ? await cache.get(ctx, r.projectId) : null;
       out.push({
         rental: r,
         part,
@@ -754,11 +781,16 @@ export const listAllRentals = query({
     } else {
       rows = await ctx.db.query("rentals").collect();
     }
+    // Cached joins: a user with a big base64 avatar appears on many rental
+    // rows — without the cache their doc is re-read per row and can exceed
+    // the per-execution read limit (this exact bug crashed the Requests
+    // console and unit detail pages).
+    const cache = docCache();
     const out = [];
     for (const r of rows.sort((a, b) => b.requestedAt - a.requestedAt)) {
-      const part = await ctx.db.get(r.partId);
-      const group = part ? await ctx.db.get(part.groupId) : null;
-      const student = await ctx.db.get(r.userId);
+      const part = await cache.get(ctx, r.partId);
+      const group = part ? await cache.get(ctx, part.groupId) : null;
+      const student = await cache.get(ctx, r.userId);
       out.push({
         rental: r,
         part,
@@ -835,6 +867,7 @@ export const listPackages = query({
             .query("rentalPackages")
             .withIndex("by_user", (q) => q.eq("userId", userId))
             .collect();
+    const cache = docCache();
     const out = [];
     for (const pkg of rows.sort((a, b) => b.requestedAt - a.requestedAt)) {
       const rentals = await ctx.db
@@ -842,13 +875,13 @@ export const listPackages = query({
         .withIndex("by_user", (q) => q.eq("userId", pkg.userId))
         .collect();
       const pkgRentals = rentals.filter((r) => r.packageId === pkg._id);
-      const requester = await ctx.db.get(pkg.userId);
+      const requester = await cache.get(ctx, pkg.userId);
       const lines = [];
       for (const line of pkg.lines) {
-        const group = await ctx.db.get(line.groupId);
+        const group = await cache.get(ctx, line.groupId);
         const units = [];
         for (const r of pkgRentals) {
-          const part = r.partId ? await ctx.db.get(r.partId) : null;
+          const part = r.partId ? await cache.get(ctx, r.partId) : null;
           if (part && part.groupId === line.groupId) {
             units.push({
               rentalId: r._id,
