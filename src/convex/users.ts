@@ -104,7 +104,7 @@ export const reconcileProfile = mutation({
 });
 
 // Admin edits a person's club profile: real positions, academic state, major,
-// and the app-level role (admin/member).
+// date of birth, GitHub URL, and the app-level role (admin/member).
 export const updatePersonProfile = mutation({
   args: {
     userId: v.id("users"),
@@ -113,8 +113,10 @@ export const updatePersonProfile = mutation({
     academicState: v.optional(v.string()),
     major: v.optional(v.string()),
     telegramChatId: v.optional(v.string()),
+    dateOfBirth: v.optional(v.string()),
+    githubUrl: v.optional(v.string()),
   },
-  handler: async (ctx, { userId, role, clubRoles, academicState, major, telegramChatId }) => {
+  handler: async (ctx, { userId, role, clubRoles, academicState, major, telegramChatId, dateOfBirth, githubUrl }) => {
     await requireAdmin(ctx);
     const patch: Record<string, unknown> = {};
     if (role) patch.role = role;
@@ -122,6 +124,14 @@ export const updatePersonProfile = mutation({
     if (academicState !== undefined) patch.academicState = academicState;
     if (major !== undefined) patch.major = major;
     if (telegramChatId !== undefined) patch.telegramChatId = telegramChatId.trim() || undefined;
+    if (dateOfBirth !== undefined) {
+      const iso = dateOfBirth.trim();
+      if (iso && !/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+        throw new Error("Date of birth must be in YYYY-MM-DD format");
+      }
+      patch.dateOfBirth = iso || undefined;
+    }
+    if (githubUrl !== undefined) patch.githubUrl = githubUrl.trim() || undefined;
     await ctx.db.patch(userId, patch);
   },
 });
@@ -150,7 +160,11 @@ export const setMyTelegramUsername = mutation({
 });
 
 // Remove a person from the app entirely. Blocked while they still hold parts
-// or have pending requests so inventory never loses track of a unit.
+// or have pending requests so inventory never loses track of a unit. Purges
+// every row tied to the user — auth accounts/sessions/tokens (so their login
+// is dead for good), their profile-change and rank requests — then deletes
+// the user doc itself. Only historical rental rows survive (rendered as
+// "(removed)"), so the ledger stays auditable.
 export const deletePerson = mutation({
   args: { userId: v.id("users") },
   handler: async (ctx, { userId }) => {
@@ -188,13 +202,44 @@ export const deletePerson = mutation({
       throw new Error("This person still holds parts. Process returns first.");
     }
 
-    // Detach the person from past rental history (keep the rows readable).
-    const allRentals = await ctx.db
-      .query("rentals")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
+    // 1) Auth data — accounts, sessions, refresh tokens, verification codes —
+    //    so the person can never sign back in with the same credentials.
+    const accounts = await ctx.db
+      .query("authAccounts")
+      .withIndex("userIdAndProvider", (q) => q.eq("userId", userId))
       .collect();
-    void allRentals; // history rows are kept; they render "(removed)" when the user is gone
+    for (const acc of accounts) {
+      const codes = await ctx.db
+        .query("authVerificationCodes")
+        .withIndex("accountId", (q) => q.eq("accountId", acc._id))
+        .collect();
+      for (const c of codes) await ctx.db.delete(c._id);
+      await ctx.db.delete(acc._id);
+    }
+    const sessions = await ctx.db
+      .query("authSessions")
+      .withIndex("userId", (q) => q.eq("userId", userId))
+      .collect();
+    for (const s of sessions) {
+      const refresh = await ctx.db
+        .query("authRefreshTokens")
+        .withIndex("sessionId", (q) => q.eq("sessionId", s._id))
+        .collect();
+      for (const t of refresh) await ctx.db.delete(t._id);
+      await ctx.db.delete(s._id);
+    }
 
+    // 2) Their profile-change and rank requests.
+    for (const table of ["profileRequests", "rankRequests"] as const) {
+      const rows = await ctx.db
+        .query(table)
+        .withIndex("by_status")
+        .collect();
+      for (const r of rows.filter((r) => r.userId === userId)) await ctx.db.delete(r._id);
+    }
+
+    // 3) The user document itself. Past rental history rows are kept (they
+    //    render "(removed)") — deleting a member never rewrites the ledger.
     await ctx.db.delete(userId);
   },
 });

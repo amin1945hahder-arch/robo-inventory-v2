@@ -4,12 +4,31 @@ import { api } from "@/convex/_generated/api";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { downloadCsv } from "@/lib/csv";
 import { toast } from "sonner";
-import { FileUp, Loader2, Sparkles } from "lucide-react";
+import { FileDown, FileUp, Loader2, Sparkles } from "lucide-react";
 
 const SAMPLE = `group,category,closet,quantity,brand,model,description
 Arduino Uno,Boards,Closet 1,8,Arduino,A000066,ATmega328P board
 HC-SR04 Ultrasonic,Sensors,Closet 2,10,Generic,,Distance sensor 2-400cm`;
+
+// Importer template: the exact columns importCsv accepts, with one example
+// row and a comment row describing each column. Fill it in Excel/Sheets and
+// re-import — missing categories/closets/groups are created automatically.
+const TEMPLATE_ROWS: (string | number)[][] = [
+  ["group", "category", "closet", "quantity", "brand", "model", "description"],
+  [
+    "(required) component name, e.g. Arduino Uno",
+    "(required) category — created if missing",
+    "(required) closet/shelf — created if missing",
+    "units to create (1-200)",
+    "brand",
+    "model number",
+    "description",
+  ],
+  ["Arduino Uno", "Boards", "Closet 1", 8, "Arduino", "A000066", "ATmega328P board"],
+  ["HC-SR04 Ultrasonic", "Sensors", "Closet 2", 10, "Generic", "", "Distance sensor 2-400cm"],
+];
 
 export default function ImportCSV() {
   const importCsv = useMutation(api.importer.importCsv);
@@ -43,8 +62,20 @@ export default function ImportCSV() {
         </header>
 
         <div className="rounded-lg border">
-          <div className="border-b px-5 py-3">
+          <div className="flex items-center justify-between border-b px-5 py-3">
             <h2 className="text-sm font-semibold">Format</h2>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                downloadCsv(
+                  `inventory-import-template-${new Date().toISOString().slice(0, 10)}.csv`,
+                  TEMPLATE_ROWS.map((r) => r.join(",")).join("\n"),
+                )
+              }
+            >
+              <FileDown className="size-4" /> Download CSV template
+            </Button>
           </div>
           <div className="px-5 py-4 text-sm text-muted-foreground">
             <p className="font-mono text-xs">

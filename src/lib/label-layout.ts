@@ -20,6 +20,10 @@ export const HORIZONTAL_MIN_MM = 18;
 /** Horizontal label width = QR square + the same square × this factor for text. */
 export const HORIZONTAL_WIDTH_FACTOR = 2.35;
 
+/** Stacked (< 18mm) labels get a slim text strip under the QR — in mm — so
+ *  the tag text is legible without stealing room from the QR square. */
+export const STACKED_TEXT_STRIP_MM = 5;
+
 /** Extra padding (borders) around a label, in mm. */
 export const LABEL_PAD_MM = 4;
 
@@ -39,11 +43,15 @@ export const DEFAULT_SIZES: SectionSizes = {
 /** Physical width of a label of `sizeMm`, in mm. */
 export function labelWidthMm(sizeMm: number) {
   if (sizeMm >= HORIZONTAL_MIN_MM) return sizeMm * HORIZONTAL_WIDTH_FACTOR;
-  return sizeMm; // stacked layout: the label is the QR square wide
+  // stacked layout: the label is the QR square wide + padding on both sides
+  return sizeMm + LABEL_PAD_MM;
 }
 
 export function labelHeightMm(sizeMm: number) {
-  return sizeMm + LABEL_PAD_MM;
+  if (sizeMm >= HORIZONTAL_MIN_MM) return sizeMm + LABEL_PAD_MM;
+  // stacked: QR square + text strip + padding, so the text never rides on
+  // top of the QR (the old bug below 18 mm)
+  return sizeMm + STACKED_TEXT_STRIP_MM + LABEL_PAD_MM;
 }
 
 export type LayoutOptions = {

@@ -25,6 +25,17 @@ export const markAllRead = mutation({
   },
 });
 
+// Mark a single notification as read (tap a row in the Requests console — the
+// unread bubble decreases immediately without a reload).
+export const markRead = mutation({
+  args: { id: v.id("notifications") },
+  handler: async (ctx, { id }) => {
+    await requireAdmin(ctx);
+    const row = await ctx.db.get(id);
+    if (row && row.read !== true) await ctx.db.patch(id, { read: true });
+  },
+});
+
 export const unreadCount = query({
   args: {},
   handler: async (ctx) => {
@@ -44,14 +55,41 @@ export const requestProfileChange = mutation({
     name: v.optional(v.string()),
     studentId: v.optional(v.string()),
     phone: v.optional(v.string()),
+    dateOfBirth: v.optional(v.string()),
+    githubUrl: v.optional(v.string()),
   },
-  handler: async (ctx, { name, studentId, phone }) => {
+  handler: async (ctx, { name, studentId, phone, dateOfBirth, githubUrl }) => {
     const user = await requireUser(ctx);
-    const current = { name: user.name, studentId: user.studentId, phone: user.phone };
-    const payload: { name?: string; studentId?: string; phone?: string } = {};
+    const current = {
+      name: user.name,
+      studentId: user.studentId,
+      phone: user.phone,
+      dateOfBirth: user.dateOfBirth,
+      githubUrl: user.githubUrl,
+    };
+    const payload: {
+      name?: string;
+      studentId?: string;
+      phone?: string;
+      dateOfBirth?: string;
+      githubUrl?: string;
+    } = {};
     if (name !== undefined && name.trim() !== (current.name ?? "")) payload.name = name.trim();
     if (studentId !== undefined && studentId.trim() !== (current.studentId ?? "")) payload.studentId = studentId.trim();
     if (phone !== undefined && phone.trim() !== (current.phone ?? "")) payload.phone = phone.trim();
+    if (dateOfBirth !== undefined && dateOfBirth.trim() !== (current.dateOfBirth ?? "")) {
+      if (dateOfBirth.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth.trim())) {
+        throw new Error("Date of birth must be in YYYY-MM-DD format");
+      }
+      payload.dateOfBirth = dateOfBirth.trim() || undefined;
+    }
+    if (githubUrl !== undefined && githubUrl.trim() !== (current.githubUrl ?? "")) {
+      const gh = githubUrl.trim();
+      if (gh && !/^https:\/\/(www\.)?github\.com\/[A-Za-z0-9-]+\/?$/.test(gh)) {
+        throw new Error("GitHub must be a profile link like https://github.com/username");
+      }
+      payload.githubUrl = gh || undefined;
+    }
     if (Object.keys(payload).length === 0) {
       throw new Error("Nothing to change");
     }
@@ -149,9 +187,12 @@ export const listPeople = query({
           academicState: u.academicState,
           major: u.major,
           studentCode: u.studentCode,
+          dateOfBirth: u.dateOfBirth,
+          githubUrl: u.githubUrl,
           telegramChatId: u.telegramChatId,
           telegramUsername: u.telegramUsername,
           membershipStatus: u.membershipStatus,
+          profileApproved: u.profileApproved,
         },
         activeRentals: rentals.filter((r) => r.userId === u._id && (r.status === "active" || r.status === "on_project")).length,
         pending: rentals.filter((r) => r.userId === u._id && r.status === "pending").length,

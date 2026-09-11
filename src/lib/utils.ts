@@ -5,6 +5,28 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** Age in whole years from an ISO date string ("2001-05-14"); null if absent/invalid. */
+export function ageFromIso(iso?: string | null): number | null {
+  if (!iso) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso.trim());
+  if (!m) return null;
+  const birth = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  if (Number.isNaN(birth.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - birth.getFullYear();
+  const beforeBirthday =
+    now.getMonth() < birth.getMonth() ||
+    (now.getMonth() === birth.getMonth() && now.getDate() < birth.getDate());
+  if (beforeBirthday) age -= 1;
+  return age >= 0 && age < 150 ? age : null;
+}
+
+/** "21 yrs" chip text, or "—" when no date of birth is known. */
+export function ageLabel(iso?: string | null): string {
+  const age = ageFromIso(iso);
+  return age === null ? "—" : `${age} yrs`;
+}
+
 /**
  * Downscale an image file to a small JPEG data URL (max 256px, ~85% quality).
  * Profile pictures are stored directly on user documents; a raw 1.5 MB file

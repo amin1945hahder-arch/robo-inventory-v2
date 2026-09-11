@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
@@ -6,6 +6,8 @@ import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { ageFromIso } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -24,6 +26,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import {
+  ArrowDownWideNarrow,
   MessageSquare,
   Pencil,
   Send,
@@ -47,12 +50,40 @@ type Person = {
     academicState?: string;
     major?: string;
     studentCode?: string;
+    dateOfBirth?: string;
+    githubUrl?: string;
     telegramChatId?: string;
     telegramUsername?: string;
     membershipStatus?: string;
+    profileApproved?: boolean;
   };
   activeRentals: number;
   pending: number;
+};
+
+// Sort options for the people lists (dropdown in the header).
+type SortKey = "name" | "rank" | "age" | "added" | "rentals";
+const SORTERS: Record<SortKey, { label: string; cmp: (a: Person, b: Person) => number }> = {
+  name: {
+    label: "Name A→Z",
+    cmp: (a, b) => (a.user.name ?? a.user.email ?? "").localeCompare(b.user.name ?? b.user.email ?? ""),
+  },
+  rank: {
+    label: "Rank / positions",
+    cmp: (a, b) => (b.user.clubRoles?.length ?? 0) - (a.user.clubRoles?.length ?? 0),
+  },
+  age: {
+    label: "Age (young → old)",
+    cmp: (a, b) => (ageFromIso(a.user.dateOfBirth) ?? 999) - (ageFromIso(b.user.dateOfBirth) ?? 999),
+  },
+  added: {
+    label: "Newest first",
+    cmp: (a, b) => b.user._id.localeCompare(a.user._id),
+  },
+  rentals: {
+    label: "Most active rentals",
+    cmp: (a, b) => b.activeRentals - a.activeRentals,
+  },
 };
 
 // Club positions and academic states are admin-editable lists stored in the
@@ -101,23 +132,18 @@ function PersonRow({
   onDelete: () => void;
   onToggleMembership: () => void;
   onMessage: () => void;
-}) {
-  const { user, activeRentals, pending } = person;
+}) {  const { user, activeRentals, pending } = person;
   const isEx = user.membershipStatus === "ex";
+  const age = ageFromIso(user.dateOfBirth);
   return (
     <li className={`flex flex-wrap items-center gap-3 px-4 py-3 ${isEx ? "opacity-60" : ""}`}>
       <div className="flex min-w-0 flex-1 items-center gap-3">
-        <div
-          className={`flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
-            isAdminGroup ? "bg-primary/15 text-primary" : "bg-muted"
-          }`}
-        >
-          {isAdminGroup ? (
-            <ShieldCheck className="size-4" />
-          ) : (
-            (user.name ?? user.email ?? "?").slice(0, 1).toUpperCase()
-          )}
-        </div>
+        <Avatar className={`size-8 shrink-0 border ${isAdminGroup ? "ring-1 ring-primary/40" : ""}`}>
+          <AvatarImage src={user.image} />
+          <AvatarFallback className="text-xs font-semibold">
+            {(user.name ?? user.email ?? "?").slice(0, 1).toUpperCase()}
+          </AvatarFallback>
+        </Avatar>
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">
             {user.name ?? "Unnamed"}
@@ -132,7 +158,12 @@ function PersonRow({
             {user.studentCode && <span className="font-mono">{user.studentCode} · </span>}
             {[user.email, user.studentId, user.phone].filter(Boolean).join(" · ") || "—"}
           </p>
-          {(user.clubRoles?.length || user.academicState || user.major || user.telegramChatId) && (
+          {(user.clubRoles?.length ||
+            user.academicState ||
+            user.major ||
+            user.telegramChatId ||
+            age !== null ||
+            user.githubUrl) && (
             <div className="mt-1 flex flex-wrap items-center gap-1">
               {(user.clubRoles ?? []).map((r) => (
                 <ClubRoleChip key={r} role={r} />
@@ -146,6 +177,21 @@ function PersonRow({
                 <span className="rounded-full bg-muted/60 px-2 py-0.5 text-[11px] text-muted-foreground">
                   {user.major}
                 </span>
+              )}
+              {age !== null && (
+                <span className="rounded-full bg-muted/60 px-2 py-0.5 text-[11px] text-muted-foreground">
+                  {age} yrs
+                </span>
+              )}
+              {user.githubUrl && (
+                <a
+                  href={user.githubUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-full bg-muted/60 px-2 py-0.5 text-[11px] text-muted-foreground underline-offset-2 hover:underline"
+                >
+                  GitHub
+                </a>
               )}
               {user.telegramChatId && (
                 <span className="rounded-full border border-sky-500/40 bg-sky-500/10 px-2 py-0.5 text-[10px] text-sky-400">
@@ -201,15 +247,23 @@ function PersonRow({
 
 export default function AdminPeople() {
   const { user: me } = useAuth();
-  const people = useQuery(api.notifications.listPeople, {});
+  const peopleRaw = useQuery(api.notifications.listPeople, {});
   const dbRoles = useQuery(api.clubLists.getList, { key: "clubRoles" });
   const dbStates = useQuery(api.clubLists.getList, { key: "academicStates" });
   const CLUB_ROLES = dbRoles ?? FALLBACK_ROLES;
   const ACADEMIC_STATES = dbStates ?? FALLBACK_STATES;
+  const [sortKey, setSortKey] = useState<SortKey>("name");
+  // Sort applied to each section (admins/members/ex) independently.
+  const sorted = useMemo(() => {
+    const cmp = SORTERS[sortKey].cmp;
+    return [...(peopleRaw ?? [])].sort(cmp);
+  }, [peopleRaw, sortKey]);
   const updateProfile = useMutation(api.users.updatePersonProfile);
   const setMembership = useMutation(api.users.setMembershipStatus);
   const deletePerson = useMutation(api.users.deletePerson);
   const dmMember = useMutation(api.parts.adminDmMember);
+
+  const people = sorted;
 
   const [editing, setEditing] = useState<Person | null>(null);
   const [deleting, setDeleting] = useState<Person | null>(null);
@@ -224,6 +278,8 @@ export default function AdminPeople() {
   const [editAcademic, setEditAcademic] = useState("");
   const [editMajor, setEditMajor] = useState("");
   const [editTelegram, setEditTelegram] = useState("");
+  const [editDob, setEditDob] = useState("");
+  const [editGithub, setEditGithub] = useState("");
 
   const openEdit = (p: Person) => {
     setEditing(p);
@@ -232,6 +288,8 @@ export default function AdminPeople() {
     setEditAcademic(p.user.academicState ?? "");
     setEditMajor(p.user.major ?? "");
     setEditTelegram(p.user.telegramChatId ?? "");
+    setEditDob(p.user.dateOfBirth ?? "");
+    setEditGithub(p.user.githubUrl ?? "");
   };
 
   const toggleRole = (r: string) => {
@@ -251,6 +309,8 @@ export default function AdminPeople() {
         academicState: editAcademic || undefined,
         major: editMajor.trim() || undefined,
         telegramChatId: editTelegram.trim() || undefined,
+        dateOfBirth: editDob || undefined,
+        githubUrl: editGithub.trim() || undefined,
       });
       toast.success("Profile updated");
       setEditing(null);
@@ -324,9 +384,24 @@ export default function AdminPeople() {
               delivery, and rental activity.
             </p>
           </div>
-          <p className="text-xs text-muted-foreground">
-            ✏️ edit roles · ➖ ex-member · 🗑 remove (blocked while they hold parts)
-          </p>
+          <div className="flex flex-col items-start gap-2 sm:items-end">
+            <div className="flex items-center gap-2">
+              <ArrowDownWideNarrow className="size-4 text-muted-foreground" />
+              <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
+                <SelectTrigger className="w-48">
+                  <SelectValue placeholder="Sort" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.entries(SORTERS) as [SortKey, { label: string }][]).map(([k, s]) => (
+                    <SelectItem key={k} value={k}>{s.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              ✏️ edit roles · ➖ ex-member · 🗑 remove (blocked while they hold parts)
+            </p>
+          </div>
         </header>
 
         {people === undefined ? (
@@ -504,6 +579,20 @@ export default function AdminPeople() {
                 </div>
               </div>
 
+              <div className="grid grid-cols-2 gap-3">
+                <div className="grid gap-2">
+                  <Label>Date of birth</Label>
+                  <Input type="date" value={editDob} onChange={(e) => setEditDob(e.target.value)} />
+                </div>
+                <div className="grid gap-2">
+                  <Label>GitHub profile</Label>
+                  <Input
+                    value={editGithub}
+                    onChange={(e) => setEditGithub(e.target.value)}
+                    placeholder="https://github.com/…"
+                  />
+                </div>
+              </div>
               <div className="grid gap-2">
                 <Label>Telegram chat ID</Label>
                 <Input

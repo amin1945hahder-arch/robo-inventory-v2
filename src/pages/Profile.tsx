@@ -10,9 +10,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { compressImageFile } from "@/lib/utils";
+import { ageFromIso, compressImageFile } from "@/lib/utils";
 import { toast } from "sonner";
-import { Camera, Loader2, LogOut, Send, ShieldCheck } from "lucide-react";
+import { Camera, Github, Loader2, LogOut, Send, ShieldCheck } from "lucide-react";
 
 // A member can request any of the club positions — the list is admin-editable
 // (Settings → Club lists) and falls back to these defaults.
@@ -41,6 +41,8 @@ export default function Profile() {
   const [name, setName] = useState(user?.name ?? "");
   const [studentId, setStudentId] = useState(user?.studentId ?? "");
   const [phone, setPhone] = useState(user?.phone ?? "");
+  const [dob, setDob] = useState(user?.dateOfBirth ?? "");
+  const [github, setGithub] = useState(user?.githubUrl ?? "");
   const [busy, setBusy] = useState(false);
   const [imgBusy, setImgBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -60,6 +62,8 @@ export default function Profile() {
     setName(user.name ?? "");
     setStudentId(user.studentId ?? "");
     setPhone(user.phone ?? "");
+    setDob(user.dateOfBirth ?? "");
+    setGithub(user.githubUrl ?? "");
     setTgName(user.telegramUsername ?? "");
   }
 
@@ -126,11 +130,25 @@ export default function Profile() {
   const submit = async () => {
     setBusy(true);
     try {
-      await submitProfile({
-        name: name.trim(),
-        studentId: studentId.trim() || undefined,
-        phone: phone.trim() || undefined,
-      });
+      if (locked && !hasData) {
+        // First submission: unlock the profile (name + id/phone go live
+        // immediately, still pending admin approval).
+        await submitProfile({
+          name: name.trim(),
+          studentId: studentId.trim() || undefined,
+          phone: phone.trim() || undefined,
+        });
+      } else {
+        // Change request: everything (name, ids, DOB, GitHub) is applied
+        // only after the admin approves it.
+        await requestChange({
+          name: name.trim(),
+          studentId: studentId.trim(),
+          phone: phone.trim(),
+          dateOfBirth: dob,
+          githubUrl: github.trim(),
+        });
+      }
       toast.success("Profile submitted — an admin will approve it shortly");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
@@ -251,6 +269,21 @@ export default function Profile() {
               </span>
             )}
           </div>
+          {user?.dateOfBirth && (
+            <span className="rounded-full bg-muted/60 px-2 py-0.5 text-xs text-muted-foreground">
+              {ageFromIso(user.dateOfBirth)} yrs
+            </span>
+          )}
+          {user?.githubUrl && (
+            <a
+              href={user.githubUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1 rounded-full bg-muted/60 px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <Github className="size-3" /> GitHub
+            </a>
+          )}
           {user?.studentCode && (
             <p className="font-mono text-xs text-muted-foreground">Club code: {user.studentCode}</p>
           )}
@@ -305,6 +338,25 @@ export default function Profile() {
             <div className="grid gap-2">
               <Label>Phone</Label>
               <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-2">
+              <Label>Date of birth</Label>
+              <Input type="date" value={dob} onChange={(e) => setDob(e.target.value)} />
+              <p className="text-[11px] text-muted-foreground">
+                {ageFromIso(dob) !== null
+                  ? `Shown as ${ageFromIso(dob)} years old across the app`
+                  : "Your age (not the date) is what others see"}
+              </p>
+            </div>
+            <div className="grid gap-2">
+              <Label>GitHub profile</Label>
+              <Input
+                value={github}
+                onChange={(e) => setGithub(e.target.value)}
+                placeholder="https://github.com/username"
+              />
             </div>
           </div>
           {locked && !hasData ? (

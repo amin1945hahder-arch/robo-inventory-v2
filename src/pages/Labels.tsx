@@ -22,6 +22,7 @@ import {
   labelWidthMm,
   PAPERS,
   SIZE_OPTIONS,
+  STACKED_TEXT_STRIP_MM,
   type SectionKey,
   type SectionSizes,
 } from "@/lib/label-layout";
@@ -49,12 +50,36 @@ function MmLabel({
   sub?: string;
   sizeMm: number;
 }) {
-  // label = QR + text, laid out horizontally when big, stacked when small
+  // label = QR + text: side-by-side when big (≥18mm), QR on top + a text
+  // strip underneath when small (<18mm) — the strip is reserved height, so
+  // the text can never overlap the QR no matter how small the label gets.
   const horizontal = sizeMm >= 18;
   const qrPx = Math.round(sizeMm * MM);
+  if (horizontal) {
+    return (
+      <div
+        className="print-label flex items-center gap-1.5 rounded-[2px] border border-neutral-300 bg-white p-1 text-black"
+        style={{
+          width: `${labelWidthMm(sizeMm)}mm`,
+          minHeight: `${labelHeightMm(sizeMm)}mm`,
+        }}
+      >
+        <div className="shrink-0" style={{ width: qrPx, height: qrPx }}>
+          <QRCode value={qrUrl(value)} size={qrPx} style={{ width: "100%", height: "100%" }} />
+        </div>
+        <div className="min-w-0 leading-tight">
+          <p className="truncate text-[9px] font-semibold">{title}</p>
+          {sub && <p className="truncate font-mono text-[7px] text-neutral-600">{sub}</p>}
+          <p className="truncate font-mono text-[7px] text-neutral-400">{value}</p>
+        </div>
+      </div>
+    );
+  }
+  // Stacked: QR block of exact mm size, then a fixed-height text strip.
+  const stripPx = Math.round(STACKED_TEXT_STRIP_MM * MM);
   return (
     <div
-      className="print-label flex items-center gap-1.5 rounded-[2px] border border-neutral-300 bg-white p-1 text-black"
+      className="print-label flex flex-col items-center rounded-[2px] border border-neutral-300 bg-white p-1 text-black"
       style={{
         width: `${labelWidthMm(sizeMm)}mm`,
         minHeight: `${labelHeightMm(sizeMm)}mm`,
@@ -63,13 +88,13 @@ function MmLabel({
       <div className="shrink-0" style={{ width: qrPx, height: qrPx }}>
         <QRCode value={qrUrl(value)} size={qrPx} style={{ width: "100%", height: "100%" }} />
       </div>
-      {horizontal && (
-        <div className="min-w-0 leading-tight">
-          <p className="truncate text-[9px] font-semibold">{title}</p>
-          {sub && <p className="truncate font-mono text-[7px] text-neutral-600">{sub}</p>}
-          <p className="truncate font-mono text-[7px] text-neutral-400">{value}</p>
-        </div>
-      )}
+      <div
+        className="flex w-full flex-col justify-center overflow-hidden leading-none"
+        style={{ height: stripPx }}
+      >
+        <p className="w-full truncate text-center text-[7px] font-semibold">{title}</p>
+        <p className="w-full truncate text-center font-mono text-[6px] text-neutral-500">{value}</p>
+      </div>
     </div>
   );
 }

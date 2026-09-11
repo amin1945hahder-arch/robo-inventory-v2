@@ -51,6 +51,12 @@ const schema = defineSchema(
       academicState: v.optional(v.string()),
       major: v.optional(v.string()),
       studentCode: v.optional(v.string()), // e.g. STU-0002 (reference sheet ID)
+
+      // Member extras: date of birth (ISO string "YYYY-MM-DD", shown as age
+      // across the app) and GitHub profile URL (requested via the profile
+      // change flow and applied on admin approval).
+      dateOfBirth: v.optional(v.string()),
+      githubUrl: v.optional(v.string()),
     }).index("email", ["email"]), // index for the email. do not remove or modify
 
     // ===== Robotics Club Inventory =====
@@ -93,6 +99,9 @@ const schema = defineSchema(
         v.literal("broken"),
       ),
       note: v.optional(v.string()),
+      // Optional per-unit photo (URL) shown next to the unit's QR chip and on
+      // rent cards; falls back to the group image when not set.
+      imageUrl: v.optional(v.string()),
       currentHolderId: v.optional(v.id("users")),
       currentProjectId: v.optional(v.id("projects")),
       deleted: v.optional(v.boolean()),
@@ -203,6 +212,9 @@ const schema = defineSchema(
         // member-requested Telegram handle/chat-id change
         telegramUsername: v.optional(v.string()),
         telegramChatId: v.optional(v.string()),
+        // member-requested personal data changes (admin approves first)
+        dateOfBirth: v.optional(v.string()), // ISO "YYYY-MM-DD"
+        githubUrl: v.optional(v.string()),
       }),
       status: v.union(v.literal("pending"), v.literal("approved"), v.literal("denied")),
       requestedAt: v.number(),
