@@ -795,7 +795,13 @@ export const listAllRentals = query({
         part,
         group,
         student: student
-          ? { _id: student._id, name: student.name, email: student.email, studentId: student.studentId }
+          ? {
+              _id: student._id,
+              name: student.name,
+              email: student.email,
+              studentId: student.studentId,
+              image: student.image,
+            }
           : null,
       });
     }
@@ -903,7 +909,13 @@ export const listPackages = query({
       out.push({
         package: pkg,
         requester: requester
-          ? { _id: requester._id, name: requester.name, email: requester.email, studentId: requester.studentId }
+          ? {
+              _id: requester._id,
+              name: requester.name,
+              email: requester.email,
+              studentId: requester.studentId,
+              image: requester.image,
+            }
           : null,
         lines,
         // Package is "open" while any unit still needs admin handling.

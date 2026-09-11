@@ -302,7 +302,7 @@ export const listRankRequests = query({
       out.push({
         request: r,
         user: user
-          ? { name: user.name, email: user.email, clubRoles: user.clubRoles, telegramChatId: user.telegramChatId }
+          ? { name: user.name, email: user.email, image: user.image, clubRoles: user.clubRoles, telegramChatId: user.telegramChatId }
           : null,
       });
     }

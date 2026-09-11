@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { AppShell } from "@/components/AppShell";
 import { StatusBadge } from "@/components/StatusBadge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -44,6 +45,20 @@ export default function AdminRequests() {
   const decideProfile = useMutation(api.notifications.decideProfileRequest);
   const rankReqs = useQuery(api.users.listRankRequests, { status: "pending" });
   const decideRank = useMutation(api.users.decideRankRequest);
+  // Unread admin notifications: listed below the tabs, marked read when this
+  // page opens (and per-row on click) so the sidebar/header bubbles decrease
+  // properly instead of only clearing when every row is actioned.
+  const notifications = useQuery(api.notifications.listNotifications, {});
+  const markAllRead = useMutation(api.notifications.markAllRead);
+  const markRead = useMutation(api.notifications.markRead);
+  const unread = (notifications ?? []).filter((n) => n.read !== true);
+
+  useEffect(() => {
+    if (unread.length === 0) return;
+    markAllRead().catch(() => undefined);
+    // markAllRead identity is stable; only re-run when the unread set changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unread.length]);
 
   const act = useMutation(api.parts.adminRentalAction);
   const decidePkg = useMutation(api.parts.decidePackage);
@@ -134,6 +149,12 @@ export default function AdminRequests() {
 
   const RowCard = ({ row, actions }: { row: Row; actions: React.ReactNode }) => (
     <li className="flex flex-wrap items-center gap-3 px-4 py-3">
+      <Avatar className="size-8 shrink-0">
+        <AvatarImage src={row.student?.image} />
+        <AvatarFallback className="text-xs font-semibold">
+          {(row.student?.name ?? row.student?.email ?? "?").slice(0, 1).toUpperCase()}
+        </AvatarFallback>
+      </Avatar>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">
           {row.group?.name ?? "Part"}{" "}
@@ -251,6 +272,12 @@ export default function AdminRequests() {
                   <li key={pkg._id} className="rounded-lg border p-4">
                     <div className="flex flex-wrap items-center gap-3">
                       <Boxes className="size-5 shrink-0 text-primary" />
+                      <Avatar className="size-8 shrink-0">
+                        <AvatarImage src={requester?.image} />
+                        <AvatarFallback className="text-xs font-semibold">
+                          {(requester?.name ?? requester?.email ?? "?").slice(0, 1).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium">
                           {lines.map((l: any) => `${l.requested}× ${l.groupName}`).join(" · ")}
@@ -541,6 +568,54 @@ export default function AdminRequests() {
             )}
           </TabsContent>
         </Tabs>
+
+        {/* Admin notifications: newest first; opening this page marks them read
+            (bubbles in the sidebar/header decrease), tapping a row marks just
+            that one. */}
+        {notifications !== undefined && notifications.length > 0 && (
+          <section className="rounded-lg border">
+            <div className="flex items-center justify-between border-b px-5 py-3">
+              <h2 className="text-sm font-semibold">Notifications</h2>
+              {unread.length > 0 && (
+                <span className="rounded-full bg-destructive px-2 py-0.5 text-[11px] font-semibold text-white">
+                  {unread.length} new
+                </span>
+              )}
+            </div>
+            <ul className="divide-y">
+              {notifications.slice(0, 20).map((n) => (
+                <li key={n._id}>
+                  <button
+                    type="button"
+                    onClick={() => n.read !== true && markRead({ id: n._id })}
+                    className={`flex w-full items-center gap-3 px-5 py-2.5 text-left transition-colors hover:bg-muted/50 ${
+                      n.read !== true ? "bg-primary/5" : "opacity-70"
+                    }`}
+                  >
+                    {n.read !== true ? (
+                      <span className="size-2 shrink-0 rounded-full bg-primary" />
+                    ) : (
+                      <span className="size-2 shrink-0 rounded-full bg-muted-foreground/30" />
+                    )}
+                    <span className="min-w-0 flex-1 truncate text-sm">{n.text}</span>
+                    {n.link && (
+                      <Link
+                        to={n.link}
+                        className="shrink-0 text-xs text-primary underline-offset-2 hover:underline"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        Open
+                      </Link>
+                    )}
+                    <span className="shrink-0 text-[11px] text-muted-foreground">
+                      {new Date(n._creationTime).toLocaleDateString()}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
       </div>
 
       {/* Return / assign dialog */}
