@@ -1,2 +1,0 @@
-import{c as n}from"./index-WHI0VPI0.js";const r=[["path",{d:"M12 3v18",key:"108xh3"}],["path",{d:"M3 12h18",key:"1i2n21"}],["rect",{x:"3",y:"3",width:"18",height:"18",rx:"2",key:"h1oib"}]],i=n("grid-2x2",r);function d(e){return`\uFEFF${e.map(o=>o.map(t=>`"${String(t).replace(/"/g,'""')}"`).join(",")).join(`
-`)}`}function s(e,c){const o=new Blob([c],{type:"text/csv;charset=utf-8"}),t=document.createElement("a");t.href=URL.createObjectURL(o),t.download=e,t.click(),URL.revokeObjectURL(t.href)}export{i as G,s as d,d as t};

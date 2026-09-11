@@ -7,6 +7,7 @@ import { useSound } from "@/hooks/use-sound";
 import { AppShell } from "@/components/AppShell";
 import { QrChip } from "@/components/QrChip";
 import { StatusBadge } from "@/components/StatusBadge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { RentCardDialog, type CardRow } from "@/components/RentCardDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -395,7 +396,13 @@ export default function PartDetail() {
                 <ul className="divide-y text-sm">
                   {partRentals.slice(0, 8).map((row) => (
                     <li key={row.rental._id} className="flex items-center justify-between gap-3 px-5 py-3">
-                      <div className="min-w-0">
+                      <Avatar className="size-7 shrink-0">
+                        <AvatarImage src={row.student?.image} />
+                        <AvatarFallback className="text-[11px] font-semibold">
+                          {(row.student?.name ?? row.student?.email ?? "?").slice(0, 1).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
                         <p className="truncate font-medium">
                           {row.student?.name ?? row.student?.email ?? "Member"}
                         </p>

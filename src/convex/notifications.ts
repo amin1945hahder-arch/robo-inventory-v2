@@ -124,7 +124,9 @@ export const listProfileRequests = query({
       const user = await ctx.db.get(r.userId);
       out.push({
         request: r,
-        user: user ? { name: user.name, email: user.email, studentId: user.studentId, phone: user.phone } : null,
+        user: user
+          ? { name: user.name, email: user.email, image: user.image, studentId: user.studentId, phone: user.phone }
+          : null,
       });
     }
     return out;
