@@ -33,6 +33,7 @@ import {
 import { cn } from "@/lib/utils";
 import { normalizeScan } from "@/lib/qr";
 import { useSound } from "@/hooks/use-sound";
+import { usePush } from "@/hooks/use-push";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -56,6 +57,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const reconcile = useMutation(api.users.reconcileProfile);
   const playSound = useSound();
   const prevNotifs = useRef<number | null>(null);
+  // Member tab bubble: pending rental requests on "My rentals" (live-updated).
+  const myCounts = useQuery(api.parts.myRequestCounts, {});
+  // OS-level push notifications (service worker) for the wrapped APK/EXE apps.
+  usePush();
 
   // First-run bootstrap: (1) merge a pre-seeded club profile (name, ids,
   // phone, admin role) into this auth account if one exists, and (2) if no
@@ -105,6 +110,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <nav className="flex flex-1 flex-col gap-1">
           {NAV.map(({ to, label, icon: Icon }) => {
             const active = location.pathname.startsWith(to);
+            // Bubble count per tab: "My rentals" shows pending requests, the
+            // admin "Requests" tab keeps its unread-count bubble below.
+            const bubble =
+              to === "/rentals" && (myCounts?.pending ?? 0) > 0 ? myCounts?.pending : undefined;
             return (
               <Link
                 key={to}
@@ -118,6 +127,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               >
                 <Icon className="size-4" />
                 {label}
+                {bubble ? (
+                  <span className="ml-auto rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
+                    {bubble}
+                  </span>
+                ) : null}
               </Link>
             );
           })}

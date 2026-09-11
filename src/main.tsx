@@ -34,11 +34,14 @@ const AdminSettings = lazy(() => import("./pages/AdminSettings.tsx"));
 const Profile = lazy(() => import("./pages/Profile.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
-// Simple loading fallback for route transitions
+// Loading fallback for route transitions (spinner + page shell)
 function RouteLoading() {
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="animate-pulse text-muted-foreground">Loading...</div>
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="flex flex-col items-center gap-3">
+        <div className="size-8 animate-spin rounded-full border-2 border-muted-foreground/25 border-t-primary" />
+        <p className="animate-pulse text-sm text-muted-foreground">Loading…</p>
+      </div>
     </div>
   );
 }

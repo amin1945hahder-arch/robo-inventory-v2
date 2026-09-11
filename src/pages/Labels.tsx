@@ -14,14 +14,18 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { categoryQr, closetQr, groupQr, projectQr, qrUrl, unitQr } from "@/lib/qr";
+import { downloadCsv, toCsv } from "@/lib/csv";
+import {
+  computeColumns,
+  DEFAULT_SIZES,
+  labelHeightMm,
+  labelWidthMm,
+  PAPERS,
+  SIZE_OPTIONS,
+  type SectionKey,
+  type SectionSizes,
+} from "@/lib/label-layout";
 import { Printer, Loader2, QrCode, Grid2x2, Download } from "lucide-react";
-
-function toCsv(rows: (string | number)[][]) {
-  const out = rows
-    .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))
-    .join("\n");
-  return `\uFEFF${out}`;
-}
 
 /**
  * Bulk QR label sheets with physical sizing:
@@ -31,18 +35,8 @@ function toCsv(rows: (string | number)[][]) {
  *    see is the physical sheet you print; rows never split mid-label
  */
 
-const PAPERS: Record<string, { label: string; w: number; h: number }> = {
-  a4: { label: "A4 (210 × 297 mm)", w: 210, h: 297 },
-  a3: { label: "A3 (297 × 420 mm)", w: 297, h: 420 },
-  letter: { label: "US Letter (216 × 279 mm)", w: 216, h: 279 },
-};
-
 // CSS px per mm at 96dpi — QR rendered at this px prints at the right mm size.
 const MM = 96 / 25.4;
-
-type SectionKey = "all" | "closets" | "categories" | "projects" | "groups" | "units";
-
-const SIZE_OPTIONS = [12, 15, 18, 20, 25, 30, 40, 50] as const;
 
 function MmLabel({
   value,
@@ -61,7 +55,10 @@ function MmLabel({
   return (
     <div
       className="print-label flex items-center gap-1.5 rounded-[2px] border border-neutral-300 bg-white p-1 text-black"
-      style={{ width: `${sizeMm + (horizontal ? sizeMm * 1.35 : 0)}mm`, minHeight: `${sizeMm + 4}mm` }}
+      style={{
+        width: `${labelWidthMm(sizeMm)}mm`,
+        minHeight: `${labelHeightMm(sizeMm)}mm`,
+      }}
     >
       <div className="shrink-0" style={{ width: qrPx, height: qrPx }}>
         <QRCode value={qrUrl(value)} size={qrPx} style={{ width: "100%", height: "100%" }} />
@@ -82,13 +79,7 @@ export default function Labels() {
   const [section, setSection] = useState<SectionKey>("all");
 
   // per-section label size in mm — units (the many small tags) default smaller
-  const [sizes, setSizes] = useState<Record<string, number>>({
-    closets: 30,
-    categories: 25,
-    projects: 25,
-    groups: 20,
-    units: 15,
-  });
+  const [sizes, setSizes] = useState<SectionSizes>(DEFAULT_SIZES);
 
   // sheet setup
   const [paper, setPaper] = useState("a4");
@@ -118,7 +109,7 @@ export default function Labels() {
     ? { boxShadow: "0 0 0 1px #d4d4d4, inset 0 0 0 0.5px #a3a3a3" }
     : undefined;
 
-  const sizeControl = (key: string, label: string) => (
+  const sizeControl = (key: Exclude<SectionKey, "all">, label: string) => (
     <div className="grid gap-1" key={key}>
       <Label className="text-[11px] text-muted-foreground">{label} (mm)</Label>
       <Select
@@ -135,24 +126,25 @@ export default function Labels() {
     </div>
   );
 
-  // Column basis adapts to the sections actually shown — when a single section
-  // is selected, its own size drives the grid instead of the global minimum.
-  const gridStyle = useMemo(
-    () => {
-      const shown =
-        section === "all"
-          ? Object.values(sizes)
-          : [sizes[section] ?? 20];
-      const basis = Math.min(...shown) + 22;
-      return {
-        display: "grid",
-        gridTemplateColumns: `repeat(auto-fill, minmax(${basis}mm, 1fr))`,
-        gap: "2mm",
-      };
-    },
-    [sizes, section],
-  );
-
+  // Column basis = the real width of the widest label shown (QR + text +
+  // padding, from the shared layout module), so every column can hold its
+  // label — no overlap when sizes/margins change. When a single section is
+  // selected, only that section's size drives the grid.
+  const gridStyle = useMemo(() => {
+    const key: Exclude<SectionKey, "all"> =
+      section === "all"
+        ? (Object.entries(sizes).sort((a, b) => b[1] - a[1])[0]?.[0] as Exclude<SectionKey, "all">)
+        : section;
+    const { basisMm } = computeColumns(key, sizes, {
+      paperWidthMm: PAPERS[paper].w,
+      marginMm: margin,
+    });
+    return {
+      display: "grid",
+      gridTemplateColumns: `repeat(auto-fill, minmax(${basisMm}mm, 1fr))`,
+      gap: "2mm",
+    };
+  }, [sizes, section, paper, margin]);
   return (
     <AppShell>
       <div className="flex flex-col gap-6">
@@ -186,12 +178,7 @@ export default function Labels() {
                     parts.map((p) => ["unit", p.tag, group.name, unitQr(p.tag)]),
                   ),
                 ];
-                const blob = new Blob([toCsv(rows)], { type: "text/csv;charset=utf-8" });
-                const a = document.createElement("a");
-                a.href = URL.createObjectURL(blob);
-                a.download = `qr-labels-${new Date().toISOString().slice(0, 10)}.csv`;
-                a.click();
-                URL.revokeObjectURL(a.href);
+                downloadCsv(`qr-labels-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(rows));
               }}
               disabled={!data}
             >

@@ -310,6 +310,38 @@ export default function AdminRequests() {
                                   broken
                                 </span>
                               )}
+                              {u.status === "active" && u.returnRequestedAt !== undefined && (
+                                <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-500">
+                                  return asked
+                                </span>
+                              )}
+                              {u.status === "active" && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="ml-auto h-6 gap-1 px-2 text-[11px]"
+                                  disabled={busyId === u.rentalId}
+                                  onClick={() => {
+                                    // Reuse the shared per-unit return dialog:
+                                    // every unit of a package is decided
+                                    // individually (shelf / project / broken).
+                                    setReturnFor({
+                                      rental: { _id: u.rentalId },
+                                      part: { tag: u.tag },
+                                      group: { name: l.groupName },
+                                      student: requester,
+                                    } as Row);
+                                    setDestination("shelf");
+                                    setFunctional(true);
+                                    setReport("");
+                                    setProjectId("");
+                                    setCreatingProject(false);
+                                    setNewProjectName("");
+                                  }}
+                                >
+                                  <RotateCcw className="size-3" /> Return
+                                </Button>
+                              )}
                             </li>
                           ))
                         ),

@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Download, FileDown, Grid2x2, Loader2, Printer } from "lucide-react";
+import { downloadCsv } from "@/lib/csv";
 
 /**
  * Export studio — pick a dataset, filter it, see the exact sheet you'll get
@@ -171,12 +172,7 @@ export default function ExportStudio() {
   }, [paper, orientation, margin, scale]);
 
   const download = () => {
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `${dataset}-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    downloadCsv(`${dataset}-${new Date().toISOString().slice(0, 10)}.csv`, csv);
     toast.success("CSV downloaded");
   };
 
