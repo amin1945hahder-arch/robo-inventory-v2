@@ -35,7 +35,7 @@ function resolveRedirectAfterAuth(
 }
 
 function Auth({ redirectAfterAuth }: AuthProps = {}) {
-  const { isLoading: authLoading, isAuthenticated, signIn } = useAuth();
+  const { isLoading: authLoading, isAuthenticated, user, signIn } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const redirect = resolveRedirectAfterAuth(
@@ -49,9 +49,20 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
 
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
-      navigate(redirect);
+      // New members without an approved profile go to /profile first —
+      // until they fill their data (and an admin approves) they are
+      // effectively read-only, so the profile is their landing page.
+      const hasData = Boolean(user?.name && (user?.studentId || user?.phone));
+      const grandfathered = user?.profileApproved === undefined && hasData;
+      const lockedMember =
+        user &&
+        !user.isAnonymous &&
+        user.role !== "admin" &&
+        user.profileApproved !== true &&
+        !grandfathered;
+      navigate(lockedMember ? "/profile" : redirect);
     }
-  }, [authLoading, isAuthenticated, navigate, redirect]);
+  }, [authLoading, isAuthenticated, user, navigate, redirect]);
   const handleEmailSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setIsLoading(true);
