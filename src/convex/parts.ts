@@ -20,14 +20,13 @@ import { Id } from "./_generated/dataModel";
 export function docCache() {
   const cache = new Map<string, Promise<any>>();
   return {
-    get: (ctx: any, id: string | undefined) => {
-      if (!id) return Promise.resolve(null);
-      let hit = cache.get(id);
-      if (!hit) {
-        hit = ctx.db.get(id);
-        cache.set(id, hit);
-      }
-      return hit;
+    async get(ctx: any, id: string | undefined): Promise<any> {
+      if (!id) return null;
+      const existing = cache.get(id);
+      if (existing) return existing;
+      const promise: Promise<any> = ctx.db.get(id);
+      cache.set(id, promise);
+      return promise;
     },
   };
 }

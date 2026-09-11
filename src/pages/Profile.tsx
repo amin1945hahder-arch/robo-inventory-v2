@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { compressImageFile } from "@/lib/utils";
 import { toast } from "sonner";
 import { Camera, Loader2, LogOut, Send, ShieldCheck } from "lucide-react";
 
@@ -104,18 +105,15 @@ export default function Profile() {
   }
 
   const pickImage = async (file: File) => {
-    if (file.size > 1.5 * 1024 * 1024) {
-      toast.error("Image is too large — pick one under 1.5 MB");
+    if (!file.type.startsWith("image/")) {
+      toast.error("Pick an image file (jpg/png/webp)");
       return;
     }
     setImgBusy(true);
     try {
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result));
-        reader.onerror = () => reject(new Error("Could not read the file"));
-        reader.readAsDataURL(file);
-      });
+      // Downscale client-side — avatars live on the user document, and large
+      // base64 blobs there make every query that joins users heavy.
+      const dataUrl = await compressImageFile(file);
       await updateMyImage({ image: dataUrl });
       toast.success("Profile picture updated");
     } catch (e) {

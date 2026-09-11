@@ -84,8 +84,9 @@ export const stats = query({
 
     const groupName = new Map<string, string>(groups.map((g) => [g._id, g.name]));
     const byGroup = new Map<string, number>();
+    const pcache = docCache();
     for (const r of rentals) {
-      const part = await ctx.db.get(r.partId);
+      const part = await pcache.get(ctx, r.partId);
       if (!part) continue;
       byGroup.set(part.groupId, (byGroup.get(part.groupId) ?? 0) + 1);
     }

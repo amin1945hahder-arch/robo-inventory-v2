@@ -387,13 +387,23 @@ export const listUnapprovedProfiles = query({
 
 // Member changes their own profile picture directly (always allowed — it's
 // their face; admins can still see change history if ever needed).
+// Images are compressed client-side; this hard cap (~200 KB of base64 ≈ a
+// 256px JPEG) is the safety net — a multi-MB avatar on a user document makes
+// every query joining that user heavy and can exceed per-execution read
+// limits (this exact issue crashed the Requests console and unit pages).
 export const updateMyImage = mutation({
   args: { image: v.string() },
   handler: async (ctx, { image }) => {
     const user = await requireUser(ctx);
     if (user.isAnonymous) throw new Error("Guests cannot change a profile picture — sign in first");
-    if (!image.trim()) throw new Error("Image URL is empty");
-    await ctx.db.patch(user._id, { image: image.trim() });
-    return { ok: true }; 
+    const clean = image.trim();
+    if (!clean) throw new Error("Image URL is empty");
+    if (clean.length > 200_000) {
+      throw new Error(
+        "Image is too large after compression — try a different photo (it will be resized automatically)",
+      );
+    }
+    await ctx.db.patch(user._id, { image: clean });
+    return { ok: true };
   },
 });
