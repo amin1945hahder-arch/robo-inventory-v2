@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -9,8 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
-import { LogOut, Send } from "lucide-react";
+import { Camera, Loader2, LogOut, Send, ShieldCheck } from "lucide-react";
 
 // A member can request any of the club positions — the list is admin-editable
 // (Settings → Club lists) and falls back to these defaults.
@@ -24,19 +25,24 @@ const FALLBACK_ROLES = [
 ];
 
 export default function Profile() {
-  const { user, signOut } = useAuth();
+  const { user, signOut, signIn } = useAuth();
   const navigate = useNavigate();
   const dbRoles = useQuery(api.clubLists.getList, { key: "clubRoles" });
   const CLUB_ROLES = dbRoles ?? FALLBACK_ROLES;
   const requestChange = useMutation(api.notifications.requestProfileChange);
   const requestRank = useMutation(api.users.requestRankUpgrade);
   const setTgUser = useMutation(api.users.setMyTelegramUsername);
+  const submitProfile = useMutation(api.users.submitMyProfile);
+  const updateMyImage = useMutation(api.users.updateMyImage);
   const hasPendingRequest = useQuery(api.notifications.myPendingProfileRequest, {});
   const hasPendingRank = useQuery(api.users.myPendingRankRequest, {});
+
   const [name, setName] = useState(user?.name ?? "");
   const [studentId, setStudentId] = useState(user?.studentId ?? "");
   const [phone, setPhone] = useState(user?.phone ?? "");
   const [busy, setBusy] = useState(false);
+  const [imgBusy, setImgBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   // rank request state
   const [wantedRoles, setWantedRoles] = useState<string[]>([]);
@@ -56,6 +62,12 @@ export default function Profile() {
     setTgName(user.telegramUsername ?? "");
   }
 
+  const isGuest = Boolean(user?.isAnonymous);
+  const hasData = Boolean(user?.name && (user?.studentId || user?.phone));
+  const approved = user?.role === "admin" || user?.profileApproved === true;
+  const grandfathered = user?.profileApproved === undefined && hasData;
+  const locked = !approved && !grandfathered;
+
   const pendingMine = hasPendingRequest === true;
   const rankMine = hasPendingRank === true;
 
@@ -65,15 +77,63 @@ export default function Profile() {
     );
   };
 
+  // ===== GUESTS: view-only account → show a sign-in gate instead of a profile =====
+  if (isGuest) {
+    return (
+      <AppShell>
+        <div className="mx-auto flex w-full max-w-md flex-col items-center gap-6 rounded-lg border border-dashed px-8 py-16 text-center">
+          <div className="flex size-14 items-center justify-center rounded-full bg-primary/15 text-primary neon-ring">
+            <ShieldCheck className="size-7" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold tracking-tight">You're browsing as a guest</h1>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              Guests can look around the inventory, but interacting — renting, requesting,
+              messaging — needs a real club account. Sign in to unlock your profile.
+            </p>
+          </div>
+          <Button
+            className="w-full"
+            onClick={() => navigate(`/auth?returnTo=${encodeURIComponent("/profile")}`)}
+          >
+            Sign in / create account
+          </Button>
+        </div>
+      </AppShell>
+    );
+  }
+
+  const pickImage = async (file: File) => {
+    if (file.size > 1.5 * 1024 * 1024) {
+      toast.error("Image is too large — pick one under 1.5 MB");
+      return;
+    }
+    setImgBusy(true);
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error("Could not read the file"));
+        reader.readAsDataURL(file);
+      });
+      await updateMyImage({ image: dataUrl });
+      toast.success("Profile picture updated");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setImgBusy(false);
+    }
+  };
+
   const submit = async () => {
     setBusy(true);
     try {
-      await requestChange({
-        name: name.trim() || undefined,
+      await submitProfile({
+        name: name.trim(),
         studentId: studentId.trim() || undefined,
         phone: phone.trim() || undefined,
       });
-      toast.success("Change request sent to the admin for approval");
+      toast.success("Profile submitted — an admin will approve it shortly");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
     } finally {
@@ -105,6 +165,72 @@ export default function Profile() {
           </p>
         </header>
 
+        {locked && (
+          <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+            <p className="font-medium text-amber-500">
+              {hasData ? "Your profile is awaiting admin approval" : "Complete your profile to unlock the club"}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {hasData
+                ? "You can browse everything, but renting and requests unlock once an admin approves you."
+                : "Fill in your name and student ID (or phone) below and submit — until approval you're read-only, like a guest."}
+            </p>
+          </div>
+        )}
+
+        {/* Identity card: picture + approval badge */}
+        <section className="flex items-center gap-4 rounded-lg border p-5">
+          <div className="relative">
+            <Avatar className="size-16 border">
+              <AvatarImage src={user?.image} />
+              <AvatarFallback className="text-lg">
+                {(user?.name ?? user?.email ?? "?").slice(0, 1).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+            <button
+              type="button"
+              title="Change profile picture"
+              onClick={() => fileRef.current?.click()}
+              className="absolute -bottom-1 -right-1 flex size-7 items-center justify-center rounded-full border bg-background text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {imgBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Camera className="size-3.5" />}
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) void pickImage(f);
+              }}
+            />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold">{user?.name ?? "Unnamed member"}</p>
+            <p className="truncate text-xs text-muted-foreground">{user?.email}</p>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {user?.role === "admin" ? (
+                <span className="rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-xs text-primary">
+                  Admin
+                </span>
+              ) : approved ? (
+                <span className="flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-400">
+                  <ShieldCheck className="size-3" /> Approved member
+                </span>
+              ) : (
+                <StatusBadge status="pending" />
+              )}
+              {user?.academicState && (
+                <span className="rounded-full bg-muted/60 px-2 py-0.5 text-xs text-muted-foreground">
+                  {user.academicState}
+                </span>
+              )}
+            </div>
+          </div>
+        </section>
+
         {/* Current positions summary */}
         <section className="flex flex-col gap-3 rounded-lg border p-5">
           <h2 className="text-sm font-semibold">Your club profile</h2>
@@ -120,11 +246,6 @@ export default function Profile() {
               ))
             ) : (
               <span className="text-xs text-muted-foreground">No positions yet — request one below.</span>
-            )}
-            {user?.academicState && (
-              <span className="rounded-full bg-muted/60 px-2 py-0.5 text-xs text-muted-foreground">
-                {user.academicState}
-              </span>
             )}
             {user?.major && (
               <span className="rounded-full bg-muted/60 px-2 py-0.5 text-xs text-muted-foreground">
@@ -188,7 +309,12 @@ export default function Profile() {
               <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
             </div>
           </div>
-          {pendingMine ? (
+          {locked && !hasData ? (
+            <Button onClick={submit} disabled={busy} className="self-start">
+              {busy ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+              Submit profile for approval
+            </Button>
+          ) : pendingMine ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <StatusBadge status="pending" /> change awaiting admin approval
             </div>
@@ -198,7 +324,9 @@ export default function Profile() {
             </Button>
           )}
           <p className="text-xs text-muted-foreground">
-            Profile edits are reviewed by the lab admin before they are applied.
+            {locked
+              ? "Approval unlocks rentals, requests and packages."
+              : "Profile edits are reviewed by the lab admin before they are applied."}
           </p>
         </section>
 

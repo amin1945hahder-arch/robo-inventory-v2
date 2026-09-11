@@ -31,6 +31,30 @@ export const listPartsOfGroup = query({
   },
 });
 
+// Units grouped by group id: { available: number, broken: number, pending: number,
+// rented: number, onProject: number }. Used by the package builder to know how
+// many units of each item can go into one request.
+export const availabilityByGroup = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireUser(ctx);
+    const parts = await ctx.db
+      .query("parts")
+      .filter((q) => q.neq(q.field("deleted"), true))
+      .collect();
+    const byGroup: Record<string, { available: number; broken: number; pending: number; rented: number; onProject: number }> = {};
+    for (const p of parts) {
+      const row = (byGroup[p.groupId] ??= { available: 0, broken: 0, pending: 0, rented: 0, onProject: 0 });
+      if (p.status === "available") row.available += 1;
+      else if (p.status === "broken") row.broken += 1;
+      else if (p.status === "pending") row.pending += 1;
+      else if (p.status === "rented") row.rented += 1;
+      else if (p.status === "on_project") row.onProject += 1;
+    }
+    return byGroup;
+  },
+});
+
 export const getPart = query({
   args: { id: v.id("parts") },
   handler: async (ctx, { id }) => {
@@ -251,6 +275,105 @@ export const requestRental = mutation({
       admins.filter((a) => a.role === "admin" && a.telegramUsername).map((a) => ({ name: a.name, telegramUsername: a.telegramUsername })),
     );
     return rentalId;
+  },
+});
+
+// Member requests a quantity of one group (multi-unit rental in one shot).
+// Picks concrete free units; rejects if not enough are available.
+export const requestRentalQuantity = mutation({
+  args: {
+    groupId: v.id("groups"),
+    count: v.number(),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, { groupId, count, note }) => {
+    const user = await requireNonGuest(ctx);
+    const wanted = Math.max(1, Math.min(50, Math.ceil(count)));
+    const group = await ctx.db.get(groupId);
+    if (!group || group.deleted) throw new Error("Group not found");
+    const candidates = await ctx.db
+      .query("parts")
+      .withIndex("by_group", (q) => q.eq("groupId", groupId))
+      .filter((q) => q.neq(q.field("deleted"), true))
+      .collect();
+    const free = candidates.filter((p) => p.status === "available");
+    if (free.length < wanted) {
+      throw new Error(`Only ${free.length} unit(s) available (you asked for ${wanted})`);
+    }
+    const pool = free.slice(0, wanted);
+    const label = user.name ?? user.email ?? "A member";
+    for (const part of pool) {
+      const existing = await ctx.db
+        .query("rentals")
+        .withIndex("by_part", (q) => q.eq("partId", part._id))
+        .filter((q) => q.eq(q.field("status"), "pending"))
+        .first();
+      if (existing) throw new Error(`Unit ${part.tag} already has a pending request`);
+      await ctx.db.insert("rentals", {
+        partId: part._id,
+        userId: user._id,
+        status: "pending",
+        requestedAt: Date.now(),
+      });
+      await ctx.db.patch(part._id, { status: "pending" });
+    }
+    await notifyAdmin(
+      ctx,
+      `${label} requested ${wanted}× ${group.name}`,
+      `/admin/requests`,
+    );
+    const admins = await ctx.db.query("users").collect();
+    await telegramGroup(
+      ctx,
+      `📥 ${label} requested ${wanted}× ${group.name}${note ? `\n📝 ${note}` : ""}\n→ approve in the Requests console`,
+      admins.filter((a) => a.role === "admin" && a.telegramUsername).map((a) => ({ name: a.name, telegramUsername: a.telegramUsername })),
+    );
+    return { created: pool.length };
+  },
+});
+
+// Member knowingly rents a unit flagged broken — only offered from the unit's
+// own detail page (never from group/package flows).
+export const rentBrokenPart = mutation({
+  args: {
+    partId: v.id("parts"),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, { partId, note }) => {
+    const user = await requireNonGuest(ctx);
+    const part = await ctx.db.get(partId);
+    if (!part) throw new Error("Part not found");
+    if (part.status !== "broken") {
+      throw new Error("This unit is not flagged broken — use the normal request");
+    }
+    const existing = await ctx.db
+      .query("rentals")
+      .withIndex("by_part", (q) => q.eq("partId", partId))
+      .filter((q) => q.eq(q.field("status"), "pending"))
+      .first();
+    if (existing) throw new Error("There is already a pending request for this unit");
+    const group = await ctx.db.get(part.groupId);
+    const label = user.name ?? user.email ?? "A member";
+    await ctx.db.insert("rentals", {
+      partId,
+      userId: user._id,
+      status: "pending",
+      requestedAt: Date.now(),
+      rentBroken: true,
+    });
+    await ctx.db.patch(partId, { status: "pending" });
+    await notifyAdmin(
+      ctx,
+      `${label} requested the BROKEN unit ${group?.name ?? "part"} (${part.tag})`,
+      `/admin/requests`,
+    );
+    const admins = await ctx.db.query("users").collect();
+    await telegramGroup(
+      ctx,
+      `⚠️ ${label} requested the BROKEN unit ${group?.name ?? "part"} (${part.tag})${note ? `\n📝 ${note}` : ""} — for repair/refurb. Approve carefully.`,
+      admins.filter((a) => a.role === "admin" && a.telegramUsername).map((a) => ({ name: a.name, telegramUsername: a.telegramUsername })),
+    );
+    return { ok: true };
   },
 });
 

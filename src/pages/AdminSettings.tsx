@@ -379,6 +379,27 @@ export default function AdminSettings() {
                         ...soundCfg.sounds,
                         [key]: { ...spec, freq: Number(e.target.value) },
                       };
+                      // Preview the NEW tone immediately, before it is saved.
+                      try {
+                        const w = window as unknown as { webkitAudioContext?: typeof AudioContext };
+                        const Ctor = window.AudioContext ?? w.webkitAudioContext;
+                        if (Ctor) {
+                          const ctx = new Ctor();
+                          const osc = ctx.createOscillator();
+                          const gain = ctx.createGain();
+                          osc.type = "sine";
+                          osc.frequency.value = Number(e.target.value);
+                          gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+                          gain.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + 0.01);
+                          gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + spec.dur);
+                          osc.connect(gain).connect(ctx.destination);
+                          osc.start();
+                          osc.stop(ctx.currentTime + spec.dur + 0.02);
+                          osc.onended = () => void ctx.close();
+                        }
+                      } catch {
+                        /* autoplay policy before first interaction */
+                      }
                       try {
                         await saveSounds({ enabled: soundCfg.enabled, sounds: next });
                       } catch {

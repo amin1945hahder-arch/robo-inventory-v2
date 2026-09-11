@@ -25,7 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Award, Check, PackagePlus, RotateCcw, ScanLine, X } from "lucide-react";
+import { Award, Boxes, Check, PackagePlus, RotateCcw, ScanLine, X } from "lucide-react";
 
 type Row = {
   rental: any;
@@ -39,13 +39,16 @@ export default function AdminRequests() {
   const active = useQuery(api.parts.listAllRentals, { status: "active" });
   const onProject = useQuery(api.parts.listAllRentals, { status: "on_project" });
   const history = useQuery(api.parts.listAllRentals, { status: "returned" });
+  const packages = useQuery(api.parts.listPackages, { scope: "all" });
   const profileReqs = useQuery(api.notifications.listProfileRequests, { status: "pending" });
   const decideProfile = useMutation(api.notifications.decideProfileRequest);
   const rankReqs = useQuery(api.users.listRankRequests, { status: "pending" });
   const decideRank = useMutation(api.users.decideRankRequest);
 
   const act = useMutation(api.parts.adminRentalAction);
+  const decidePkg = useMutation(api.parts.decidePackage);
   const projects = useQuery(api.projects.listProjects, { status: "active" });
+  const unapproved = useQuery(api.users.listUnapprovedProfiles, {});
 
   const [busyId, setBusyId] = useState<string | null>(null);
   const [returnFor, setReturnFor] = useState<Row | null>(null);
@@ -62,6 +65,18 @@ export default function AdminRequests() {
     try {
       await act({ rentalId: row.rental._id, action: approve ? "approve" : "deny" });
       toast.success(approve ? "Approved — student notified" : "Denied — unit back on shelf");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const decidePackageAction = async (packageId: string, approve: boolean) => {
+    setBusyId(packageId);
+    try {
+      await decidePkg({ packageId: packageId as any, approve });
+      toast.success(approve ? "Package approved — member notified" : "Package denied — units released");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
     } finally {
@@ -162,6 +177,11 @@ export default function AdminRequests() {
             <TabsTrigger value="pending">
               Pending {pending?.length ? `(${pending.length})` : ""}
             </TabsTrigger>
+            <TabsTrigger value="packages">
+              Packages {(packages ?? []).filter((p) => p.package.status === "pending").length
+                ? `(${(packages ?? []).filter((p) => p.package.status === "pending").length})`
+                : ""}
+            </TabsTrigger>
             <TabsTrigger value="active">
               Active {active?.length ? `(${active.length})` : ""}
             </TabsTrigger>
@@ -173,7 +193,10 @@ export default function AdminRequests() {
               Ranks {rankReqs?.length ? `(${rankReqs.length})` : ""}
             </TabsTrigger>
             <TabsTrigger value="profiles">
-              Profiles {profileReqs?.length ? `(${profileReqs.length})` : ""}
+              Profiles
+              {(profileReqs?.length ?? 0) + (unapproved?.length ?? 0)
+                ? `(${(profileReqs?.length ?? 0) + (unapproved?.length ?? 0)})`
+                : ""}
             </TabsTrigger>
           </TabsList>
 
@@ -210,6 +233,89 @@ export default function AdminRequests() {
                       </div>
                     }
                   />
+                ))}
+              </ul>
+            )}
+          </TabsContent>
+
+          <TabsContent value="packages" className="mt-4">
+            {packages === undefined ? (
+              <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
+            ) : packages.length === 0 ? (
+              <p className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
+                No package rentals yet — members bundle multiple items from a group page.
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-3">
+                {packages.map(({ package: pkg, lines, requester, openUnits, totalUnits, returnedUnits }) => (
+                  <li key={pkg._id} className="rounded-lg border p-4">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Boxes className="size-5 shrink-0 text-primary" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium">
+                          {lines.map((l: any) => `${l.requested}× ${l.groupName}`).join(" · ")}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {requester?.name ?? requester?.email ?? "Member"}
+                          {requester?.studentId ? ` · ${requester.studentId}` : ""} ·{" "}
+                          {new Date(pkg.requestedAt).toLocaleString()} · {totalUnits} unit(s)
+                          {pkg.status === "approved"
+                            ? ` · ${openUnits} out, ${returnedUnits} processed`
+                            : ""}
+                          {pkg.note ? ` · “${pkg.note}”` : ""}
+                        </p>
+                        {pkg.status === "approved" && pkg.returnRequestedAt !== undefined && (
+                          <p className="mt-1 flex items-center gap-1.5 text-xs font-medium text-amber-500">
+                            <RotateCcw className="size-3.5" />
+                            Member asked to return this package ·{" "}
+                            {new Date(pkg.returnRequestedAt).toLocaleString()}
+                          </p>
+                        )}
+                      </div>
+                      {pkg.status === "pending" ? (
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            disabled={busyId === pkg._id}
+                            onClick={() => decidePackageAction(pkg._id, true)}
+                          >
+                            <Check className="size-4" /> Approve all
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={busyId === pkg._id}
+                            onClick={() => decidePackageAction(pkg._id, false)}
+                          >
+                            <X className="size-4" /> Deny
+                          </Button>
+                        </div>
+                      ) : (
+                        <StatusBadge status={pkg.status === "approved" ? "active" : "canceled"} />
+                      )}
+                    </div>
+                    <ul className="mt-3 flex flex-col gap-1 border-t pt-3">
+                      {lines.map((l: any) =>
+                        l.units.length === 0 ? (
+                          <li key={l.groupId} className="text-xs text-muted-foreground">
+                            {l.groupName}: no units attached yet
+                          </li>
+                        ) : (
+                          l.units.map((u: any) => (
+                            <li key={u.rentalId} className="flex flex-wrap items-center gap-2 text-xs">
+                              <span className="font-mono">{u.tag}</span>
+                              <StatusBadge status={u.status} />
+                              {u.rentBroken && (
+                                <span className="rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-rose-400">
+                                  broken
+                                </span>
+                              )}
+                            </li>
+                          ))
+                        ),
+                      )}
+                    </ul>
+                  </li>
                 ))}
               </ul>
             )}

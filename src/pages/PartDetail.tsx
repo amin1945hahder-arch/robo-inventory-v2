@@ -46,6 +46,7 @@ export default function PartDetail() {
   const myRentals = useQuery(api.parts.listMyRentals, {});
 
   const requestRental = useMutation(api.parts.requestRental);
+  const rentBroken = useMutation(api.parts.rentBrokenPart);
   const updatePart = useMutation(api.parts.updatePart);
   const deletePart = useMutation(api.parts.deletePart);
   const returnDirect = useMutation(api.parts.setPartStatusDirect);
@@ -341,9 +342,44 @@ export default function PartDetail() {
                   </p>
                 )}
                 {part.status === "broken" && (
-                  <p className="text-sm text-muted-foreground">
-                    Marked broken — waiting on repair. An admin can change the status via Edit.
-                  </p>
+                  <div className="flex flex-col gap-2">
+                    <p className="text-sm text-muted-foreground">
+                      Marked broken — waiting on repair. An admin can change the status via Edit.
+                    </p>
+                    {!isAdmin && !myPending && (
+                      <>
+                        <Textarea
+                          value={note}
+                          onChange={(e) => setNote(e.target.value)}
+                          placeholder="Why do you need the broken unit? (repair, spare parts, refurb project…)"
+                          rows={2}
+                        />
+                        <Button
+                          variant="outline"
+                          disabled={busy}
+                          onClick={async () => {
+                            setBusy(true);
+                            try {
+                              await rentBroken({ partId: part._id, note: note.trim() || undefined });
+                              playSound("rental_request");
+                              toast.success("Broken-unit request sent — an admin will review it");
+                              setNote("");
+                            } catch (e) {
+                              toast.error(e instanceof Error ? e.message : "Failed");
+                            } finally {
+                              setBusy(false);
+                            }
+                          }}
+                        >
+                          Request this broken unit
+                        </Button>
+                        <p className="text-xs text-muted-foreground">
+                          Broken units can only be requested from the unit's own page — the admin
+                          sees the broken flag when deciding.
+                        </p>
+                      </>
+                    )}
+                  </div>
                 )}
               </div>
             </div>

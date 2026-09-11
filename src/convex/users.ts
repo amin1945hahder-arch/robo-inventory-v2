@@ -305,3 +305,95 @@ export const myPendingRankRequest = query({
     return rows.some((r) => r.userId === user._id);
   },
 });
+
+// ===== Profile approval (new members start view-only) =====
+
+// Member submits their profile data (name + student id or phone) directly.
+// Stores it on their user row (not live for interactions until approved) and
+// pings the admins. Self-submission is allowed for guests-free real users; the
+// profile simply stays locked until an admin approves it.
+export const submitMyProfile = mutation({
+  args: {
+    name: v.string(),
+    studentId: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    telegramUsername: v.optional(v.string()),
+  },
+  handler: async (ctx, { name, studentId, phone, telegramUsername }) => {
+    const user = await requireUser(ctx);
+    if (user.isAnonymous) throw new Error("Guests cannot submit a profile — sign in first");
+    const cleanName = name.trim();
+    if (cleanName.length < 2) throw new Error("Enter your full name");
+    if (!studentId?.trim() && !phone?.trim()) {
+      throw new Error("Add your student ID or phone so the admin can verify you");
+    }
+    await ctx.db.patch(user._id, {
+      name: cleanName,
+      studentId: studentId?.trim() || undefined,
+      phone: phone?.trim() || undefined,
+      telegramUsername: telegramUsername?.trim().replace(/^@/, "") || user.telegramUsername,
+    });
+    await ctx.db.insert("notifications", {
+      forRole: "admin",
+      type: "profile",
+      text: `${cleanName} submitted their profile for approval`,
+      link: "/admin/requests",
+    });
+    return { ok: true };
+  },
+});
+
+// Admin approves a member's profile: they unlock all member interactions.
+export const approveProfile = mutation({
+  args: { userId: v.id("users"), approved: v.boolean() },
+  handler: async (ctx, { userId, approved }) => {
+    const admin = await requireAdmin(ctx);
+    const member = await ctx.db.get(userId);
+    if (!member) throw new Error("Member not found");
+    await ctx.db.patch(userId, { profileApproved: approved });
+    await notifyTelegram(
+      ctx,
+      approved
+        ? `✅ ${admin.name ?? admin.email} approved ${member.name ?? member.email ?? "a member"}'s profile — full member access unlocked.`
+        : `🔒 ${admin.name ?? admin.email} revoked approval for ${member.name ?? member.email ?? "a member"}'s profile.`,
+    );
+    return { ok: true };
+  },
+});
+
+// Who still needs profile approval (People page badge + Requests console).
+export const listUnapprovedProfiles = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+    const users = await ctx.db.query("users").collect();
+    return users
+      .filter(
+        (u) =>
+          !u.isAnonymous &&
+          u.profileApproved !== true &&
+          (u.name || u.studentId || u.phone),
+      )
+      .map((u) => ({
+        _id: u._id,
+        name: u.name,
+        email: u.email,
+        studentId: u.studentId,
+        phone: u.phone,
+        profileApproved: u.profileApproved,
+      }));
+  },
+});
+
+// Member changes their own profile picture directly (always allowed — it's
+// their face; admins can still see change history if ever needed).
+export const updateMyImage = mutation({
+  args: { image: v.string() },
+  handler: async (ctx, { image }) => {
+    const user = await requireUser(ctx);
+    if (user.isAnonymous) throw new Error("Guests cannot change a profile picture — sign in first");
+    if (!image.trim()) throw new Error("Image URL is empty");
+    await ctx.db.patch(user._id, { image: image.trim() });
+    return { ok: true }; 
+  },
+});

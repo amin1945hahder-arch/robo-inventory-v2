@@ -8,7 +8,9 @@ import { AppShell } from "@/components/AppShell";
 import { QrChip } from "@/components/QrChip";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ReturnDialog } from "@/components/ReturnDialog";
+import { PackageBuilderDialog } from "@/components/PackageBuilderDialog";
 import { groupQr, unitQr } from "@/lib/qr";
 import { toast } from "sonner";
 import { ArrowLeft, Loader2, PackagePlus, Package, RotateCcw } from "lucide-react";
@@ -28,10 +30,15 @@ export default function GroupDetail() {
   );
   const addPart = useMutation(api.catalog.addPartToGroup);
   const requestRental = useMutation(api.parts.requestRental);
+  const requestQty = useMutation(api.parts.requestRentalQuantity);
   const playSound = useSound();
 
   const [returnFor, setReturnFor] = useState<{ rentalId: string; partId: string; tag: string } | null>(null);
   const [busyTag, setBusyTag] = useState<string | null>(null);
+  // Quantity picker for the "request N units" flow.
+  const [qty, setQty] = useState(1);
+  const [qtyBusy, setQtyBusy] = useState(false);
+  const [pkgOpen, setPkgOpen] = useState(false);
 
   const myActivePartIds = new Set(
     (myRentals ?? [])
@@ -47,6 +54,20 @@ export default function GroupDetail() {
   const s = stats?.[id ?? ""];
   const total = s?.total ?? 0;
   const availableUnits = (parts ?? []).filter((p) => p.status === "available");
+
+  const requestQuantity = async () => {
+    if (!group) return;
+    setQtyBusy(true);
+    try {
+      const res = await requestQty({ groupId: group._id, count: qty });
+      playSound("rental_request");
+      toast.success(`${res.created} unit(s) requested — the lab admin has been notified`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to send request");
+    } finally {
+      setQtyBusy(false);
+    }
+  };
 
   const requestUnit = async (partId: string, tag: string) => {
     if (!group) return;
@@ -102,18 +123,36 @@ export default function GroupDetail() {
                 </Button>
               )}
               {!isAdmin && (
-                <Button
-                  disabled={availableUnits.length === 0 || busyTag !== null}
-                  onClick={async () => {
-                    const first = availableUnits[0];
-                    if (first) await requestUnit(first._id, first.tag);
-                  }}
-                >
-                  <Package className="size-4" />
-                  {availableUnits.length > 0
-                    ? `Request available unit (${availableUnits.length})`
-                    : "No units available"}
-                </Button>
+                <div className="flex flex-col items-end gap-2">
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={1}
+                      max={Math.max(1, availableUnits.length)}
+                      value={qty}
+                      onChange={(e) =>
+                        setQty(Math.max(1, Math.min(availableUnits.length || 1, Math.floor(Number(e.target.value) || 1))))
+                      }
+                      className="w-20"
+                      disabled={availableUnits.length === 0}
+                    />
+                    <Button
+                      disabled={availableUnits.length === 0 || qtyBusy}
+                      onClick={requestQuantity}
+                    >
+                      {qtyBusy ? <Loader2 className="size-4 animate-spin" /> : <Package className="size-4" />}
+                      {availableUnits.length > 0 ? `Request ${qty} unit${qty > 1 ? "s" : ""}` : "No units available"}
+                    </Button>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={availableUnits.length === 0}
+                    onClick={() => setPkgOpen(true)}
+                  >
+                    <PackagePlus className="size-4" /> Build a package (multiple items)
+                  </Button>
+                </div>
               )}
             </div>
           </header>
@@ -237,6 +276,13 @@ export default function GroupDetail() {
           groupName={group?.name ?? ""}
         />
       )}
+
+      <PackageBuilderDialog
+        open={pkgOpen}
+        onOpenChange={setPkgOpen}
+        presetGroupId={group?._id}
+        onDone={() => playSound("rental_request")}
+      />
     </AppShell>
   );
 }
