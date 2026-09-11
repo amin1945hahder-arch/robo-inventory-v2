@@ -120,6 +120,9 @@ const schema = defineSchema(
     rentalPackages: defineTable({
       userId: v.id("users"),
       note: v.optional(v.string()),
+      // "pending" until an admin approves; then "approved". Member can edit or
+      // cancel freely while pending.
+      status: v.union(v.literal("pending"), v.literal("approved"), v.literal("canceled")),
       // [{ groupId, count, note }] — concrete units are chosen at request time
       // and live on the linked `rentals` rows (by packageId).
       lines: v.array(
@@ -133,7 +136,9 @@ const schema = defineSchema(
       decidedAt: v.optional(v.number()),
       // Timestamp of the member's most recent package-level return request.
       returnRequestedAt: v.optional(v.number()),
-    }).index("by_user", ["userId"]),
+    })
+      .index("by_user", ["userId"])
+      .index("by_status", ["status"]),
 
     rentals: defineTable({
       partId: v.id("parts"),
@@ -163,6 +168,8 @@ const schema = defineSchema(
       // Cleared when the return is processed; rate-limited by a configurable
       // cooldown (settings key return_request_cooldown_hours).
       returnRequestedAt: v.optional(v.number()),
+      // True when the member knowingly rented a unit flagged broken.
+      rentBroken: v.optional(v.boolean()),
     })
       .index("by_user", ["userId"])
       .index("by_part", ["partId"])

@@ -665,8 +665,8 @@ export const cancelMyRequest = mutation({
   },
 });
 
-// Admin sends a one-off Telegram message to one member from the People page.
-// The bot delivers it; the text is signed with the sending admin's name.
+// Admin sends a one-off Telegram group post about an action (used by the admin
+// package console to mirror what the member already gets).
 export const adminDmMember = mutation({
   args: { userId: v.id("users"), text: v.string() },
   handler: async (ctx, { userId, text }) => {
@@ -682,7 +682,424 @@ export const adminDmMember = mutation({
   },
 });
 
-export async function ensureAdminUser(ctx: any, email: string) {  const existing = await ctx.db
+// ===== Package rentals (multi-unit bundles in one request) =====
+//
+// A package = one request row in `rentalPackages` + one `rentals` row per
+// concrete unit. Approvals are all-or-nothing; returns are handled per-unit by
+// admins (mark_returned / assign_project on each `rentals` row), with the
+// package's returnRequestedAt flagging the whole bundle.
+
+const MAX_PACKAGE_LINES = 20;
+const MAX_UNITS_PER_LINE = 20;
+
+/** Members with a pending profile or without an approved profile are still
+ *  allowed to browse; requesting a package follows the same rules as single
+ *  rentals (requireNonGuest). */
+export const listPackages = query({
+  args: { scope: v.optional(v.union(v.literal("mine"), v.literal("all"))) },
+  handler: async (ctx, { scope }) => {
+    let userId: any;
+    if (scope === "all") {
+      await requireAdmin(ctx);
+    } else {
+      const u = await requireNonGuest(ctx);
+      userId = u._id;
+    }
+    const rows =
+      scope === "all"
+        ? await ctx.db.query("rentalPackages").collect()
+        : await ctx.db
+            .query("rentalPackages")
+            .withIndex("by_user", (q) => q.eq("userId", userId))
+            .collect();
+    const out = [];
+    for (const pkg of rows.sort((a, b) => b.requestedAt - a.requestedAt)) {
+      const rentals = await ctx.db
+        .query("rentals")
+        .withIndex("by_user", (q) => q.eq("userId", pkg.userId))
+        .collect();
+      const pkgRentals = rentals.filter((r) => r.packageId === pkg._id);
+      const requester = await ctx.db.get(pkg.userId);
+      const lines = [];
+      for (const line of pkg.lines) {
+        const group = await ctx.db.get(line.groupId);
+        const units = [];
+        for (const r of pkgRentals) {
+          const part = r.partId ? await ctx.db.get(r.partId) : null;
+          if (part && part.groupId === line.groupId) {
+            units.push({
+              rentalId: r._id,
+              partId: part._id,
+              tag: part.tag,
+              status: r.status,
+              rentBroken: Boolean(r.rentBroken),
+              returnRequestedAt: r.returnRequestedAt,
+            });
+          }
+        }
+        lines.push({
+          groupId: line.groupId,
+          groupName: group?.name ?? "(deleted group)",
+          requested: line.count,
+          note: line.note,
+          units,
+        });
+      }
+      out.push({
+        package: pkg,
+        requester: requester
+          ? { _id: requester._id, name: requester.name, email: requester.email, studentId: requester.studentId }
+          : null,
+        lines,
+        // Package is "open" while any unit still needs admin handling.
+        openUnits: pkgRentals.filter((r) => r.status === "active" || r.status === "pending").length,
+        returnedUnits: pkgRentals.filter((r) => r.status === "returned" || r.status === "on_project").length,
+        totalUnits: pkgRentals.length,
+      });
+    }
+    return out;
+  },
+});
+
+export const getPackage = query({
+  args: { id: v.id("rentalPackages") },
+  handler: async (ctx, { id }) => {
+    const user = await requireUser(ctx);
+    const pkg = await ctx.db.get(id);
+    if (!pkg) return null;
+    if (pkg.userId !== user._id && user.role !== "admin") {
+      throw new Error("Not your package");
+    }
+    const requester = await ctx.db.get(pkg.userId);
+    const rentals = await ctx.db
+      .query("rentals")
+      .withIndex("by_user", (q) => q.eq("userId", pkg.userId))
+      .collect();
+    const pkgRentals = rentals.filter((r) => r.packageId === id);
+    const lines = [];
+    for (const line of pkg.lines) {
+      const group = await ctx.db.get(line.groupId);
+      const units = [];
+      for (const r of pkgRentals) {
+        const part = r.partId ? await ctx.db.get(r.partId) : null;
+        if (part && part.groupId === line.groupId) {
+          units.push({
+            rentalId: r._id,
+            partId: part._id,
+            tag: part.tag,
+            status: r.status,
+            rentBroken: Boolean(r.rentBroken),
+            returnRequestedAt: r.returnRequestedAt,
+          });
+        }
+      }
+      lines.push({ groupId: line.groupId, groupName: group?.name ?? "(deleted group)", requested: line.count, note: line.note, units });
+    }
+    return {
+      package: pkg,
+      requester: requester ? { _id: requester._id, name: requester.name, email: requester.email } : null,
+      lines,
+    };
+  },
+});
+
+/** Create a package request: N units of each line's group are claimed
+ *  (status -> pending, like single requests). Editable/cancellable while
+ *  pending. */
+export const createPackage = mutation({
+  args: {
+    lines: v.array(
+      v.object({
+        groupId: v.id("groups"),
+        count: v.number(),
+        note: v.optional(v.string()),
+      }),
+    ),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, { lines, note }) => {
+    const user = await requireNonGuest(ctx);
+    if (!lines.length) throw new Error("Add at least one item");
+    if (lines.length > MAX_PACKAGE_LINES) throw new Error(`Packages are limited to ${MAX_PACKAGE_LINES} items`);
+
+    // Resolve units up front: enough available units per group, skipping
+    // broken ones unless the member explicitly opts in (rent-broken feature).
+    const chosen: { partId: Id<"parts">; groupId: Id<"groups"> }[] = [];
+    for (const line of lines) {
+      if (line.count < 1) throw new Error("Each line needs at least 1 unit");
+      if (line.count > MAX_UNITS_PER_LINE) throw new Error(`Max ${MAX_UNITS_PER_LINE} units per item`);
+      const group = await ctx.db.get(line.groupId);
+      if (!group || group.deleted) throw new Error(`"${group?.name ?? "item"}" no longer exists`);
+      const candidates = await ctx.db
+        .query("parts")
+        .withIndex("by_group", (q) => q.eq("groupId", line.groupId))
+        .filter((q) => q.neq(q.field("deleted"), true))
+        .collect();
+      const wanted = Math.ceil(line.count);
+      const free = candidates.filter((p) => p.status === "available");
+      const broken = candidates.filter((p) => p.status === "broken");
+      if (free.length < wanted) {
+        throw new Error(
+          `Not enough free units of ${group.name}: need ${wanted}, only ${free.length} available` +
+            (broken.length ? ` (${broken.length} broken — ask an admin or rent them from the unit's own page)` : ""),
+        );
+      }
+      const pool = free.slice(0, wanted);
+      for (const part of pool) chosen.push({ partId: part._id, groupId: line.groupId });
+    }
+
+    const packageId = await ctx.db.insert("rentalPackages", {
+      userId: user._id,
+      note: note?.trim() || undefined,
+      status: "pending",
+      lines: lines.map((l) => ({
+        groupId: l.groupId,
+        count: Math.ceil(l.count),
+        note: l.note?.trim() || undefined,
+      })),
+      requestedAt: Date.now(),
+    });
+
+    for (const { partId } of chosen) {
+      const part = await ctx.db.get(partId);
+      if (!part) continue;
+      await ctx.db.insert("rentals", {
+        partId,
+        userId: user._id,
+        packageId,
+        status: "pending",
+        requestedAt: Date.now(),
+        rentBroken: part.status === "broken" ? true : undefined,
+      });
+      await ctx.db.patch(partId, { status: "pending" });
+    }
+
+    const label = user.name ?? user.email ?? "A member";
+    const summary = await summarize(ctx, lines.map((l) => ({ groupId: l.groupId, count: Math.ceil(l.count) })));
+    await notifyAdmin(ctx, `${label} requested a package rental (${summary})`, `/admin/requests`);
+    const admins = await ctx.db.query("users").collect();
+    await telegramGroup(
+      ctx,
+      `📦 ${label} requested a package rental: ${summary}${note ? `\n📝 ${note}` : ""}\n→ approve in the Requests console`,
+      admins.filter((a) => a.role === "admin" && a.telegramUsername).map((a) => ({ name: a.name, telegramUsername: a.telegramUsername })),
+    );
+    return packageId;
+  },
+});
+
+/** Member edits their still-pending package: replaces lines + re-picks units. */
+export const editPackage = mutation({
+  args: {
+    packageId: v.id("rentalPackages"),
+    lines: v.array(
+      v.object({
+        groupId: v.id("groups"),
+        count: v.number(),
+        note: v.optional(v.string()),
+      }),
+    ),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, { packageId, lines, note }) => {
+    const user = await requireNonGuest(ctx);
+    const pkg = await ctx.db.get(packageId);
+    if (!pkg) throw new Error("Package not found");
+    if (pkg.userId !== user._id) throw new Error("Not your package");
+    if (pkg.status !== "pending") throw new Error("Only pending packages can be edited");
+    if (!lines.length) throw new Error("Add at least one item");
+
+    // Release every claimed unit, then re-claim for the new lines.
+    const oldRentals = await ctx.db
+      .query("rentals")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .collect();
+    for (const r of oldRentals.filter((r) => r.packageId === packageId)) {
+      const part = await ctx.db.get(r.partId);
+      if (part && part.status === "pending") await ctx.db.patch(part._id, { status: "available" });
+      await ctx.db.delete(r._id);
+    }
+
+    const chosen: { partId: Id<"parts">; groupId: Id<"groups"> }[] = [];
+    for (const line of lines) {
+      if (line.count < 1) throw new Error("Each line needs at least 1 unit");
+      if (line.count > MAX_UNITS_PER_LINE) throw new Error(`Max ${MAX_UNITS_PER_LINE} units per item`);
+      const group = await ctx.db.get(line.groupId);
+      if (!group || group.deleted) throw new Error(`"${group?.name ?? "item"}" no longer exists`);
+      const candidates = await ctx.db
+        .query("parts")
+        .withIndex("by_group", (q) => q.eq("groupId", line.groupId))
+        .filter((q) => q.neq(q.field("deleted"), true))
+        .collect();
+      const wanted = Math.ceil(line.count);
+      const free = candidates.filter((p) => p.status === "available");
+      if (free.length < wanted) {
+        throw new Error(`Not enough free units of ${group.name}: need ${wanted}, only ${free.length} available`);
+      }
+      const pool = free.slice(0, wanted);
+      for (const part of pool) chosen.push({ partId: part._id, groupId: line.groupId });
+    }
+
+    await ctx.db.patch(packageId, {
+      note: note?.trim() || undefined,
+      lines: lines.map((l) => ({
+        groupId: l.groupId,
+        count: Math.ceil(l.count),
+        note: l.note?.trim() || undefined,
+      })),
+    });
+    for (const { partId } of chosen) {
+      const part = await ctx.db.get(partId);
+      if (!part) continue;
+      await ctx.db.insert("rentals", {
+        partId,
+        userId: user._id,
+        packageId,
+        status: "pending",
+        requestedAt: Date.now(),
+        rentBroken: part.status === "broken" ? true : undefined,
+      });
+      await ctx.db.patch(partId, { status: "pending" });
+    }
+    await telegramGroup(ctx, `✏️ ${user.name ?? user.email ?? "A member"} edited their pending package rental request.`);
+    return { ok: true };
+  },
+});
+
+/** Member cancels their pending package entirely (units go back to available). */
+export const cancelPackage = mutation({
+  args: { packageId: v.id("rentalPackages") },
+  handler: async (ctx, { packageId }) => {
+    const user = await requireNonGuest(ctx);
+    const pkg = await ctx.db.get(packageId);
+    if (!pkg) throw new Error("Package not found");
+    if (pkg.userId !== user._id) throw new Error("Not your package");
+    if (pkg.status !== "pending") throw new Error("Only pending packages can be canceled");
+    const mine = await ctx.db
+      .query("rentals")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .collect();
+    for (const r of mine.filter((r) => r.packageId === packageId)) {
+      const part = await ctx.db.get(r.partId);
+      if (part && part.status === "pending") await ctx.db.patch(part._id, { status: "available" });
+      await ctx.db.patch(r._id, { status: "canceled", decidedAt: Date.now() });
+    }
+    await ctx.db.patch(packageId, { status: "canceled", decidedAt: Date.now() });
+    await telegramGroup(ctx, `🗑 ${user.name ?? user.email ?? "A member"} canceled their pending package rental request.`);
+    return { ok: true };
+  },
+});
+
+/** Admin approves or denies a pending package (all-or-nothing). */
+export const decidePackage = mutation({
+  args: { packageId: v.id("rentalPackages"), approve: v.boolean() },
+  handler: async (ctx, { packageId, approve }) => {
+    const admin = await requireAdmin(ctx);
+    const pkg = await ctx.db.get(packageId);
+    if (!pkg) throw new Error("Package not found");
+    if (pkg.status !== "pending") throw new Error("This package was already handled");
+    const mine = await ctx.db
+      .query("rentals")
+      .withIndex("by_user", (q) => q.eq("userId", pkg.userId))
+      .collect();
+    const pkgRentals = mine.filter((r) => r.packageId === packageId);
+    const member = await ctx.db.get(pkg.userId);
+    const memberRef = { name: member?.name ?? member?.email, telegramUsername: member?.telegramUsername, telegramChatId: member?.telegramChatId };
+    const now = Date.now();
+
+    await ctx.db.patch(packageId, {
+      status: approve ? "approved" : "canceled",
+      decidedAt: now,
+      returnRequestedAt: undefined,
+    });
+    for (const r of pkgRentals) {
+      const part = await ctx.db.get(r.partId);
+      const group = part ? await ctx.db.get(part.groupId) : null;
+      if (approve) {
+        await ctx.db.patch(r._id, { status: "active", decidedAt: now, pickedUpAt: now });
+        if (part) await ctx.db.patch(part._id, { status: "rented", currentHolderId: pkg.userId });
+      } else {
+        await ctx.db.patch(r._id, { status: "denied", decidedAt: now });
+        if (part && part.status === "pending") await ctx.db.patch(part._id, { status: "available" });
+      }
+    }
+
+    const summaryText = await summarize(ctx, pkg.lines);
+
+    if (member?.telegramChatId || member?.telegramUsername) {
+      await telegramDM(
+        ctx,
+        memberRef,
+        approve
+          ? `✅ Package approved: ${summaryText}. Pick everything up from the lab.`
+          : `❌ Package denied: ${summaryText}.`,
+        { name: admin.name ?? admin.email },
+      );
+    }
+    await telegramGroup(
+      ctx,
+      approve
+        ? `✅ ${admin.name ?? admin.email} approved ${member?.name ?? member?.email ?? "a member"}'s package rental (${summaryText}).`
+        : `❌ ${admin.name ?? admin.email} denied ${member?.name ?? member?.email ?? "a member"}'s package rental (${summaryText}).`,
+    );
+    if (member?.email) {
+      await ctx.scheduler.runAfter(0, api.emails.sendRentalDecisionEmail, {
+        to: member.email,
+        student: member.name ?? member.email,
+        partName: `package (${summaryText})`,
+        approved: approve,
+      });
+    }
+    return { ok: true };
+  },
+});
+
+async function summarize(ctx: any, lines: { groupId: any; count: number }[]) {
+  const parts: string[] = [];
+  for (const l of lines) {
+    const g = await ctx.db.get(l.groupId);
+    parts.push(`${l.count}× ${g?.name ?? "item"}`);
+  }
+  return parts.join(", ");
+}
+
+/** Member asks to return the whole package (admin then processes units one by
+ *  one). Same cooldown rules as single rentals. */
+export const requestPackageReturn = mutation({
+  args: { packageId: v.id("rentalPackages") },
+  handler: async (ctx, { packageId }) => {
+    const user = await requireNonGuest(ctx);
+    const pkg = await ctx.db.get(packageId);
+    if (!pkg) throw new Error("Package not found");
+    if (pkg.userId !== user._id) throw new Error("Not your package");
+    const mine = await ctx.db
+      .query("rentals")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .collect();
+    const active = mine.filter((r) => r.packageId === packageId && r.status === "active");
+    if (!active.length) throw new Error("No active units in this package");
+    const cooldownHours = await returnCooldownHours(ctx);
+    if (pkg.returnRequestedAt) {
+      const elapsedH = (Date.now() - pkg.returnRequestedAt) / 36e5;
+      if (elapsedH < cooldownHours) {
+        const remaining = Math.ceil(cooldownHours - elapsedH);
+        throw new Error(`You already requested a return — ask again in ${remaining}h`);
+      }
+    }
+    await ctx.db.patch(packageId, { returnRequestedAt: Date.now() });
+    for (const r of active) await ctx.db.patch(r._id, { returnRequestedAt: Date.now() });
+    const summaryText = await summarize(ctx, pkg.lines);
+    const admins = await ctx.db.query("users").collect();
+    await telegramGroup(
+      ctx,
+      `↩️ ${user.name ?? user.email ?? "A member"} wants to return their package (${summaryText}) — process it in the Requests console.`,
+      admins.filter((a) => a.role === "admin" && a.telegramUsername).map((a) => ({ name: a.name, telegramUsername: a.telegramUsername })),
+    );
+    return { ok: true };
+  },
+});
+
+export async function ensureAdminUser(ctx: any, email: string) {
+  const existing = await ctx.db
     .query("users")
     .withIndex("email", (q: any) => q.eq("email", email))
     .first();
