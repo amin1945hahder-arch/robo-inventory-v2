@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { QrScanDialog } from "@/components/QrScanDialog";
+import { PermissionsPrompt } from "@/components/PermissionsPrompt";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -298,6 +299,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
 
       <QrScanDialog open={scanOpen} onOpenChange={setScanOpen} onResult={handleScan} />
+      {/* One-time camera permission prompt on first load */}
+      <PermissionsPrompt />
     </div>
   );
 }
