@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { api } from "./_generated/api";
-import { requireAdmin, requireNonGuest, requireUser, safeImage } from "./lib";
+import { requireAdmin, requireNonGuest, requireInteractingMember, requireUser, safeImage } from "./lib";
 import { adminPhones, sendWhatsApp } from "./whatsapp";
 import { telegramDM, telegramGroup, notifyTelegram } from "./notify";
 import { internal } from "./_generated/api";
@@ -395,7 +395,7 @@ export const requestRental = mutation({
     note: v.optional(v.string()),
   },
   handler: async (ctx, { partId, groupId, note }) => {
-    const user = await requireNonGuest(ctx);
+    const user = await requireInteractingMember(ctx);
     const part = await ctx.db.get(partId);
     if (!part) throw new Error("Part not found");
     if (part.status !== "available") {
@@ -458,7 +458,7 @@ export const requestRentalQuantity = mutation({
     note: v.optional(v.string()),
   },
   handler: async (ctx, { groupId, count, note }) => {
-    const user = await requireNonGuest(ctx);
+    const user = await requireInteractingMember(ctx);
     const wanted = Math.max(1, Math.min(50, Math.ceil(count)));
     const group = await ctx.db.get(groupId);
     if (!group || group.deleted) throw new Error("Group not found");
@@ -511,7 +511,7 @@ export const rentBrokenPart = mutation({
     note: v.optional(v.string()),
   },
   handler: async (ctx, { partId, note }) => {
-    const user = await requireNonGuest(ctx);
+    const user = await requireInteractingMember(ctx);
     const part = await ctx.db.get(partId);
     if (!part) throw new Error("Part not found");
     if (part.status !== "broken") {
@@ -552,7 +552,7 @@ export const rentBrokenPart = mutation({
 export const deleteMyRentalRequest = mutation({
   args: { rentalId: v.id("rentals") },
   handler: async (ctx, { rentalId }) => {
-    const user = await requireNonGuest(ctx);
+    const user = await requireInteractingMember(ctx);
     const rental = await ctx.db.get(rentalId);
     if (!rental) throw new Error("Rental not found");
     if (rental.userId !== user._id) throw new Error("Not your request");
@@ -574,7 +574,7 @@ export const deleteMyRentalRequest = mutation({
 export const requestReturn = mutation({
   args: { rentalId: v.id("rentals") },
   handler: async (ctx, { rentalId }) => {
-    const user = await requireNonGuest(ctx);
+    const user = await requireInteractingMember(ctx);
     const rental = await ctx.db.get(rentalId);
     if (!rental) throw new Error("Rental not found");
     if (rental.userId !== user._id) throw new Error("Not your rental");
@@ -1045,7 +1045,7 @@ export const myRequestCounts = query({
 export const cancelMyRequest = mutation({
   args: { rentalId: v.id("rentals") },
   handler: async (ctx, { rentalId }) => {
-    const user = await requireNonGuest(ctx);
+    const user = await requireInteractingMember(ctx);
     const rental = await ctx.db.get(rentalId);
     if (!rental) throw new Error("Rental not found");
     if (rental.userId !== user._id) throw new Error("Not your request");
@@ -1206,7 +1206,7 @@ export const listPackages = query({
     if (scope === "all") {
       await requireAdmin(ctx);
     } else {
-      const u = await requireNonGuest(ctx);
+      const u = await requireInteractingMember(ctx);
       userId = u._id;
     }
     const rows =
@@ -1329,7 +1329,7 @@ export const createPackage = mutation({
     note: v.optional(v.string()),
   },
   handler: async (ctx, { lines, note }) => {
-    const user = await requireNonGuest(ctx);
+    const user = await requireInteractingMember(ctx);
     if (!lines.length) throw new Error("Add at least one item");
     if (lines.length > MAX_PACKAGE_LINES) throw new Error(`Packages are limited to ${MAX_PACKAGE_LINES} items`);
 
@@ -1412,7 +1412,7 @@ export const editPackage = mutation({
     note: v.optional(v.string()),
   },
   handler: async (ctx, { packageId, lines, note }) => {
-    const user = await requireNonGuest(ctx);
+    const user = await requireInteractingMember(ctx);
     const pkg = await ctx.db.get(packageId);
     if (!pkg) throw new Error("Package not found");
     if (pkg.userId !== user._id) throw new Error("Not your package");
@@ -1480,7 +1480,7 @@ export const editPackage = mutation({
 export const cancelPackage = mutation({
   args: { packageId: v.id("rentalPackages") },
   handler: async (ctx, { packageId }) => {
-    const user = await requireNonGuest(ctx);
+    const user = await requireInteractingMember(ctx);
     const pkg = await ctx.db.get(packageId);
     if (!pkg) throw new Error("Package not found");
     if (pkg.userId !== user._id) throw new Error("Not your package");
@@ -1578,7 +1578,7 @@ async function summarize(ctx: any, lines: { groupId: any; count: number }[]) {
 export const requestPackageReturn = mutation({
   args: { packageId: v.id("rentalPackages") },
   handler: async (ctx, { packageId }) => {
-    const user = await requireNonGuest(ctx);
+    const user = await requireInteractingMember(ctx);
     const pkg = await ctx.db.get(packageId);
     if (!pkg) throw new Error("Package not found");
     if (pkg.userId !== user._id) throw new Error("Not your package");
@@ -1641,7 +1641,10 @@ export async function ensureAdminUser(ctx: any, email: string) {
 }
 
 export const promoteByEmail = mutation({
-  args: { email: v.string(), role: v.union(v.literal("admin"), v.literal("member")) },
+  args: {
+    email: v.string(),
+    role: v.union(v.literal("admin"), v.literal("member"), v.literal("student")),
+  },
   handler: async (ctx, { email, role }) => {
     await requireAdmin(ctx);
     const user = await ctx.db

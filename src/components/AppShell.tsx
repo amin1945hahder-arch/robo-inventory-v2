@@ -20,8 +20,10 @@ import {
   Boxes,
   FileDown,
   FolderKanban,
+  GraduationCap,
   LayoutDashboard,
   LogOut,
+  MessagesSquare,
   PackageSearch,
   QrCode,
   ScanLine,
@@ -37,10 +39,12 @@ import { usePush } from "@/hooks/use-push";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/inventory", label: "Inventory", icon: Boxes },
-  { to: "/closets", label: "Closets", icon: Warehouse },
-  { to: "/projects", label: "Projects", icon: FolderKanban },
-  { to: "/rentals", label: "My rentals", icon: PackageSearch },
+  { to: "/inventory", label: "Inventory", icon: Boxes, studentBlocked: true },
+  { to: "/closets", label: "Closets", icon: Warehouse, studentBlocked: true },
+  { to: "/projects", label: "Projects", icon: FolderKanban, studentBlocked: true },
+  { to: "/rentals", label: "My rentals", icon: PackageSearch, studentBlocked: true },
+  { to: "/courses", label: "Courses", icon: GraduationCap, studentBlocked: false },
+  { to: "/chat", label: "Chat", icon: MessagesSquare, studentBlocked: false },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -48,6 +52,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const location = useLocation();
   const isAdmin = user?.role === "admin";
+  // Students get the restricted navigation: inventory-related tabs are hidden
+  // (and every protected backend call is rejected server-side as well).
+  const isStudent = user?.role === "student";
   const [scanOpen, setScanOpen] = useState(false);
   const notifData = useQuery(
     api.notifications.unreadCount,
@@ -108,7 +115,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </Link>
 
         <nav className="flex flex-1 flex-col gap-1">
-          {NAV.map(({ to, label, icon: Icon }) => {
+          {NAV.filter(({ studentBlocked }) => !studentBlocked || !isStudent).map(
+            ({ to, label, icon: Icon }) => {
             const active = location.pathname.startsWith(to);
             // Bubble count per tab: "My rentals" shows pending requests, the
             // admin "Requests" tab keeps its unread-count bubble below.
@@ -134,7 +142,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 ) : null}
               </Link>
             );
-          })}
+            },
+          )}
           {isAdmin && (
             <>
               <p className="mt-6 mb-1 px-3 text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
@@ -241,7 +250,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b bg-background/80 px-4 backdrop-blur md:px-8">
           <div className="flex items-center gap-1 md:hidden">
-            {NAV.slice(0, 4).map(({ to, label, icon: Icon }) => (
+            {NAV.filter(({ studentBlocked }) => !studentBlocked || !isStudent)
+              .slice(0, 4)
+              .map(({ to, label, icon: Icon }) => (
               <Link
                 key={to}
                 to={to}

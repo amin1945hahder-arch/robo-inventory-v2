@@ -42,6 +42,46 @@ export async function requireNonGuest(ctx: QueryCtx) {
   return user;
 }
 
+/** Member interactions that touch the inventory (rent, return, packages).
+ *  Students are blocked (restricted role) and the usual guest/approval rules
+ *  still apply to everyone else. */
+export async function requireInteractingMember(ctx: QueryCtx) {
+  const user = await requireNonStudent(ctx);
+  // Re-run the guest/approval checks from requireNonGuest against the
+  // non-student user we already have.
+  if (user.isAnonymous) {
+    throw new Error("Guests are view-only — sign in to interact");
+  }
+  if (user.role !== "admin") {
+    const hasData = Boolean(user.name && (user.studentId || user.phone));
+    const allowed =
+      user.profileApproved === true ||
+      (user.profileApproved === undefined && hasData);
+    if (!allowed) {
+      throw new Error(
+        user.name || user.studentId || user.phone
+          ? "Your profile is awaiting admin approval — you can browse but not interact yet"
+          : "Complete your profile first — it must be approved by an admin before you can interact",
+      );
+    }
+  }
+  return user;
+}
+
+/**
+ * Student role gate. Students are blocked from the inventory modules and
+ * administrative settings — they keep access to Chat, Courses (when shipped),
+ * Profile and Dashboard. Every backend function in a protected module calls
+ * this, so even a hand-crafted API call from a student account is rejected.
+ */
+export async function requireNonStudent(ctx: QueryCtx) {
+  const user = await requireUser(ctx);
+  if (user.role === "student") {
+    throw new Error("Your account has student-level access — this area is restricted");
+  }
+  return user;
+}
+
 /**
  * Guard for profile pictures in list/query projections.
  *

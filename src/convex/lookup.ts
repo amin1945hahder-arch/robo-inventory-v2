@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
-import { requireUser } from "./lib";
+import { requireNonStudent } from "./lib";
 
 // Resolve a QR payload to a destination route.
 // Supported payloads:
@@ -13,7 +13,7 @@ import { requireUser } from "./lib";
 export const resolve = query({
   args: { payload: v.string() },
   handler: async (ctx, { payload }) => {
-    await requireUser(ctx);
+    await requireNonStudent(ctx);
     const raw = payload.trim();
     const [scheme, value] = raw.split(":");
 
@@ -63,7 +63,7 @@ export const resolve = query({
         .first();
       if (!rental) return null;
       // Admins can open any rent card; members only their own.
-      const me = await requireUser(ctx);
+      const me = await requireNonStudent(ctx);
       const isAdmin = me.role === "admin";
       if (!isAdmin && rental.userId !== me._id) return null;
       const part = await ctx.db.get(rental.partId);

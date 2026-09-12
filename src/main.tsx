@@ -2,6 +2,7 @@ import '@vly-ai/integrations';
 import { Toaster } from "@/components/ui/sonner";
 import { RequireAuth } from "@/components/RequireAuth";
 import { RequireAdmin } from "@/components/RequireAdmin";
+import { RequireNonStudent } from "@/components/RequireNonStudent";
 import { PageErrorBoundary } from "@/components/PageErrorBoundary";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
@@ -32,6 +33,8 @@ const Labels = lazy(() => import("./pages/Labels.tsx"));
 const AdminReports = lazy(() => import("./pages/AdminReports.tsx"));
 const ExportStudio = lazy(() => import("./pages/ExportStudio.tsx"));
 const AdminSettings = lazy(() => import("./pages/AdminSettings.tsx"));
+const Courses = lazy(() => import("./pages/Courses.tsx"));
+const Chat = lazy(() => import("./pages/Chat.tsx"));
 const Profile = lazy(() => import("./pages/Profile.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
@@ -166,7 +169,9 @@ createRoot(document.getElementById("root")!).render(
                 path="/inventory"
                 element={
                   <RequireAuth>
-                    <Inventory />
+                    <RequireNonStudent>
+                      <Inventory />
+                    </RequireNonStudent>
                   </RequireAuth>
                 }
               />
@@ -174,7 +179,9 @@ createRoot(document.getElementById("root")!).render(
                 path="/group/:id"
                 element={
                   <RequireAuth>
-                    <GroupDetail />
+                    <RequireNonStudent>
+                      <GroupDetail />
+                    </RequireNonStudent>
                   </RequireAuth>
                 }
               />
@@ -182,7 +189,9 @@ createRoot(document.getElementById("root")!).render(
                 path="/part/:id"
                 element={
                   <RequireAuth>
-                    <PartDetail />
+                    <RequireNonStudent>
+                      <PartDetail />
+                    </RequireNonStudent>
                   </RequireAuth>
                 }
               />
@@ -190,7 +199,9 @@ createRoot(document.getElementById("root")!).render(
                 path="/rent-scan"
                 element={
                   <RequireAuth>
-                    <RentScan />
+                    <RequireNonStudent>
+                      <RentScan />
+                    </RequireNonStudent>
                   </RequireAuth>
                 }
               />
@@ -199,7 +210,9 @@ createRoot(document.getElementById("root")!).render(
                 path="/rentals"
                 element={
                   <RequireAuth>
-                    <MyRentals />
+                    <RequireNonStudent>
+                      <MyRentals />
+                    </RequireNonStudent>
                   </RequireAuth>
                 }
               />
@@ -207,7 +220,9 @@ createRoot(document.getElementById("root")!).render(
                 path="/projects"
                 element={
                   <RequireAuth>
-                    <Projects />
+                    <RequireNonStudent>
+                      <Projects />
+                    </RequireNonStudent>
                   </RequireAuth>
                 }
               />
@@ -215,7 +230,9 @@ createRoot(document.getElementById("root")!).render(
                 path="/projects/:id"
                 element={
                   <RequireAuth>
-                    <ProjectDetail />
+                    <RequireNonStudent>
+                      <ProjectDetail />
+                    </RequireNonStudent>
                   </RequireAuth>
                 }
               />
@@ -223,7 +240,9 @@ createRoot(document.getElementById("root")!).render(
                 path="/closets"
                 element={
                   <RequireAuth>
-                    <Closets />
+                    <RequireNonStudent>
+                      <Closets />
+                    </RequireNonStudent>
                   </RequireAuth>
                 }
               />
@@ -231,7 +250,29 @@ createRoot(document.getElementById("root")!).render(
                 path="/closets/:id"
                 element={
                   <RequireAuth>
-                    <ClosetDetail />
+                    <RequireNonStudent>
+                      <ClosetDetail />
+                    </RequireNonStudent>
+                  </RequireAuth>
+                }
+              />
+              {/* Courses: modular placeholder, gated like inventory modules. */}
+              <Route
+                path="/courses"
+                element={
+                  <RequireAuth>
+                    <RequireNonStudent>
+                      <Courses />
+                    </RequireNonStudent>
+                  </RequireAuth>
+                }
+              />
+              {/* Chat: open to every signed-in role (admins, members, students). */}
+              <Route
+                path="/chat"
+                element={
+                  <RequireAuth>
+                    <Chat />
                   </RequireAuth>
                 }
               />

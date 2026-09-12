@@ -108,7 +108,7 @@ export const reconcileProfile = mutation({
 export const updatePersonProfile = mutation({
   args: {
     userId: v.id("users"),
-    role: v.optional(v.union(v.literal("admin"), v.literal("member"))),
+    role: v.optional(v.union(v.literal("admin"), v.literal("member"), v.literal("student"))),
     clubRoles: v.optional(v.array(v.string())),
     academicState: v.optional(v.string()),
     major: v.optional(v.string()),

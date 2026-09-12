@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { requireAdmin, requireUser } from "./lib";
+import { requireAdmin, requireNonStudent, requireUser } from "./lib";
+import { internal } from "./_generated/api";
 
 export const listProjects = query({
   args: { status: v.optional(v.union(v.literal("active"), v.literal("completed"), v.literal("dismantled"))) },
@@ -15,7 +16,7 @@ export const listProjects = query({
 export const getProject = query({
   args: { id: v.id("projects") },
   handler: async (ctx, { id }) => {
-    await requireUser(ctx);
+    await requireNonStudent(ctx);
     const project = await ctx.db.get(id);
     if (!project) return null;
     const parts = await ctx.db
@@ -50,9 +51,18 @@ export const upsertProject = mutation({
     };
     if (id) {
       await ctx.db.patch(id, data);
+      // Keep the project's chat group in sync (name/members) — auto-created
+      // on first save with all admins + the owner.
+      await ctx.scheduler.runAfter(0, internal.chat.syncProjectGroup, { projectId: id });
       return id;
     }
-    return await ctx.db.insert("projects", data);
+    const projectId = await ctx.db.insert("projects", data);
+    await ctx.scheduler.runAfter(0, internal.chat.ensureProjectGroup, {
+      projectId,
+      name: data.name,
+      ownerId: data.ownerId,
+    });
+    return projectId;
   },
 });
 
@@ -74,6 +84,8 @@ export const dismantleProject = mutation({
       });
     }
     await ctx.db.patch(id, { status: "dismantled" });
+    // Parts went back to the shelf → refresh the auto group membership.
+    await ctx.scheduler.runAfter(0, internal.chat.syncProjectGroup, { projectId: id });
   },
 });
 
@@ -112,5 +124,7 @@ export const deleteProject = mutation({
       throw new Error("Project still has parts. Dismantle it first to release them.");
     }
     await ctx.db.delete(id);
+    // The auto chat group is retired with the project.
+    await ctx.scheduler.runAfter(0, internal.chat.syncProjectGroup, { projectId: id });
   },
 });

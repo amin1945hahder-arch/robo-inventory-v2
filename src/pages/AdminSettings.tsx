@@ -109,10 +109,12 @@ export default function AdminSettings() {
   const roles = useQuery(api.clubLists.getList, { key: "clubRoles" });
   const states = useQuery(api.clubLists.getList, { key: "academicStates" });
   const soundCfg = useQuery(api.settings.getSounds, {});
+  const backupDest = useQuery(api.settings.getChatBackupDestination, {});
 
   const saveTg = useMutation(api.settings.setTelegram);
   const saveCooldown = useMutation(api.settings.setReturnCooldown);
   const saveSounds = useMutation(api.settings.setSounds);
+  const saveBackupDest = useMutation(api.settings.setChatBackupDestination);
   const testSend = useAction(api.settings.sendTestMessage);
 
   const [token, setToken] = useState("");
@@ -124,6 +126,11 @@ export default function AdminSettings() {
   const [cooldownHours, setCooldownHours] = useState("24");
   const [cdBusy, setCdBusy] = useState(false);
   const [soundsOn, setSoundsOn] = useState(true);
+  const [backupMode, setBackupMode] = useState<
+    "download" | "telegram" | "telegram-dm" | "webhook"
+  >("download");
+  const [backupChatId, setBackupChatId] = useState("");
+  const [backupBusy, setBackupBusy] = useState(false);
 
   // Sync once when the settings query resolves.
   const [synced, setSynced] = useState(false);
@@ -140,6 +147,12 @@ export default function AdminSettings() {
   useEffect(() => {
     if (soundCfg !== undefined) setSoundsOn(soundCfg.enabled);
   }, [soundCfg]);
+  useEffect(() => {
+    if (backupDest !== undefined) {
+      setBackupMode(backupDest.mode);
+      setBackupChatId(backupDest.chatId ?? "");
+    }
+  }, [backupDest]);
 
   return (
     <AppShell>
@@ -412,6 +425,69 @@ export default function AdminSettings() {
               ))}
             </div>
           )}
+        </section>
+
+        {/* ===== chat backup destinations (admin-only controller) ===== */}
+        <section className="rounded-lg border">
+          <div className="border-b px-5 py-3">
+            <h2 className="text-sm font-semibold">Chat backup destinations</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Conversation archives are built in the browser as .zip files and are never
+              stored in the app database. Choose where archives should also be delivered
+              when an admin exports them from the Chat page.
+            </p>
+          </div>
+          <div className="space-y-3 p-5">
+            <div className="flex flex-wrap gap-2">
+              {([
+                ["download", "Browser download only"],
+                ["telegram", "Telegram group"],
+                ["telegram-dm", "Telegram DM (self)"],
+              ] as const).map(([value, label]) => (
+                <Button
+                  key={value}
+                  type="button"
+                  size="sm"
+                  variant={backupMode === value ? "default" : "outline"}
+                  onClick={() => setBackupMode(value)}
+                >
+                  {label}
+                </Button>
+              ))}
+            </div>
+            {backupMode === "telegram" && (
+              <div>
+                <Label htmlFor="backup-chat-id">Destination chat id</Label>
+                <Input
+                  id="backup-chat-id"
+                  value={backupChatId}
+                  onChange={(e) => setBackupChatId(e.target.value)}
+                  placeholder="e.g. -1001234567890 (empty = club group)"
+                  className="mt-1 max-w-sm"
+                />
+              </div>
+            )}
+            <Button
+              size="sm"
+              disabled={backupBusy}
+              onClick={async () => {
+                setBackupBusy(true);
+                try {
+                  await saveBackupDest({
+                    mode: backupMode,
+                    chatId: backupChatId || undefined,
+                  });
+                  toast.success("Chat backup destination saved");
+                } catch (e) {
+                  toast.error(e instanceof Error ? e.message : "Could not save");
+                } finally {
+                  setBackupBusy(false);
+                }
+              }}
+            >
+              Save destination
+            </Button>
+          </div>
         </section>
       </div>
     </AppShell>

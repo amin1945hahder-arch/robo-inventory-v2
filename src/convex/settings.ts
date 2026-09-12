@@ -1,5 +1,11 @@
 import { v } from "convex/values";
-import { internalQuery, mutation, query, action } from "./_generated/server";
+import {
+  action,
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+} from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { requireAdmin, requireUser } from "./lib";
@@ -177,6 +183,83 @@ export const setReturnCooldown = mutation({
     const value = JSON.stringify(Math.round(hours));
     if (row) await ctx.db.patch(row._id, { value });
     else await ctx.db.insert("settings", { key: COOLDOWN_KEY, value });
+    return { ok: true };
+  },
+});
+
+// ---- Chat backup destinations (admin-only controller) ----
+//
+// Conversation archives are produced client-side (JSZip) and never stored in
+// the database. This setting only records HOW/WHERE admins distribute them:
+//   { mode: "download" }                              → browser download only
+//   { mode: "telegram", chatId?: string }              → also post to Telegram
+//   { mode: "telegram-dm" }                            → DM to the exporting admin
+// Full remote upload targets (webhook/drive) can be added behind mode
+// "webhook" without schema changes: { mode: "webhook", url, headers }.
+export type ChatBackupSettings = {
+  mode: "download" | "telegram" | "telegram-dm" | "webhook";
+  chatId?: string;
+  webhookUrl?: string;
+};
+
+const CHAT_BACKUP_KEY = "chat_backup_destination";
+
+export const getChatBackupDestination = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+    const row = await ctx.db
+      .query("settings")
+      .withIndex("by_key", (q) => q.eq("key", CHAT_BACKUP_KEY))
+      .unique();
+    const parsed = row?.value ? (JSON.parse(row.value) as ChatBackupSettings) : null;
+    return parsed ?? { mode: "download" } as ChatBackupSettings;
+  },
+});
+
+/** Internal (no auth — the action checks the caller's role itself). */
+export const getChatBackupDestinationInternal = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<ChatBackupSettings> => {
+    const row = await ctx.db
+      .query("settings")
+      .withIndex("by_key", (q) => q.eq("key", CHAT_BACKUP_KEY))
+      .unique();
+    const parsed = row?.value ? (JSON.parse(row.value) as ChatBackupSettings) : null;
+    return parsed ?? { mode: "download" };
+  },
+});
+
+export const setChatBackupDestination = mutation({
+  args: {
+    mode: v.union(
+      v.literal("download"),
+      v.literal("telegram"),
+      v.literal("telegram-dm"),
+      v.literal("webhook"),
+    ),
+    chatId: v.optional(v.string()),
+    webhookUrl: v.optional(v.string()),
+  },
+  handler: async (ctx, { mode, chatId, webhookUrl }) => {
+    await requireAdmin(ctx);
+    if (mode === "telegram" && !chatId?.trim()) {
+      throw new Error("A chat id is required for the Telegram destination");
+    }
+    if (mode === "webhook" && !webhookUrl?.trim()) {
+      throw new Error("A webhook URL is required for the webhook destination");
+    }
+    const value = JSON.stringify({
+      mode,
+      chatId: chatId?.trim() || undefined,
+      webhookUrl: webhookUrl?.trim() || undefined,
+    } satisfies ChatBackupSettings);
+    const row = await ctx.db
+      .query("settings")
+      .withIndex("by_key", (q) => q.eq("key", CHAT_BACKUP_KEY))
+      .unique();
+    if (row) await ctx.db.patch(row._id, { value });
+    else await ctx.db.insert("settings", { key: CHAT_BACKUP_KEY, value });
     return { ok: true };
   },
 });

@@ -1,12 +1,12 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { requireAdmin, requireUser } from "./lib";
+import { requireAdmin, requireNonStudent } from "./lib";
 
 // Aggregated stats for inventory dashboard / group cards
 export const groupStats = query({
   args: {},
   handler: async (ctx) => {
-    await requireUser(ctx);
+    await requireNonStudent(ctx);
     const groups = await ctx.db
       .query("groups")
       .filter((q) => q.neq(q.field("deleted"), true))
@@ -50,7 +50,7 @@ export const groupStats = query({
 export const overview = query({
   args: {},
   handler: async (ctx) => {
-    await requireUser(ctx);
+    await requireNonStudent(ctx);
     const parts = await ctx.db.query("parts").filter((q) => q.neq(q.field("deleted"), true)).collect();
     const groups = await ctx.db.query("groups").filter((q) => q.neq(q.field("deleted"), true)).collect();
     const projects = await ctx.db

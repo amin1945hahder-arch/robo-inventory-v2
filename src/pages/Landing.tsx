@@ -34,7 +34,7 @@ const FEATURES = [
   {
     icon: ShieldCheck,
     title: "Admin-approved flow",
-    body: "Dr. Essa gets an email and dashboard notification for every request. Approve with one click, straight from the inbox.",
+    body: "Admin gets an email and dashboard notification for every request. Approve with one click, straight from the inbox.",
   },
   {
     icon: FolderKanban,
@@ -61,7 +61,7 @@ const FEATURES = [
 const STEPS = [
   { n: "01", title: "Scan the tag", body: "Point your camera at the unit's QR label in the lab." },
   { n: "02", title: "Request it", body: "One tap sends a request with an optional note for the admin." },
-  { n: "03", title: "Get approved", body: "Dr. Essa approves from the dashboard or email — you get an email too." },
+  { n: "03", title: "Get approved", body: "Admin approves from the dashboard or email — you get an email too." },
   { n: "04", title: "Build & return", body: "Take it to your robot, then return it or assign it to your project." },
 ];
 
@@ -185,7 +185,7 @@ export default function Landing() {
           </div>
           <div className="mt-4 flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-xs text-primary">
             <CheckCircle2 className="size-4" />
-            Request sent — Dr. Essa approved it in 42 seconds.
+            Request sent — Admin approved it in no time.
           </div>
         </motion.div>
       </section>

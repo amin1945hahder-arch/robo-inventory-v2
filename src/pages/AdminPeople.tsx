@@ -29,6 +29,7 @@ import {
   ArrowDownWideNarrow,
   MessageSquare,
   Pencil,
+  GraduationCap,
   Send,
   ShieldCheck,
   Trash2,
@@ -273,7 +274,7 @@ export default function AdminPeople() {
   const [busy, setBusy] = useState(false);
 
   // edit form state
-  const [editRole, setEditRole] = useState<"admin" | "member">("member");
+  const [editRole, setEditRole] = useState<"admin" | "member" | "student">("member");
   const [editRoles, setEditRoles] = useState<string[]>([]);
   const [editAcademic, setEditAcademic] = useState("");
   const [editMajor, setEditMajor] = useState("");
@@ -283,7 +284,9 @@ export default function AdminPeople() {
 
   const openEdit = (p: Person) => {
     setEditing(p);
-    setEditRole(p.user.role === "admin" ? "admin" : "member");
+    setEditRole(
+      p.user.role === "admin" ? "admin" : p.user.role === "student" ? "student" : "member",
+    );
     setEditRoles(p.user.clubRoles ?? []);
     setEditAcademic(p.user.academicState ?? "");
     setEditMajor(p.user.major ?? "");
@@ -370,8 +373,13 @@ export default function AdminPeople() {
 
   const all = people ?? [];
   const admins = all.filter((p) => p.user.role === "admin");
-  const activeMembers = all.filter((p) => p.user.role !== "admin" && p.user.membershipStatus !== "ex");
-  const exMembers = all.filter((p) => p.user.role !== "admin" && p.user.membershipStatus === "ex");
+  const students = all.filter((p) => p.user.role === "student");
+  const activeMembers = all.filter(
+    (p) => p.user.role !== "admin" && p.user.role !== "student" && p.user.membershipStatus !== "ex",
+  );
+  const exMembers = all.filter(
+    (p) => p.user.role !== "admin" && p.user.role !== "student" && p.user.membershipStatus === "ex",
+  );
 
   return (
     <AppShell>
@@ -472,6 +480,31 @@ export default function AdminPeople() {
               )}
             </section>
 
+            {students.length > 0 && (
+              <section className="flex flex-col gap-3">
+                <h2 className="flex items-center gap-2 text-sm font-semibold">
+                  <GraduationCap className="size-4 text-amber-400" /> Students ({students.length})
+                </h2>
+                <ul className="divide-y rounded-lg border">
+                  {students.map((p) => (
+                    <PersonRow
+                      key={p.user._id}
+                      person={p}
+                      isMe={p.user._id === me?._id}
+                      isAdminGroup={false}
+                      onEdit={() => openEdit(p)}
+                      onDelete={() => setDeleting(p)}
+                      onToggleMembership={() => toggleMembership(p)}
+                      onMessage={() => {
+                        setMessaging(p);
+                        setMessageText("");
+                      }}
+                    />
+                  ))}
+                </ul>
+              </section>
+            )}
+
             {exMembers.length > 0 && (
               <section className="flex flex-col gap-3">
                 <h2 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
@@ -526,7 +559,21 @@ export default function AdminPeople() {
                   >
                     Member
                   </Button>
+                  <Button
+                    type="button"
+                    variant={editRole === "student" ? "default" : "outline"}
+                    className="flex-1"
+                    onClick={() => setEditRole("student")}
+                  >
+                    Student
+                  </Button>
                 </div>
+                {editRole === "student" && (
+                  <p className="text-xs text-muted-foreground">
+                    Students are blocked from inventory, projects and admin settings —
+                    they keep Chat, Courses and Profile access.
+                  </p>
+                )}
               </div>
 
               <div className="grid gap-2">

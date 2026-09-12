@@ -92,6 +92,55 @@ export const send = internalAction({
   },
 });
 
+/**
+ * Send a chat-backup archive (zip) as a Telegram document. Used by the admin
+ * "chat backup destinations" panel: archives are produced client-side and
+ * only relayed here when the admin configures a Telegram destination. The
+ * database never stores the archive.
+ */
+export const sendBackupFile = internalAction({
+  args: {
+    fileName: v.string(),
+    dataBase64: v.string(),
+    caption: v.optional(v.string()),
+    // "group" = club group (or an explicit chatId), "dm" = the caller's own chat
+    mode: v.union(v.literal("group"), v.literal("dm")),
+    chatId: v.optional(v.string()),
+  },
+  handler: async (ctx, { fileName, dataBase64, caption, mode, chatId }) => {
+    const cfg = await ctx.runQuery(internal.settings.getTelegramConfigQuery, {});
+    const token: string = cfg.botToken || process.env.TELEGRAM_BOT_TOKEN || "";
+    if (!token) return { sent: false, reason: "no-bot-token" };
+
+    let target = "";
+    if (mode === "dm") {
+      const me = await ctx.runQuery(api.users.currentUser, {});
+      target = me?.telegramChatId ?? "";
+      if (!target) return { sent: false, reason: "caller-has-no-telegram-chat" };
+    } else {
+      target = chatId || cfg.clubGroupChatId || process.env.TELEGRAM_CHAT_ID || "";
+    }
+    if (!target) return { sent: false, reason: "no-chat-id" };
+
+    const bin = atob(dataBase64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const form = new FormData();
+    form.append("chat_id", target);
+    if (caption) form.append("caption", caption.slice(0, 1024));
+    form.append("document", new Blob([bytes]), fileName);
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, {
+      method: "POST",
+      body: form,
+    });
+    if (!res.ok) {
+      console.warn(`[telegram] sendBackupFile failed: ${res.status}`);
+      return { sent: false, reason: `http-${res.status}` };
+    }
+    return { sent: true };
+  },
+});
+
 // One-off manual send from the admin Settings page (test message).
 export const sendManual = internalAction({
   args: {

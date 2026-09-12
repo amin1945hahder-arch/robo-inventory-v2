@@ -1,13 +1,13 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { requireAdmin, requireUser } from "./lib";
+import { requireAdmin, requireNonStudent } from "./lib";
 
 // ===== Closets =====
 
 export const listClosets = query({
   args: {},
   handler: async (ctx) => {
-    await requireUser(ctx);
+    await requireNonStudent(ctx);
     const rows = await ctx.db.query("closets").withIndex("by_name").collect();
     return rows;
   },
@@ -16,7 +16,7 @@ export const listClosets = query({
 export const getCloset = query({
   args: { id: v.id("closets") },
   handler: async (ctx, { id }) => {
-    await requireUser(ctx);
+    await requireNonStudent(ctx);
     return await ctx.db.get(id);
   },
 });
@@ -60,7 +60,7 @@ export const deleteCloset = mutation({
 export const listCategories = query({
   args: {},
   handler: async (ctx) => {
-    await requireUser(ctx);
+    await requireNonStudent(ctx);
     const rows = await ctx.db.query("categories").withIndex("by_name").collect();
     return rows;
   },
@@ -108,7 +108,7 @@ export const listGroups = query({
     search: v.optional(v.string()),
   },
   handler: async (ctx, { categoryId, closetId, search }) => {
-    await requireUser(ctx);
+    await requireNonStudent(ctx);
     let rows = await ctx.db
       .query("groups")
       .withIndex("by_category")
@@ -137,7 +137,7 @@ export const listGroups = query({
 export const getGroup = query({
   args: { id: v.id("groups") },
   handler: async (ctx, { id }) => {
-    await requireUser(ctx);
+    await requireNonStudent(ctx);
     return await ctx.db.get(id);
   },
 });
