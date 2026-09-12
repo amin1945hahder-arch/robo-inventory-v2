@@ -202,14 +202,109 @@ export const updatePart = mutation({
     ),
     note: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
+    // Full-control editing: move the unit to a project (or off one with null),
+    // and/or hand it to a member (or release the holder with null). The
+    // open rental row — if any — is kept in sync so the ledger stays true.
+    projectId: v.optional(v.union(v.id("projects"), v.null())),
+    holderId: v.optional(v.union(v.id("users"), v.null())),
   },
-  handler: async (ctx, { id, tag, status, note, imageUrl }) => {
+  handler: async (ctx, { id, tag, status, note, imageUrl, projectId, holderId }) => {
     await requireAdmin(ctx);
+    const part = await ctx.db.get(id);
+    if (!part) throw new Error("Part not found");
     const patch: Record<string, unknown> = {};
     if (tag !== undefined) patch.tag = tag.trim().toUpperCase();
-    if (status !== undefined) patch.status = status;
     if (note !== undefined) patch.note = note.trim();
     if (imageUrl !== undefined) patch.imageUrl = imageUrl.trim() || undefined;
+
+    const wantsProject = projectId !== undefined;
+    const wantsHolder = holderId !== undefined;
+    const toProject = projectId ?? null;
+    const toHolder = holderId ?? null;
+
+    // Resolve the effective next status when the caller didn't set one
+    // explicitly: project assignment wins, then a holder, then the chosen
+    // status (or the current one).
+    let nextStatus: "available" | "pending" | "rented" | "on_project" | "broken" =
+      status ?? (part.status as typeof nextStatus);
+    if (wantsProject && toProject) {
+      const project = await ctx.db.get(toProject);
+      if (!project || project.deleted) throw new Error("Project not found");
+      if (project.status !== "active") throw new Error("Project must be active");
+      nextStatus = "on_project";
+    } else if (wantsHolder) {
+      if (toHolder) {
+        const holder = await ctx.db.get(toHolder);
+        if (!holder) throw new Error("Member not found");
+        nextStatus = "rented";
+      } else if (nextStatus === "rented" || nextStatus === "on_project") {
+        // Releasing the holder with no explicit status → back on the shelf.
+        nextStatus = "available";
+      }
+    }
+    patch.status = nextStatus;
+
+    // Sync the open rental row (pending/active for this unit) so history and
+    // returns keep working after the manual edit.
+    const openRental = await ctx.db
+      .query("rentals")
+      .withIndex("by_part", (q) => q.eq("partId", id))
+      .filter((q) => q.or(q.eq(q.field("status"), "pending"), q.eq(q.field("status"), "active")))
+      .first();
+
+    const now = Date.now();
+    if (nextStatus === "on_project") {
+      patch.currentHolderId = undefined;
+      patch.currentProjectId = toProject ?? undefined;
+      if (openRental) {
+        await ctx.db.patch(openRental._id, {
+          status: "on_project",
+          projectId: toProject ?? openRental.projectId,
+          returnedAt: now,
+          returnDestination: "project",
+          returnRequestedAt: undefined,
+        });
+      }
+    } else if (nextStatus === "rented") {
+      patch.currentHolderId = toHolder ?? undefined;
+      patch.currentProjectId = undefined;
+      if (openRental) {
+        if (openRental.status === "pending") {
+          await ctx.db.patch(openRental._id, {
+            status: "active",
+            userId: toHolder ?? openRental.userId,
+            decidedAt: now,
+            pickedUpAt: now,
+            returnRequestedAt: undefined,
+          });
+        } else if (toHolder) {
+          await ctx.db.patch(openRental._id, { userId: toHolder });
+        }
+      } else if (toHolder) {
+        await ctx.db.insert("rentals", {
+          partId: id,
+          userId: toHolder,
+          status: "active",
+          requestedAt: now,
+          decidedAt: now,
+          pickedUpAt: now,
+        });
+      }
+    } else {
+      // available / broken / pending: no holder, no project; close any open
+      // rental row unless the status is exactly "pending" (a live request).
+      patch.currentHolderId = undefined;
+      patch.currentProjectId = undefined;
+      if (openRental && nextStatus !== "pending") {
+        await ctx.db.patch(openRental._id, {
+          status: "returned",
+          returnedAt: now,
+          returnDestination: "shelf",
+          returnRequestedAt: undefined,
+        });
+      }
+    }
+
     await ctx.db.patch(id, patch);
   },
 });
@@ -499,13 +594,8 @@ export const requestReturn = mutation({
     await ctx.db.patch(rentalId, { returnRequestedAt: Date.now() });
     const part = await ctx.db.get(rental.partId);
     const group = part ? await ctx.db.get(part.groupId) : null;
-    const admins = await ctx.db.query("users").collect();
-    await telegramGroup(
-      ctx,
-      `↩️ ${user.name ?? user.email ?? "A member"} wants to return ${group?.name ?? "a part"} (${part?.tag ?? "?"}) — process it in the Requests console.`,
-      admins.filter((a) => a.role === "admin" && a.telegramUsername).map((a) => ({ name: a.name, telegramUsername: a.telegramUsername })),
-    );
-    // Attach the printable rent card image for this rental to the group.
+    // ONE Telegram message: the printable rent-card PDF with every detail on
+    // its own caption line (the old extra text post is gone).
     await scheduleRentCard(
       ctx,
       rental,
@@ -513,7 +603,7 @@ export const requestReturn = mutation({
       group,
       user,
       "active · return requested",
-      `↩️ Rent card — ${group?.name ?? "part"} (${part?.tag ?? "?"}) return requested by ${user.name ?? user.email ?? "a member"}.`,
+      `↩️ ${user.name ?? user.email ?? "A member"} requested to return ${group?.name ?? "part"} (${part?.tag ?? "?"}) — process it in the Requests console.`,
     );
   },
 });
@@ -676,10 +766,8 @@ export const adminRentalAction = mutation({
       } else {
         await ctx.db.patch(part._id, { status: "available", currentHolderId: undefined });
       }
-      await telegramGroup(
-        ctx,
-        `↩️ ${admin.name ?? admin.email} processed the return of ${group?.name ?? "a part"} (${part.tag})${functional === false ? " — marked BROKEN" : " — back on the shelf"}.`,
-      );
+      // ONE Telegram message: PDF card + details as its caption (with the
+      // acting admin), replacing the previous text+card double post.
       await scheduleRentCard(
         ctx,
         { ...rental, returnedAt: now, conditionReport: conditionReport?.trim() },
@@ -687,7 +775,7 @@ export const adminRentalAction = mutation({
         group,
         student,
         functional === false ? "returned · marked broken" : "returned to shelf",
-        `↩️ Rent card — ${group?.name ?? "part"} (${part.tag}) returned to shelf by ${student?.name ?? student?.email ?? "a member"}.`,
+        `↩️ ${admin.name ?? admin.email} processed the return of ${group?.name ?? "part"} (${part.tag}) from ${student?.name ?? student?.email ?? "a member"}${functional === false ? " — marked BROKEN" : " — back on the shelf"}.`,
       );
     } else if (action === "assign_project") {
       if (rental.status !== "active") throw new Error("Rental is not active");
@@ -704,10 +792,7 @@ export const adminRentalAction = mutation({
         returnRequestedAt: undefined,
       });
       await ctx.db.patch(part._id, { status: "on_project", currentProjectId: projectId, currentHolderId: undefined });
-      await telegramGroup(
-        ctx,
-        `🤖 ${admin.name ?? admin.email} assigned ${group?.name ?? "a part"} (${part.tag}) to project “${project.name}” until it is dismantled.`,
-      );
+      // ONE Telegram message: PDF card + details as its caption.
       await scheduleRentCard(
         ctx,
         { ...rental, returnedAt: now, projectId, conditionReport: conditionReport?.trim() },
@@ -715,7 +800,7 @@ export const adminRentalAction = mutation({
         group,
         student,
         "assigned to project",
-        `🤖 Rent card — ${group?.name ?? "part"} (${part.tag}) assigned to “${project.name}”.`,
+        `🤖 ${admin.name ?? admin.email} assigned ${group?.name ?? "part"} (${part.tag}) to project “${project.name}” until it is dismantled.`,
         project.name,
       );
     } else if (action === "mark_broken") {
@@ -729,7 +814,7 @@ export const adminRentalAction = mutation({
         group,
         student,
         "returned · marked broken",
-        `⚠️ Rent card — ${group?.name ?? "part"} (${part.tag}) returned and marked BROKEN.`,
+        `⚠️ ${admin.name ?? admin.email} returned ${group?.name ?? "part"} (${part.tag}) from ${student?.name ?? student?.email ?? "a member"} and marked it BROKEN.`,
       );
     }
     return { ok: true };
@@ -809,11 +894,8 @@ export const returnWholePackage = mutation({
     await ctx.db.patch(packageId, { returnRequestedAt: undefined, returnDecidedAt: now });
 
     const summaryText = await summarize(ctx, pkg.lines);
-    await telegramGroup(
-      ctx,
-      `↩️ ${admin.name ?? admin.email} processed the return of ${member?.name ?? member?.email ?? "a member"}'s package (${summaryText}) — ${units.length} unit${units.length === 1 ? "" : "s"} ${destination === "shelf" ? (functional ? "back on the shelf" : "marked BROKEN") : `assigned to “${project?.name}”`}.`,
-    );
-    // ONE combined PDF card for the whole bundle.
+    // ONE combined PDF card for the whole bundle (details in its caption —
+    // no separate text post).
     const first = active[0];
     const firstPart = await ctx.db.get(first.partId);
     const firstGroup = firstPart ? await ctx.db.get(firstPart.groupId) : null;
@@ -824,7 +906,7 @@ export const returnWholePackage = mutation({
       firstGroup,
       member,
       destination === "project" ? "assigned to project (package)" : functional ? "returned to shelf (package)" : "returned · marked broken (package)",
-      `↩️ Package return processed (${units.length} unit${units.length === 1 ? "" : "s"})`,
+      `↩️ ${admin.name ?? admin.email} processed the package return of ${member?.name ?? member?.email ?? "a member"} (${summaryText}) — ${units.length} unit${units.length === 1 ? "" : "s"} ${destination === "shelf" ? (functional ? "back on the shelf" : "marked BROKEN") : `assigned to “${project?.name}”`}.`,
       project?.name,
       units,
     );
@@ -934,7 +1016,10 @@ export const listMyRentals = query({
   },
 });
 
-// Request counts the dashboard needs (used for the notification dot on My Rentals)
+// Request counts the dashboard needs (used for the notification dot on My
+// Rentals). Pending packages are counted ONCE per package (the member sees one
+// bundle card), not once per claimed unit — otherwise the bubble shows a
+// number far bigger than the list actually renders.
 export const myRequestCounts = query({
   args: {},
   handler: async (ctx) => {
@@ -943,12 +1028,33 @@ export const myRequestCounts = query({
       .query("rentals")
       .withIndex("by_user", (q) => q.eq("userId", user._id))
       .collect();
+    const packageIds = new Set(
+      rows.filter((r) => r.status === "pending" && r.packageId).map((r) => r.packageId!),
+    );
+    const pendingPackages = packageIds.size;
+    const pendingSingles = rows.filter((r) => r.status === "pending" && !r.packageId).length;
     return {
-      pending: rows.filter((r) => r.status === "pending").length,
+      pending: pendingPackages + pendingSingles,
       active: rows.filter((r) => r.status === "active").length,
       onProject: rows.filter((r) => r.status === "on_project").length,
       total: rows.length,
     };
+  },
+});
+
+export const cancelMyRequest = mutation({
+  args: { rentalId: v.id("rentals") },
+  handler: async (ctx, { rentalId }) => {
+    const user = await requireNonGuest(ctx);
+    const rental = await ctx.db.get(rentalId);
+    if (!rental) throw new Error("Rental not found");
+    if (rental.userId !== user._id) throw new Error("Not your request");
+    if (rental.status !== "pending") throw new Error("Only pending requests can be canceled");
+    await ctx.db.patch(rentalId, { status: "canceled", decidedAt: Date.now() });
+    const part = await ctx.db.get(rental.partId);
+    if (part && part.status === "pending") {
+      await ctx.db.patch(part._id, { status: "available" });
+    }
   },
 });
 
@@ -994,19 +1100,72 @@ export const listAllRentals = query({
   },
 });
 
-export const cancelMyRequest = mutation({
-  args: { rentalId: v.id("rentals") },
-  handler: async (ctx, { rentalId }) => {
-    const user = await requireNonGuest(ctx);
-    const rental = await ctx.db.get(rentalId);
-    if (!rental) throw new Error("Rental not found");
-    if (rental.userId !== user._id) throw new Error("Not your request");
-    if (rental.status !== "pending") throw new Error("Only pending requests can be canceled");
-    await ctx.db.patch(rentalId, { status: "canceled", decidedAt: Date.now() });
-    const part = await ctx.db.get(rental.partId);
-    if (part && part.status === "pending") {
-      await ctx.db.patch(part._id, { status: "available" });
+// Groups the admin's pending rentals into display rows: single requests stay
+// one row each, while units claimed by the same pending package collapse into
+// ONE row per package — so the Pending tab badge and the list always agree.
+export const pendingRentalRows = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+    const rows = await ctx.db
+      .query("rentals")
+      .withIndex("by_status", (q) => q.eq("status", "pending"))
+      .collect();
+    const cache = docCache();
+    const out: any[] = [];
+    for (const r of rows.sort((a, b) => a.requestedAt - b.requestedAt)) {
+      if (r.packageId) continue;
+      const part = await cache.get(ctx, r.partId);
+      const group = part ? await cache.get(ctx, part.groupId) : null;
+      const student = await cache.get(ctx, r.userId);
+      out.push({
+        kind: "single" as const,
+        key: r._id,
+        rental: r,
+        part,
+        group,
+        student: student
+          ? {
+              _id: student._id,
+              name: student.name,
+              email: student.email,
+              studentId: student.studentId,
+              image: safeImage(student.image),
+            }
+          : null,
+      });
     }
+    // One row per pending package, with its units attached.
+    const pkgIds = [...new Set(rows.filter((r) => r.packageId).map((r) => r.packageId!))];
+    for (const packageId of pkgIds) {
+      const pkg = await ctx.db.get(packageId);
+      if (!pkg) continue;
+      const units = [];
+      for (const r of rows.filter((x) => x.packageId === packageId)) {
+        const part = await cache.get(ctx, r.partId);
+        const group = part ? await cache.get(ctx, part.groupId) : null;
+        units.push({ rentalId: r._id, partId: part?._id, tag: part?.tag, groupName: group?.name });
+      }
+      const student = await cache.get(ctx, pkg.userId);
+      out.push({
+        kind: "package" as const,
+        key: packageId,
+        package: pkg,
+        packageId,
+        packageNote: pkg.note,
+        units,
+        student: student
+          ? {
+              _id: student._id,
+              name: student.name,
+              email: student.email,
+              studentId: student.studentId,
+              image: safeImage(student.image),
+            }
+          : null,
+      });
+    }
+    return out;
   },
 });
 
@@ -1440,12 +1599,6 @@ export const requestPackageReturn = mutation({
     await ctx.db.patch(packageId, { returnRequestedAt: Date.now() });
     for (const r of active) await ctx.db.patch(r._id, { returnRequestedAt: Date.now() });
     const summaryText = await summarize(ctx, pkg.lines);
-    const admins = await ctx.db.query("users").collect();
-    await telegramGroup(
-      ctx,
-      `↩️ ${user.name ?? user.email ?? "A member"} wants to return their package (${summaryText}) — process it in the Requests console.`,
-      admins.filter((a) => a.role === "admin" && a.telegramUsername).map((a) => ({ name: a.name, telegramUsername: a.telegramUsername })),
-    );
     // ONE combined package card: a single PDF listing every unit of the
     // bundle (no per-unit message spam).
     const cache = docCache();
@@ -1465,7 +1618,7 @@ export const requestPackageReturn = mutation({
       firstGroup,
       user,
       "active · return requested",
-      `↩️ Package return requested (${units.length} unit${units.length === 1 ? "" : "s"})`,
+      `↩️ ${user.name ?? user.email ?? "A member"} requested to return their package (${summaryText}) — process it in the Requests console.`,
       undefined,
       units,
     );

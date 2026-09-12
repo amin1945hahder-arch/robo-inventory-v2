@@ -188,19 +188,14 @@ export default function MyRentals() {
               </section>
             )}
 
-            {/* Single-unit rentals (pending singles shown without packages) */}
+            {/* Single-unit rentals — package units render once above as
+                bundle cards, so they are filtered out here and the pending
+                section shows only true singles (badge counts stay in sync). */}
             {groups.map(({ title, statuses }) => {
-              const rows = rentals.filter((r) =>
-                r.rental.packageId
-                  ? false
-                  : statuses.includes(r.rental.status),
-              );
-              // In the pending section, also surface package units via a hint
-              // (the bundle card above already lists them).
               const visible = title === "Awaiting approval"
                 ? pendingSingle
                 : rentals.filter((r) => !r.rental.packageId && statuses.includes(r.rental.status));
-              if (rows.length === 0 && visible.length === 0) return null;
+              if (visible.length === 0) return null;
               return (
                 <section key={title} className="flex flex-col gap-3">
                   <h2 className="text-sm font-semibold">{title}</h2>

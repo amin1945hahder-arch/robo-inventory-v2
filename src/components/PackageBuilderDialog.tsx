@@ -20,10 +20,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { QrScanDialog } from "@/components/QrScanDialog";
+import { normalizeScan } from "@/lib/qr";
+import {
+  groupAllowedByFilter,
+  scanOutcome,
+  upsertLine,
+  type PackageLine,
+  type ScanFilter,
+} from "@/lib/package-scan";
 import { toast } from "sonner";
-import { Loader2, Package, Plus, Trash2 } from "lucide-react";
+import { Loader2, Package, Plus, ScanLine, Trash2, X } from "lucide-react";
 
-type Line = { groupId: string; count: number; note?: string };
+type Line = PackageLine;
 
 /**
  * Build (or edit) a package rental: several items, each with a quantity,
@@ -55,6 +64,11 @@ export function PackageBuilderDialog({
   const [lines, setLines] = useState<Line[]>([]);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  // QR scanning: a unit/group label adds a line, a category/closet label
+  // narrows the item dropdown to the available items of that scope.
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanFilter, setScanFilter] = useState<ScanFilter>(null);
+  const [scanQuery, setScanQuery] = useState("");
 
   // Load an existing pending package for editing, or seed with the group the
   // user came from (quantity pre-set to 1 so they just bump the number).
@@ -73,6 +87,15 @@ export function PackageBuilderDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editPackageId, presetGroupId, existing]);
 
+  // Reset the scan filter each time the dialog opens.
+  useEffect(() => {
+    if (!open) {
+      setScanFilter(null);
+      setScanQuery("");
+      setScanOpen(false);
+    }
+  }, [open]);
+
   const groupById = useMemo(() => {
     const m = new Map<string, { _id: string; name: string }>();
     for (const g of groups ?? []) m.set(g._id, g);
@@ -80,6 +103,44 @@ export function PackageBuilderDialog({
   }, [groups]);
 
   const maxFor = (groupId: string) => availability?.[groupId]?.available ?? 0;
+
+  // Dropdown content: groups filtered by the scanned category/closet (and the
+  // free-text search), each with its live availability count.
+  const dropdownGroups = useMemo(() => {
+    const q = scanQuery.trim().toLowerCase();
+    return (groups ?? []).filter(
+      (g: any) =>
+        groupAllowedByFilter({ categoryId: g.categoryId, closetId: g.closetId }, scanFilter) &&
+        (q === "" || g.name.toLowerCase().includes(q)),
+    );
+  }, [groups, scanFilter, scanQuery]);
+
+  // QR scans resolve through the server lookup query (same resolver the QR
+  // route uses): set the payload, the query resolves, the effect applies it.
+  const [scanPayload, setScanPayload] = useState<string | null>(null);
+  const scanResolved = useQuery(
+    api.lookup.resolve,
+    scanPayload ? { payload: scanPayload } : "skip",
+  );
+
+  useEffect(() => {
+    if (!scanPayload || scanResolved === undefined) return;
+    setScanPayload(null);
+    const out = scanOutcome(scanResolved as any);
+    if (out.action === "add-line") {
+      const g = (groups ?? []).find((x: any) => x._id === out.groupId);
+      setLines((prev) => upsertLine(prev, out.groupId));
+      toast.success(g ? `Added ${g.name}` : "Item added to the package");
+    } else if (out.action === "set-filter") {
+      setScanFilter(out.filter);
+      toast.success(
+        out.filter.type === "category" ? "Showing that category only" : "Showing that closet only",
+      );
+    } else {
+      toast.info(out.reason);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scanResolved, scanPayload]);
 
   const totalUnits = lines.reduce((n, l) => n + (Number.isFinite(l.count) ? l.count : 0), 0);
 
@@ -135,33 +196,66 @@ export function PackageBuilderDialog({
           </DialogTitle>
           <DialogDescription>
             Bundle several items into one request — e.g. 3× Arduino Uno + 2× servo. One approval,
-            one pickup. Available counts update live.
+            one pickup. Available counts update live. Scan item labels to add lines, or scan a
+            category/closet label to filter the list below.
           </DialogDescription>
         </DialogHeader>
+
+        {(scanFilter || scanQuery.trim()) && (
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            {scanFilter && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-primary">
+                {scanFilter.type === "category" ? "Category" : "Closet"} filter
+                <button
+                  type="button"
+                  onClick={() => setScanFilter(null)}
+                  className="rounded-full p-0.5 hover:bg-primary/20"
+                  title="Clear scan filter"
+                >
+                  <X className="size-3" />
+                </button>
+              </span>
+            )}
+            {scanQuery.trim() && (
+              <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5">
+                “{scanQuery.trim()}”
+                <button
+                  type="button"
+                  onClick={() => setScanQuery("")}
+                  className="rounded-full p-0.5 hover:bg-muted"
+                  title="Clear search"
+                >
+                  <X className="size-3" />
+                </button>
+              </span>
+            )}
+          </div>
+        )}
 
         <div className="flex max-h-[50vh] flex-col gap-2 overflow-y-auto pr-1">
           {lines.map((line, i) => {
             const max = maxFor(line.groupId);
             return (
               <div key={i} className="flex items-center gap-2 rounded-md border p-2">
-                <Select
-                  value={line.groupId}
-                  onValueChange={(v) =>
-                    setLines((prev) => prev.map((l, j) => (j === i ? { ...l, groupId: v, count: Math.min(l.count, Math.max(1, maxFor(v))) } : l)))
-                  }
-                >
+                <Select value={line.groupId} onValueChange={(v) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, groupId: v, count: Math.min(l.count, Math.max(1, maxFor(v))) } : l)))}>
                   <SelectTrigger className="flex-1">
                     <SelectValue placeholder="Choose an item" />
                   </SelectTrigger>
                   <SelectContent>
-                    {(groups ?? []).map((g) => {
-                      const a = availability?.[g._id];
-                      return (
-                        <SelectItem key={g._id} value={g._id}>
-                          {g.name} · {a ? `${a.available} free` : "…"}
-                        </SelectItem>
-                      );
-                    })}
+                    {dropdownGroups.length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-muted-foreground">
+                        No items match the filter — clear it or scan another label.
+                      </div>
+                    ) : (
+                      dropdownGroups.map((g: any) => {
+                        const a = availability?.[g._id];
+                        return (
+                          <SelectItem key={g._id} value={g._id}>
+                            {g.name} · {a ? `${a.available} free` : "…"}
+                          </SelectItem>
+                        );
+                      })
+                    )}
                   </SelectContent>
                 </Select>
                 <div className="flex w-28 items-center gap-1">
@@ -214,15 +308,32 @@ export function PackageBuilderDialog({
               </div>
             );
           })}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="self-start"
-            onClick={() => setLines((prev) => [...prev, { groupId: "", count: 1 }])}
-          >
-            <Plus className="size-4" /> Add item
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="self-start"
+              onClick={() => setLines((prev) => [...prev, { groupId: "", count: 1 }])}
+            >
+              <Plus className="size-4" /> Add item
+            </Button>
+            <Input
+              value={scanQuery}
+              onChange={(e) => setScanQuery(e.target.value)}
+              placeholder="Search items…"
+              className="h-8 w-40"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setScanOpen(true)}
+              title="Scan a unit/group label to add it, or a category/closet label to filter the list"
+            >
+              <ScanLine className="size-4" /> Scan QR
+            </Button>
+          </div>
         </div>
 
         <div className="grid gap-2">
@@ -254,6 +365,13 @@ export function PackageBuilderDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <QrScanDialog
+        open={scanOpen}
+        onOpenChange={setScanOpen}
+        onResult={(text) => setScanPayload(normalizeScan(text))}
+        hint="Unit/group labels add items · category/closet labels filter the list"
+      />
     </Dialog>
   );
 }

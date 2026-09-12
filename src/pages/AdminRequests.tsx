@@ -15,6 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
@@ -36,11 +37,18 @@ type Row = {
 };
 
 export default function AdminRequests() {
-  const pending = useQuery(api.parts.listAllRentals, { status: "pending" });
+  // Pending tab uses a grouped query: singles are one row each, pending
+  // package units collapse into one row per package — badge and list always
+  // match what is actually rendered.
+  const pendingRowsQ = useQuery(api.parts.pendingRentalRows, {});
+  const pendingSingles = (pendingRowsQ ?? []).filter((r: any) => r.kind === "single");
+  const pendingPkgRows = (pendingRowsQ ?? []).filter((r: any) => r.kind === "package");
   const active = useQuery(api.parts.listAllRentals, { status: "active" });
   const onProject = useQuery(api.parts.listAllRentals, { status: "on_project" });
   const history = useQuery(api.parts.listAllRentals, { status: "returned" });
   const packages = useQuery(api.parts.listPackages, { scope: "all" });
+  const returnWholePkg = useMutation(api.parts.returnWholePackage);
+  const projects = useQuery(api.projects.listProjects, { status: "active" });
   const profileReqs = useQuery(api.notifications.listProfileRequests, { status: "pending" });
   const decideProfile = useMutation(api.notifications.decideProfileRequest);
   const rankReqs = useQuery(api.users.listRankRequests, { status: "pending" });
@@ -62,7 +70,6 @@ export default function AdminRequests() {
 
   const act = useMutation(api.parts.adminRentalAction);
   const decidePkg = useMutation(api.parts.decidePackage);
-  const projects = useQuery(api.projects.listProjects, { status: "active" });
   const unapproved = useQuery(api.users.listUnapprovedProfiles, {});
 
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -73,14 +80,59 @@ export default function AdminRequests() {
   const [projectId, setProjectId] = useState("");
   const [creatingProject, setCreatingProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
-  const createProject = useMutation(api.projects.upsertProject);
 
   // Package units are decided as a bundle in the Packages tab (all-or-nothing).
-  // Showing them here too let an admin approve a single unit from the Pending
-  // tab and strand the rest of the package in "pending" forever — so they are
-  // hidden here (the Packages tab shows the bundle with one Approve/Deny).
-  const pendingRows = (pending ?? []).filter((r: Row) => !r.rental.packageId);
-  const hiddenPackageRows = (pending?.length ?? 0) - pendingRows.length;
+  // The grouped pending query already collapses them into package rows.
+  const pendingRows = pendingSingles;
+  const pendingCount = pendingRowsQ?.length ?? 0;
+
+  // Whole-package return from the Packages tab (admin one-click).
+  const [wholeFor, setWholeFor] = useState<any | null>(null);
+  const [wholeBusy, setWholeBusy] = useState(false);
+  const [wholeDestination, setWholeDestination] = useState<"shelf" | "project">("shelf");
+  const [wholeFunctional, setWholeFunctional] = useState(true);
+  const [wholeReport, setWholeReport] = useState("");
+  const [wholeProjectId, setWholeProjectId] = useState("");
+  const [wholeCreatingProject, setWholeCreatingProject] = useState(false);
+  const [wholeNewProjectName, setWholeNewProjectName] = useState("");
+  const createProject = useMutation(api.projects.upsertProject);
+
+  const wholeValid =
+    wholeDestination === "shelf"
+      ? true
+      : wholeCreatingProject
+        ? wholeNewProjectName.trim().length > 1
+        : Boolean(wholeProjectId);
+
+  const submitWholeReturn = async () => {
+    if (!wholeFor || !wholeValid) return;
+    setWholeBusy(true);
+    try {
+      let target = wholeProjectId;
+      if (wholeDestination === "project" && wholeCreatingProject) {
+        target = await createProject({ name: wholeNewProjectName.trim(), status: "active" });
+      }
+      const res = await returnWholePkg({
+        packageId: wholeFor.package._id,
+        destination: wholeDestination,
+        projectId: wholeDestination === "project" ? (target as any) : undefined,
+        functional: wholeFunctional,
+        conditionReport: wholeReport.trim() || undefined,
+      });
+      toast.success(
+        `${res.processed} unit(s) ${wholeDestination === "project" ? "assigned to the project" : wholeFunctional ? "back on the shelf" : "marked broken"}`,
+      );
+      setWholeFor(null);
+      setWholeReport("");
+      setWholeProjectId("");
+      setWholeCreatingProject(false);
+      setWholeNewProjectName("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setWholeBusy(false);
+    }
+  };
 
   const decide = async (row: Row, approve: boolean) => {
     setBusyId(row.rental._id);
@@ -203,7 +255,7 @@ export default function AdminRequests() {
         <Tabs defaultValue="pending">
           <TabsList>
             <TabsTrigger value="pending">
-              Pending {pending?.length ? `(${pending.length})` : ""}
+              Pending {pendingCount ? `(${pendingCount})` : ""}
             </TabsTrigger>
             <TabsTrigger value="packages">
               Packages {(packages ?? []).filter((p) => p.package.status === "pending").length
@@ -229,31 +281,23 @@ export default function AdminRequests() {
           </TabsList>
 
           <TabsContent value="pending" className="mt-4">
-            {pending === undefined ? (
+            {pendingRowsQ === undefined ? (
               <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
-            ) : pendingRows.length === 0 ? (
+            ) : pendingRows.length === 0 && pendingPkgRows.length === 0 ? (
               <p className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
                 No pending requests — all clear ✨
               </p>
             ) : (
-              <>
-              {hiddenPackageRows > 0 && (
-                <p className="mb-3 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
-                  {hiddenPackageRows} unit{hiddenPackageRows > 1 ? "s" : ""} of pending package
-                  request{hiddenPackageRows > 1 ? "s are" : " is"} handled in the Packages tab
-                  (one approval for the whole bundle).
-                </p>
-              )}
-              <ul className="divide-y rounded-lg border">
-                {pendingRows.map((row) => (
+              <ul className="flex flex-col gap-3">
+                {pendingRows.map((row: any) => (
                   <RowCard
-                    key={row.rental._id}
+                    key={row.key}
                     row={row as Row}
                     actions={
                       <div className="flex gap-2">
                         <Button
                           size="sm"
-                          disabled={busyId === row.rental._id}
+                          disabled={busyId === row.key}
                           onClick={() => decide(row as Row, true)}
                         >
                           <Check className="size-4" /> Approve
@@ -261,7 +305,7 @@ export default function AdminRequests() {
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={busyId === row.rental._id}
+                          disabled={busyId === row.key}
                           onClick={() => decide(row as Row, false)}
                         >
                           <X className="size-4" /> Deny
@@ -270,8 +314,57 @@ export default function AdminRequests() {
                     }
                   />
                 ))}
+                {pendingPkgRows.map((row: any) => (
+                  <li key={row.key} className="rounded-lg border border-primary/30 p-4">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Boxes className="size-5 shrink-0 text-primary" />
+                      <Avatar className="size-8 shrink-0">
+                        <AvatarImage src={row.student?.image} />
+                        <AvatarFallback className="text-xs font-semibold">
+                          {(row.student?.name ?? row.student?.email ?? "?").slice(0, 1).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium">
+                          Package · {row.units.length} unit(s)
+                          {row.packageNote ? ` · “${row.packageNote}”` : ""}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {row.units.map((u: any) => u.groupName).join(" · ")} ·{" "}
+                          {new Date(row.package.requestedAt).toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          disabled={busyId === row.key}
+                          onClick={() => decidePackageAction(row.key, true)}
+                        >
+                          <Check className="size-4" /> Approve all
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busyId === row.key}
+                          onClick={() => decidePackageAction(row.key, false)}
+                        >
+                          <X className="size-4" /> Deny
+                        </Button>
+                      </div>
+                    </div>
+                    <ul className="mt-3 flex flex-wrap gap-1.5 border-t pt-3">
+                      {row.units.map((u: any) => (
+                        <li
+                          key={u.rentalId}
+                          className="rounded border px-2 py-1 font-mono text-[11px] text-muted-foreground"
+                        >
+                          {u.tag ?? "?"}
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
               </ul>
-              </>
             )}
           </TabsContent>
 
@@ -334,7 +427,28 @@ export default function AdminRequests() {
                           </Button>
                         </div>
                       ) : (
-                        <StatusBadge status={pkg.status === "approved" ? "active" : "canceled"} />
+                        <div className="flex gap-2">
+                          {pkg.status === "approved" && openUnits > 0 && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="gap-1 border-amber-500/40 text-amber-500 hover:bg-amber-500/10"
+                              disabled={busyId === pkg._id}
+                              onClick={() => {
+                                setWholeFor({ package: pkg });
+                                setWholeDestination("shelf");
+                                setWholeFunctional(true);
+                                setWholeReport("");
+                                setWholeProjectId("");
+                                setWholeCreatingProject(false);
+                                setWholeNewProjectName("");
+                              }}
+                            >
+                              <RotateCcw className="size-4" /> Return all units
+                            </Button>
+                          )}
+                          <StatusBadge status={pkg.status === "approved" ? "active" : "canceled"} />
+                        </div>
                       )}
                     </div>
                     <ul className="mt-3 flex flex-col gap-1 border-t pt-3">
@@ -733,6 +847,110 @@ export default function AdminRequests() {
             <Button variant="outline" onClick={() => setReturnFor(null)}>Cancel</Button>
             <Button onClick={submitReturn} disabled={!validReturn || busyId !== null}>
               <PackagePlus className="size-4" /> Confirm
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Whole-package return: one decision for every active unit of the bundle */}
+      <Dialog open={Boolean(wholeFor)} onOpenChange={(v) => !v && setWholeFor(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Return the whole package</DialogTitle>
+            <DialogDescription>
+              Every active unit of this bundle gets the same destination and condition. For
+              per-unit fine-tuning, use the individual Return buttons on the unit rows.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4">
+            <RadioGroup
+              value={wholeDestination}
+              onValueChange={(v) => setWholeDestination(v as "shelf" | "project")}
+              className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+            >
+              <label className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${wholeDestination === "shelf" ? "border-foreground" : ""}`}>
+                <RadioGroupItem value="shelf" className="mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium">Return to shelf</p>
+                  <p className="text-xs text-muted-foreground">All units back in their closets (or marked broken).</p>
+                </div>
+              </label>
+              <label className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${wholeDestination === "project" ? "border-foreground" : ""}`}>
+                <RadioGroupItem value="project" className="mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium">Assign to project</p>
+                  <p className="text-xs text-muted-foreground">Everything stays checked out until dismantled.</p>
+                </div>
+              </label>
+            </RadioGroup>
+
+            {wholeDestination === "project" && (
+              <div className="flex flex-col gap-2">
+                <Label>Project</Label>
+                {!wholeCreatingProject ? (
+                  <div className="flex gap-2">
+                    <Select value={wholeProjectId} onValueChange={setWholeProjectId}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select an active project" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(projects ?? []).map((p) => (
+                          <SelectItem key={p._id} value={p._id}>{p.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button type="button" variant="outline" onClick={() => setWholeCreatingProject(true)}>
+                      New
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <Input
+                      className="flex-1"
+                      value={wholeNewProjectName}
+                      onChange={(e) => setWholeNewProjectName(e.target.value)}
+                      placeholder="New project name"
+                    />
+                    <Button type="button" variant="outline" onClick={() => setWholeCreatingProject(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex flex-col gap-2">
+              <Label>Condition check (applies to every unit)</Label>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant={wholeFunctional ? "default" : "outline"}
+                  className="flex-1"
+                  onClick={() => setWholeFunctional(true)}
+                >
+                  Works fine
+                </Button>
+                <Button
+                  type="button"
+                  variant={!wholeFunctional ? "default" : "outline"}
+                  className="flex-1"
+                  onClick={() => setWholeFunctional(false)}
+                >
+                  Needs repair
+                </Button>
+              </div>
+              <Textarea
+                value={wholeReport}
+                onChange={(e) => setWholeReport(e.target.value)}
+                placeholder="Anything to note? (applied to every unit)"
+                rows={2}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setWholeFor(null)}>Cancel</Button>
+            <Button onClick={submitWholeReturn} disabled={!wholeValid || wholeBusy}>
+              <RotateCcw className="size-4" /> {wholeBusy ? "Processing…" : "Process all units"}
             </Button>
           </DialogFooter>
         </DialogContent>

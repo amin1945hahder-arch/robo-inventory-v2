@@ -45,6 +45,9 @@ export default function PartDetail() {
   const detail = useQuery(api.parts.getPartWithRental, id ? { id: id as any } : "skip");
   const rentals = useQuery(api.parts.listAllRentals, isAdmin ? {} : "skip");
   const myRentals = useQuery(api.parts.listMyRentals, {});
+  // Full-control editing: pick an active project and/or a holder member.
+  const activeProjects = useQuery(api.projects.listProjects, isAdmin ? { status: "active" } : "skip");
+  const people = useQuery(api.notifications.listPeople, isAdmin ? {} : "skip");
 
   const requestRental = useMutation(api.parts.requestRental);
   const rentBroken = useMutation(api.parts.rentBrokenPart);
@@ -59,6 +62,8 @@ export default function PartDetail() {
   const [editNote, setEditNote] = useState("");
   const [editStatus, setEditStatus] = useState<string>("available");
   const [editImageUrl, setEditImageUrl] = useState("");
+  const [editProjectId, setEditProjectId] = useState<string>("");
+  const [editHolderId, setEditHolderId] = useState<string>("");
   const [busy, setBusy] = useState(false);
   // Print-card projection handed to <RentCardDialog/>.
   const [card, setCard] = useState<CardRow | null>(null);
@@ -155,6 +160,8 @@ export default function PartDetail() {
                   setEditNote(part.note ?? "");
                   setEditStatus(part.status);
                   setEditImageUrl(part.imageUrl ?? "");
+                  setEditProjectId(part.currentProjectId ?? "");
+                  setEditHolderId(part.currentHolderId ?? "");
                   setEditOpen(true);
                 }}
               >
@@ -457,8 +464,7 @@ export default function PartDetail() {
 
       {card && <RentCardDialog r={card} onClose={() => setCard(null)} />}
 
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="sm:max-w-sm">
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>          <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Edit unit</DialogTitle>
           </DialogHeader>
@@ -480,6 +486,39 @@ export default function PartDetail() {
               </select>
             </div>
             <div className="grid gap-2">
+              <Label>Assigned project</Label>
+              <select
+                className="h-9 rounded-md border bg-background px-3 text-sm"
+                value={editProjectId}
+                onChange={(e) => setEditProjectId(e.target.value)}
+              >
+                <option value="">— None (not on a project) —</option>
+                {(activeProjects ?? []).map((p: any) => (
+                  <option key={p._id} value={p._id}>{p.name}</option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground">
+                Picking a project checks the unit out to it until the project is dismantled.
+              </p>
+            </div>
+            {editStatus === "rented" && (
+              <div className="grid gap-2">
+                <Label>Rented by (holder)</Label>
+                <select
+                  className="h-9 rounded-md border bg-background px-3 text-sm"
+                  value={editHolderId}
+                  onChange={(e) => setEditHolderId(e.target.value)}
+                >
+                  <option value="">— Pick a member —</option>
+                  {(people ?? []).map((p: any) => (
+                    <option key={p.user._id} value={p.user._id}>
+                      {p.user.name ?? p.user.email}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div className="grid gap-2">
               <Label>Note</Label>
               <Textarea value={editNote} onChange={(e) => setEditNote(e.target.value)} rows={2} />
             </div>
@@ -497,12 +536,24 @@ export default function PartDetail() {
             <Button
               onClick={async () => {
                 try {
+                  const wantsProject = editProjectId !== "";
+                  const wantsHolder = editStatus === "rented";
+                  if (wantsProject && wantsHolder) {
+                    toast.error("A unit is either on a project or rented — pick one");
+                    return;
+                  }
+                  if (wantsHolder && editHolderId === "") {
+                    toast.error("Pick the member who holds the unit");
+                    return;
+                  }
                   await updatePart({
                     id: part._id,
                     tag: editTag,
                     note: editNote,
                     status: editStatus as any,
                     imageUrl: editImageUrl.trim() || "",
+                    projectId: wantsProject ? (editProjectId as any) : null,
+                    holderId: wantsHolder ? (editHolderId as any) : null,
                   });
                   toast.success("Unit updated");
                   setEditOpen(false);

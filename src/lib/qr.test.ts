@@ -30,7 +30,8 @@ describe("QR payloads", () => {
   });
 
   it("builds a scan URL with the payload as the p query param", () => {
-    expect(qrUrl("unit:ARD-001")).toMatch(/^\/qr\?p=unit%3AARD-001$/);
+    // Printed labels carry an absolute URL so any phone camera can open the app.
+    expect(qrUrl("unit:ARD-001")).toMatch(/\/qr\?p=unit%3AARD-001$/);
   });
 
   describe("normalizeScan", () => {
