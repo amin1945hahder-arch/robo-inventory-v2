@@ -75,6 +75,13 @@ export default function AdminRequests() {
   const [newProjectName, setNewProjectName] = useState("");
   const createProject = useMutation(api.projects.upsertProject);
 
+  // Package units are decided as a bundle in the Packages tab (all-or-nothing).
+  // Showing them here too let an admin approve a single unit from the Pending
+  // tab and strand the rest of the package in "pending" forever — so they are
+  // hidden here (the Packages tab shows the bundle with one Approve/Deny).
+  const pendingRows = (pending ?? []).filter((r: Row) => !r.rental.packageId);
+  const hiddenPackageRows = (pending?.length ?? 0) - pendingRows.length;
+
   const decide = async (row: Row, approve: boolean) => {
     setBusyId(row.rental._id);
     try {
@@ -224,13 +231,21 @@ export default function AdminRequests() {
           <TabsContent value="pending" className="mt-4">
             {pending === undefined ? (
               <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
-            ) : pending.length === 0 ? (
+            ) : pendingRows.length === 0 ? (
               <p className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
                 No pending requests — all clear ✨
               </p>
             ) : (
+              <>
+              {hiddenPackageRows > 0 && (
+                <p className="mb-3 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+                  {hiddenPackageRows} unit{hiddenPackageRows > 1 ? "s" : ""} of pending package
+                  request{hiddenPackageRows > 1 ? "s are" : " is"} handled in the Packages tab
+                  (one approval for the whole bundle).
+                </p>
+              )}
               <ul className="divide-y rounded-lg border">
-                {pending.map((row) => (
+                {pendingRows.map((row) => (
                   <RowCard
                     key={row.rental._id}
                     row={row as Row}
@@ -256,6 +271,7 @@ export default function AdminRequests() {
                   />
                 ))}
               </ul>
+              </>
             )}
           </TabsContent>
 

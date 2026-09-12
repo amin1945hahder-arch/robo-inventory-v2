@@ -81,8 +81,9 @@ function useColumns(dataset: Dataset): Col[] {
         { key: "access", label: "Access", get: (r) => (r.user?.role === "admin" ? "Admin" : "Member") },
         { key: "membership", label: "Membership", get: (r) => (r.user?.membershipStatus === "ex" ? "Ex-member" : "Active") },
         { key: "activeRentals", label: "Active rentals", get: (r) => String(r.activeRentals ?? 0) },
-      ];      return [
-        { key: "name", label: "Project", get: (r) => r.project?.name ?? "" },
+      ];
+    return [
+      { key: "name", label: "Project", get: (r) => r.project?.name ?? "" },
       { key: "status", label: "Status", get: (r) => r.project?.status ?? "" },
       { key: "description", label: "Description", get: (r) => r.project?.description ?? "" },
       { key: "owner", label: "Owner", get: (r) => r.owner?.name ?? "" },
@@ -147,8 +148,8 @@ export default function ExportStudio() {
       list = list.filter((r) => r.project?.status === statusFilter);
     }
     if (dataset === "people" && statusFilter !== "all") {
-      if (statusFilter === "admins")      list = list.filter((r) => r.user?.role === "admin");
-        else if (statusFilter === "members") list = list.filter((r) => r.user?.role !== "admin");
+      if (statusFilter === "admins") list = list.filter((r) => r.user?.role === "admin");
+      else if (statusFilter === "members") list = list.filter((r) => r.user?.role !== "admin");
       else if (statusFilter === "active") list = list.filter((r) => r.user?.membershipStatus !== "ex");
       else if (statusFilter === "ex") list = list.filter((r) => r.user?.membershipStatus === "ex");
     }
