@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { requireAdmin, requireUser } from "./lib";
+import { requireAdmin, requireUser, safeImage } from "./lib";
 
 // ===== Admin notifications =====
 
@@ -125,7 +125,7 @@ export const listProfileRequests = query({
       out.push({
         request: r,
         user: user
-          ? { name: user.name, email: user.email, image: user.image, studentId: user.studentId, phone: user.phone }
+          ? { name: user.name, email: user.email, image: safeImage(user.image), studentId: user.studentId, phone: user.phone }
           : null,
       });
     }
@@ -161,14 +161,6 @@ export const myPendingProfileRequest = query({
 
 // ===== Account =====
 
-export const updateImage = mutation({
-  args: { image: v.string() },
-  handler: async (ctx, { image }) => {
-    const user = await requireUser(ctx);
-    await ctx.db.patch(user._id, { image });
-  },
-});
-
 export const listPeople = query({
   args: {},
   handler: async (ctx) => {
@@ -181,7 +173,7 @@ export const listPeople = query({
           _id: u._id,
           name: u.name,
           email: u.email,
-          image: u.image,
+          image: safeImage(u.image),
           role: u.role,
           studentId: u.studentId,
           phone: u.phone,

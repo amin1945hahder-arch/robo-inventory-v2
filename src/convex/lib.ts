@@ -42,6 +42,21 @@ export async function requireNonGuest(ctx: QueryCtx) {
   return user;
 }
 
+/**
+ * Guard for profile pictures in list/query projections.
+ *
+ * Avatars are base64 data URLs on user docs. A single oversized legacy image
+ * (hundreds of KB) repeated once per rental row inflates a query response
+ * beyond Convex's 16 MB per-execution budget and crashes the page. Properly
+ * compressed uploads are 10–30 KB, so anything larger is stripped here —
+ * the UI falls back to the initial-letter avatar.
+ */
+export function safeImage(image: string | undefined | null): string | undefined {
+  return typeof image === "string" && image.length > 0 && image.length <= 60_000
+    ? image
+    : undefined;
+}
+
 export function isGuest(user: { isAnonymous?: boolean } | null) {
   return Boolean(user?.isAnonymous);
 }

@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { api } from "./_generated/api";
-import { requireAdmin, requireNonGuest, requireUser } from "./lib";
+import { requireAdmin, requireNonGuest, requireUser, safeImage } from "./lib";
 import { adminPhones, sendWhatsApp } from "./whatsapp";
 import { telegramDM, telegramGroup, notifyTelegram } from "./notify";
 import { internal } from "./_generated/api";
@@ -127,7 +127,7 @@ export const getPartWithRental = query({
         mine: shown.userId === user._id,
         holderName: holder?.name ?? holder?.email ?? "A member",
         holderId: holder?._id,
-        holderImage: holder?.image,
+        holderImage: safeImage(holder?.image),
         projectName: project?.name,
       };
     }
@@ -876,7 +876,7 @@ export const listAllRentals = query({
               name: student.name,
               email: student.email,
               studentId: student.studentId,
-              image: student.image,
+              image: safeImage(student.image),
             }
           : null,
       });
@@ -990,7 +990,7 @@ export const listPackages = query({
               name: requester.name,
               email: requester.email,
               studentId: requester.studentId,
-              image: requester.image,
+              image: safeImage(requester.image),
             }
           : null,
         lines,

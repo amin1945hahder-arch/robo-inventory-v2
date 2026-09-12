@@ -1,7 +1,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { internalQuery, mutation, query, QueryCtx } from "./_generated/server";
-import { requireAdmin, requireNonGuest, requireUser } from "./lib";
+import { requireAdmin, requireNonGuest, requireUser, safeImage } from "./lib";
 import { emailInAdminList } from "./adminConfig";
 import { notifyTelegram } from "./notify";
 
@@ -302,7 +302,7 @@ export const listRankRequests = query({
       out.push({
         request: r,
         user: user
-          ? { name: user.name, email: user.email, image: user.image, clubRoles: user.clubRoles, telegramChatId: user.telegramChatId }
+          ? { name: user.name, email: user.email, image: safeImage(user.image), clubRoles: user.clubRoles, telegramChatId: user.telegramChatId }
           : null,
       });
     }
@@ -443,7 +443,7 @@ export const updateMyImage = mutation({
     if (user.isAnonymous) throw new Error("Guests cannot change a profile picture — sign in first");
     const clean = image.trim();
     if (!clean) throw new Error("Image URL is empty");
-    if (clean.length > 200_000) {
+    if (clean.length > 60_000) {
       throw new Error(
         "Image is too large after compression — try a different photo (it will be resized automatically)",
       );

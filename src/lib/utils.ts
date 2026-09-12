@@ -54,5 +54,13 @@ export async function compressImageFile(file: File, maxSize = 256): Promise<stri
   const ctx = canvas.getContext("2d");
   if (!ctx) return dataUrl; // canvas unavailable — fall back to original
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL("image/jpeg", 0.85);
+  // Step quality down until the data URL fits the server-side cap (60 KB), so
+  // noisy photos can never bloat user docs and crash list queries again.
+  let quality = 0.85;
+  let out = canvas.toDataURL("image/jpeg", quality);
+  while (out.length > 60_000 && quality > 0.3) {
+    quality -= 0.15;
+    out = canvas.toDataURL("image/jpeg", quality);
+  }
+  return out;
 }
