@@ -27,10 +27,25 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { motion } from "framer-motion";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { categoryQr, normalizeScan } from "@/lib/qr";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
-import { PackagePlus, Plus, ScanLine, Search, SlidersHorizontal } from "lucide-react";
+import {
+  MoreVertical,
+  PackagePlus,
+  Pencil,
+  Plus,
+  ScanLine,
+  Search,
+  SlidersHorizontal,
+  Trash2,
+} from "lucide-react";
 
 type SortKey = "name" | "total" | "available" | "broken";
 
@@ -57,7 +72,12 @@ export default function Inventory() {
   const [catDialogOpen, setCatDialogOpen] = useState(false);
   const [catName, setCatName] = useState("");
   const [catDesc, setCatDesc] = useState("");
+  // Category edit dialog (null = closed, {id} = edit, {_id: undefined} = new).
+  const [editingCat, setEditingCat] = useState<Doc<"categories"> | null>(null);
+  const [editCatName, setEditCatName] = useState("");
+  const [editCatDesc, setEditCatDesc] = useState("");
   const upsertCategory = useMutation(api.catalog.upsertCategory);
+  const deleteCategory = useMutation(api.catalog.deleteCategory);
   const deleteGroup = useMutation(api.catalog.deleteGroup);
 
   const filtered = useMemo(() => {
@@ -273,6 +293,40 @@ export default function Inventory() {
                     <div className="ml-1">
                       <QrChip payload={categoryQr(cat.name)} label={cat.name} />
                     </div>
+                    {isAdmin && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="size-7">
+                            <MoreVertical className="size-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start">
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setEditingCat(cat);
+                              setEditCatName(cat.name);
+                              setEditCatDesc(cat.description ?? "");
+                            }}
+                          >
+                            <Pencil className="size-4" /> Edit category
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="text-destructive"
+                            onClick={async () => {
+                              if (!confirm(`Delete category “${cat.name}”? Categories with groups cannot be deleted.`)) return;
+                              try {
+                                await deleteCategory({ id: cat._id });
+                                toast.success("Category deleted");
+                              } catch (e) {
+                                toast.error(e instanceof Error ? e.message : "Failed");
+                              }
+                            }}
+                          >
+                            <Trash2 className="size-4" /> Delete category
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
                   </div>
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     {catGroups.map((g) => (
@@ -341,6 +395,46 @@ export default function Inventory() {
               }}
             >
               Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit-category dialog (from the ⋮ menu on each category heading) */}
+      <Dialog open={Boolean(editingCat)} onOpenChange={(v) => !v && setEditingCat(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Edit category</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <div className="grid gap-2">
+              <Label>Name</Label>
+              <Input value={editCatName} onChange={(e) => setEditCatName(e.target.value)} />
+            </div>
+            <div className="grid gap-2">
+              <Label>Description</Label>
+              <Textarea value={editCatDesc} onChange={(e) => setEditCatDesc(e.target.value)} rows={2} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingCat(null)}>Cancel</Button>
+            <Button
+              onClick={async () => {
+                if (!editingCat || !editCatName.trim()) return;
+                try {
+                  await upsertCategory({
+                    id: editingCat._id,
+                    name: editCatName.trim(),
+                    description: editCatDesc.trim() || undefined,
+                  });
+                  toast.success("Category updated");
+                  setEditingCat(null);
+                } catch (e) {
+                  toast.error(e instanceof Error ? e.message : "Failed");
+                }
+              }}
+            >
+              Save
             </Button>
           </DialogFooter>
         </DialogContent>

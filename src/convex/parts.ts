@@ -127,6 +127,7 @@ export const getPartWithRental = query({
         mine: shown.userId === user._id,
         holderName: holder?.name ?? holder?.email ?? "A member",
         holderId: holder?._id,
+        holderImage: holder?.image,
         projectName: project?.name,
       };
     }
@@ -189,13 +190,15 @@ export const updatePart = mutation({
       ),
     ),
     note: v.optional(v.string()),
+    imageUrl: v.optional(v.string()),
   },
-  handler: async (ctx, { id, tag, status, note }) => {
+  handler: async (ctx, { id, tag, status, note, imageUrl }) => {
     await requireAdmin(ctx);
     const patch: Record<string, unknown> = {};
     if (tag !== undefined) patch.tag = tag.trim().toUpperCase();
     if (status !== undefined) patch.status = status;
     if (note !== undefined) patch.note = note.trim();
+    if (imageUrl !== undefined) patch.imageUrl = imageUrl.trim() || undefined;
     await ctx.db.patch(id, patch);
   },
 });
@@ -223,6 +226,41 @@ export const deletePart = mutation({
 
 async function notifyAdmin(ctx: any, text: string, link?: string) {
   await ctx.db.insert("notifications", { forRole: "admin", type: "info", text, link });
+}
+
+/**
+ * Push the printable rent card (PNG) for a rental to the Telegram club group.
+ * Used whenever a return is requested or processed so the admins get the
+ * receipt as an image right next to the usual text message. Fire-and-forget:
+ * a render/send failure never blocks the mutation.
+ */
+async function scheduleRentCard(
+  ctx: any,
+  rental: any,
+  part: any | null,
+  group: any | null,
+  student: any | null,
+  statusLabel: string,
+  caption: string,
+  projectName?: string,
+) {
+  await ctx.scheduler.runAfter(0, internal.rentCardTelegram.sendRentCardToGroup, {
+    card: {
+      rentalId: rental._id,
+      groupName: group?.name ?? "Part",
+      tag: part?.tag ?? "?",
+      holderName: student?.name ?? student?.email ?? "Member",
+      studentId: student?.studentId,
+      statusLabel,
+      requestedAt: rental.requestedAt,
+      decidedAt: rental.decidedAt,
+      pickedUpAt: rental.pickedUpAt,
+      returnedAt: rental.returnedAt,
+      conditionReport: rental.conditionReport,
+      projectName,
+    },
+    caption,
+  });
 }
 
 async function notifyAdminsByEmail(
@@ -454,6 +492,16 @@ export const requestReturn = mutation({
       `↩️ ${user.name ?? user.email ?? "A member"} wants to return ${group?.name ?? "a part"} (${part?.tag ?? "?"}) — process it in the Requests console.`,
       admins.filter((a) => a.role === "admin" && a.telegramUsername).map((a) => ({ name: a.name, telegramUsername: a.telegramUsername })),
     );
+    // Attach the printable rent card image for this rental to the group.
+    await scheduleRentCard(
+      ctx,
+      rental,
+      part,
+      group,
+      user,
+      "active · return requested",
+      `↩️ Rent card — ${group?.name ?? "part"} (${part?.tag ?? "?"}) return requested by ${user.name ?? user.email ?? "a member"}.`,
+    );
   },
 });
 
@@ -619,6 +667,15 @@ export const adminRentalAction = mutation({
         ctx,
         `↩️ ${admin.name ?? admin.email} processed the return of ${group?.name ?? "a part"} (${part.tag})${functional === false ? " — marked BROKEN" : " — back on the shelf"}.`,
       );
+      await scheduleRentCard(
+        ctx,
+        { ...rental, returnedAt: now, conditionReport: conditionReport?.trim() },
+        part,
+        group,
+        student,
+        functional === false ? "returned · marked broken" : "returned to shelf",
+        `↩️ Rent card — ${group?.name ?? "part"} (${part.tag}) returned to shelf by ${student?.name ?? student?.email ?? "a member"}.`,
+      );
     } else if (action === "assign_project") {
       if (rental.status !== "active") throw new Error("Rental is not active");
       if (!projectId) throw new Error("Select a project");
@@ -638,10 +695,29 @@ export const adminRentalAction = mutation({
         ctx,
         `🤖 ${admin.name ?? admin.email} assigned ${group?.name ?? "a part"} (${part.tag}) to project “${project.name}” until it is dismantled.`,
       );
+      await scheduleRentCard(
+        ctx,
+        { ...rental, returnedAt: now, projectId, conditionReport: conditionReport?.trim() },
+        part,
+        group,
+        student,
+        "assigned to project",
+        `🤖 Rent card — ${group?.name ?? "part"} (${part.tag}) assigned to “${project.name}”.`,
+        project.name,
+      );
     } else if (action === "mark_broken") {
       if (rental.status !== "active") throw new Error("Rental is not active");
       await ctx.db.patch(rentalId, { status: "returned", returnedAt: now, returnDestination: "shelf", functional: false, conditionReport: conditionReport?.trim(), returnRequestedAt: undefined });
       await ctx.db.patch(part._id, { status: "broken", currentHolderId: undefined });
+      await scheduleRentCard(
+        ctx,
+        { ...rental, returnedAt: now, conditionReport: conditionReport?.trim() },
+        part,
+        group,
+        student,
+        "returned · marked broken",
+        `⚠️ Rent card — ${group?.name ?? "part"} (${part.tag}) returned and marked BROKEN.`,
+      );
     }
     return { ok: true };
   },
@@ -1261,6 +1337,22 @@ export const requestPackageReturn = mutation({
       `↩️ ${user.name ?? user.email ?? "A member"} wants to return their package (${summaryText}) — process it in the Requests console.`,
       admins.filter((a) => a.role === "admin" && a.telegramUsername).map((a) => ({ name: a.name, telegramUsername: a.telegramUsername })),
     );
+    // Attach a printable card per unit (capped so a 20-unit package doesn't
+    // spam the group).
+    const cache = docCache();
+    for (const r of active.slice(0, 5)) {
+      const part = await cache.get(ctx, r.partId);
+      const group = part ? await cache.get(ctx, part.groupId) : null;
+      await scheduleRentCard(
+        ctx,
+        r,
+        part,
+        group,
+        user,
+        "active · return requested",
+        `↩️ Rent card (package) — ${group?.name ?? "part"} (${part?.tag ?? "?"}) return requested.`,
+      );
+    }
     return { ok: true };
   },
 });

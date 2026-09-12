@@ -58,6 +58,7 @@ export default function PartDetail() {
   const [editTag, setEditTag] = useState("");
   const [editNote, setEditNote] = useState("");
   const [editStatus, setEditStatus] = useState<string>("available");
+  const [editImageUrl, setEditImageUrl] = useState("");
   const [busy, setBusy] = useState(false);
   // Print-card projection handed to <RentCardDialog/>.
   const [card, setCard] = useState<CardRow | null>(null);
@@ -125,6 +126,13 @@ export default function PartDetail() {
         <header className="flex flex-col justify-between gap-4 border-b pb-6 sm:flex-row sm:items-end">
           <div className="flex items-start gap-3">
             <QrChip payload={unitQr(part.tag)} label={`${group?.name ?? "Unit"} · ${part.tag}`} />
+            {(part.imageUrl || group?.imageUrl) && (
+              <img
+                src={part.imageUrl || group?.imageUrl}
+                alt={part.tag}
+                className="size-14 shrink-0 rounded-md border object-cover"
+              />
+            )}
             <div>
               <p className="font-mono text-xs text-muted-foreground">{part.tag}</p>
               <h1 className="text-2xl font-semibold tracking-tight">{group?.name ?? "Unit"}</h1>
@@ -146,6 +154,7 @@ export default function PartDetail() {
                   setEditTag(part.tag);
                   setEditNote(part.note ?? "");
                   setEditStatus(part.status);
+                  setEditImageUrl(part.imageUrl ?? "");
                   setEditOpen(true);
                 }}
               >
@@ -474,6 +483,14 @@ export default function PartDetail() {
               <Label>Note</Label>
               <Textarea value={editNote} onChange={(e) => setEditNote(e.target.value)} rows={2} />
             </div>
+            <div className="grid gap-2">
+              <Label>Unit image URL</Label>
+              <Input
+                value={editImageUrl}
+                onChange={(e) => setEditImageUrl(e.target.value)}
+                placeholder="https://… (falls back to the group image)"
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
@@ -485,6 +502,7 @@ export default function PartDetail() {
                     tag: editTag,
                     note: editNote,
                     status: editStatus as any,
+                    imageUrl: editImageUrl.trim() || "",
                   });
                   toast.success("Unit updated");
                   setEditOpen(false);
