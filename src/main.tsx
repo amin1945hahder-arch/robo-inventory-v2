@@ -2,6 +2,7 @@ import '@vly-ai/integrations';
 import { Toaster } from "@/components/ui/sonner";
 import { RequireAuth } from "@/components/RequireAuth";
 import { RequireAdmin } from "@/components/RequireAdmin";
+import { PageErrorBoundary } from "@/components/PageErrorBoundary";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import { ConvexReactClient } from "convex/react";
@@ -127,6 +128,14 @@ function RouteSyncer() {
   return null;
 }
 
+/** Per-navigation error boundary: a crash on one page shows a recoverable
+ *  panel (with the message) instead of a dead app; moving to another page
+ *  remounts fresh. */
+function RoutedBoundary({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  return <PageErrorBoundary key={location.pathname}>{children}</PageErrorBoundary>;
+}
+
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -138,7 +147,8 @@ createRoot(document.getElementById("root")!).render(
         <BrowserRouter>
           <RouteSyncer />
           <Suspense fallback={<RouteLoading />}>
-            <Routes>
+            <RoutedBoundary>
+              <Routes>
               <Route path="/" element={<Landing />} />
               <Route
                 path="/auth"
@@ -305,6 +315,7 @@ createRoot(document.getElementById("root")!).render(
               />
               <Route path="*" element={<NotFound />} />
             </Routes>
+            </RoutedBoundary>
           </Suspense>
         </BrowserRouter>
         <Toaster />

@@ -128,7 +128,13 @@ export const getPartWithRental = query({
         holderName: holder?.name ?? holder?.email ?? "A member",
         holderId: holder?._id,
         holderImage: safeImage(holder?.image),
+        studentId: holder?.studentId,
         projectName: project?.name,
+        decidedAt: shown.decidedAt,
+        pickedUpAt: shown.pickedUpAt,
+        returnedAt: shown.returnedAt,
+        rentBroken: Boolean(shown.rentBroken),
+        returnRequestedAt: shown.returnRequestedAt,
       };
     }
 
@@ -147,6 +153,11 @@ export const getPartWithRental = query({
         conditionReport: r.conditionReport,
         holderName: holder?.name ?? holder?.email ?? "—",
         holderId: holder?._id,
+        holderImage: safeImage(holder?.image),
+        studentId: holder?.studentId,
+        decidedAt: r.decidedAt,
+        pickedUpAt: r.pickedUpAt,
+        rentBroken: Boolean(r.rentBroken),
         projectName: project?.name,
       });
     }

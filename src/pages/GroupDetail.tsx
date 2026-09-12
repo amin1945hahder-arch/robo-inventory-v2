@@ -105,7 +105,7 @@ export default function GroupDetail() {
                 </p>
               </div>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-col items-stretch gap-2 sm:items-end">
               {isAdmin && (
                 <Button
                   variant="outline"
@@ -122,38 +122,35 @@ export default function GroupDetail() {
                   <PackagePlus className="size-4" /> Add unit
                 </Button>
               )}
-              {!isAdmin && (
-                <div className="flex flex-col items-end gap-2">
-                  <div className="flex items-center gap-2">
-                    <Input
-                      type="number"
-                      min={1}
-                      max={Math.max(1, availableUnits.length)}
-                      value={qty}
-                      onChange={(e) =>
-                        setQty(Math.max(1, Math.min(availableUnits.length || 1, Math.floor(Number(e.target.value) || 1))))
-                      }
-                      className="w-20"
-                      disabled={availableUnits.length === 0}
-                    />
-                    <Button
-                      disabled={availableUnits.length === 0 || qtyBusy}
-                      onClick={requestQuantity}
-                    >
-                      {qtyBusy ? <Loader2 className="size-4 animate-spin" /> : <Package className="size-4" />}
-                      {availableUnits.length > 0 ? `Request ${qty} unit${qty > 1 ? "s" : ""}` : "No units available"}
-                    </Button>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={availableUnits.length === 0}
-                    onClick={() => setPkgOpen(true)}
-                  >
-                    <PackagePlus className="size-4" /> Build a package (multiple items)
-                  </Button>
-                </div>
-              )}
+              {/* Rental requests are available to every signed-in member —
+                  admins included (they often demo or reserve units too). */}
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={1}
+                  max={Math.max(1, availableUnits.length)}
+                  value={qty}
+                  onChange={(e) =>
+                    setQty(Math.max(1, Math.min(availableUnits.length || 1, Math.floor(Number(e.target.value) || 1))))
+                  }
+                  className="w-20"
+                  disabled={availableUnits.length === 0}
+                />
+                <Button
+                  disabled={availableUnits.length === 0 || qtyBusy}
+                  onClick={requestQuantity}
+                >
+                  {qtyBusy ? <Loader2 className="size-4 animate-spin" /> : <Package className="size-4" />}
+                  {availableUnits.length > 0 ? `Request ${qty} unit${qty > 1 ? "s" : ""}` : "No units available"}
+                </Button>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setPkgOpen(true)}
+              >
+                <PackagePlus className="size-4" /> Request multiple items (package)
+              </Button>
             </div>
           </header>
 
@@ -221,9 +218,10 @@ export default function GroupDetail() {
                         {p.note && <p className="truncate text-xs text-muted-foreground">{p.note}</p>}
                       </Link>
                       <StatusBadge status={p.status} />
-                      {!isAdmin && p.status === "available" && (
+                      {p.status === "available" && (
                         <Button
                           size="sm"
+                          variant={isAdmin ? "outline" : "default"}
                           disabled={busyTag === p.tag}
                           onClick={() => requestUnit(p._id, p.tag)}
                         >

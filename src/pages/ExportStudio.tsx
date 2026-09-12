@@ -15,6 +15,7 @@ import {
 import { toast } from "sonner";
 import { Download, FileDown, Grid2x2, Loader2, Printer } from "lucide-react";
 import { downloadCsv } from "@/lib/csv";
+import { ageFromIso } from "@/lib/utils";
 
 /**
  * Export studio — pick a dataset, filter it, see the exact sheet you'll get
@@ -39,17 +40,17 @@ function useColumns(dataset: Dataset): Col[] {
   return useMemo(() => {
     if (dataset === "inventory")
       return [
-        { key: "group", label: "Component", get: (r) => r.group.name },
+        { key: "group", label: "Component", get: (r) => r.group?.name ?? "" },
         { key: "category", label: "Category", get: (r) => r.category?.name ?? "" },
         { key: "closet", label: "Closet", get: (r) => r.closet?.name ?? "" },
         { key: "brand", label: "Brand", get: (r) => r.group.brand ?? "" },
         { key: "model", label: "Model", get: (r) => r.group.model ?? "" },
-        { key: "total", label: "Total", get: (r) => String(r.s.total) },
-        { key: "available", label: "Available", get: (r) => String(r.s.available) },
-        { key: "rented", label: "Rented", get: (r) => String(r.s.rented) },
-        { key: "onProject", label: "On projects", get: (r) => String(r.s.onProject) },
-        { key: "broken", label: "Broken", get: (r) => String(r.s.broken) },
-        { key: "pending", label: "Pending", get: (r) => String(r.s.pending) },
+        { key: "total", label: "Total", get: (r) => String(r.s?.total ?? 0) },
+        { key: "available", label: "Available", get: (r) => String(r.s?.available ?? 0) },
+        { key: "rented", label: "Rented", get: (r) => String(r.s?.rented ?? 0) },
+        { key: "onProject", label: "On projects", get: (r) => String(r.s?.onProject ?? 0) },
+        { key: "broken", label: "Broken", get: (r) => String(r.s?.broken ?? 0) },
+        { key: "pending", label: "Pending", get: (r) => String(r.s?.pending ?? 0) },
       ];
     if (dataset === "rentals")
       return [
@@ -58,11 +59,11 @@ function useColumns(dataset: Dataset): Col[] {
         { key: "studentId", label: "Student ID", get: (r) => r.student?.studentId ?? "" },
         { key: "part", label: "Part tag", get: (r) => r.part?.tag ?? "" },
         { key: "group", label: "Component", get: (r) => r.group?.name ?? "" },
-        { key: "status", label: "Status", get: (r) => r.rental.status },
+        { key: "status", label: "Status", get: (r) => r.rental?.status ?? "" },
         { key: "project", label: "Project", get: (r) => r.project?.name ?? "" },
-        { key: "requested", label: "Requested", get: (r) => date(r.rental.requestedAt) },
-        { key: "returned", label: "Returned", get: (r) => date(r.rental.returnedAt) },
-        { key: "condition", label: "Condition note", get: (r) => r.rental.conditionReport ?? "" },
+        { key: "requested", label: "Requested", get: (r) => date(r.rental?.requestedAt) },
+        { key: "returned", label: "Returned", get: (r) => date(r.rental?.returnedAt) },
+        { key: "condition", label: "Condition note", get: (r) => r.rental?.conditionReport ?? "" },
       ];
     if (dataset === "people")
       return [
@@ -74,14 +75,16 @@ function useColumns(dataset: Dataset): Col[] {
         { key: "roles", label: "Positions", get: (r) => (r.user.clubRoles ?? []).join(" / ") },
         { key: "academic", label: "Academic state", get: (r) => r.user.academicState ?? "" },
         { key: "major", label: "Major", get: (r) => r.user.major ?? "" },
-        { key: "access", label: "Access", get: (r) => (r.user.role === "admin" ? "Admin" : "Member") },
-        { key: "membership", label: "Membership", get: (r) => (r.user.membershipStatus === "ex" ? "Ex-member" : "Active") },
-        { key: "activeRentals", label: "Active rentals", get: (r) => String(r.activeRentals) },
-      ];
-    return [
-      { key: "name", label: "Project", get: (r) => r.project.name },
-      { key: "status", label: "Status", get: (r) => r.project.status },
-      { key: "description", label: "Description", get: (r) => r.project.description ?? "" },
+        { key: "dob", label: "Date of birth", get: (r) => r.user?.dateOfBirth ?? "" },
+        { key: "age", label: "Age", get: (r) => (ageFromIso(r.user?.dateOfBirth) ?? "").toString() },
+        { key: "github", label: "GitHub", get: (r) => r.user?.githubUrl ?? "" },
+        { key: "access", label: "Access", get: (r) => (r.user?.role === "admin" ? "Admin" : "Member") },
+        { key: "membership", label: "Membership", get: (r) => (r.user?.membershipStatus === "ex" ? "Ex-member" : "Active") },
+        { key: "activeRentals", label: "Active rentals", get: (r) => String(r.activeRentals ?? 0) },
+      ];      return [
+        { key: "name", label: "Project", get: (r) => r.project?.name ?? "" },
+      { key: "status", label: "Status", get: (r) => r.project?.status ?? "" },
+      { key: "description", label: "Description", get: (r) => r.project?.description ?? "" },
       { key: "owner", label: "Owner", get: (r) => r.owner?.name ?? "" },
       { key: "parts", label: "Parts assigned", get: (r) => String(r.partCount) },
     ];
@@ -138,16 +141,16 @@ export default function ExportStudio() {
       if (categoryId !== "all") list = list.filter((r) => r.category?._id === categoryId);
     }
     if (dataset === "rentals" && statusFilter !== "all") {
-      list = list.filter((r) => r.rental.status === statusFilter);
+      list = list.filter((r) => r.rental?.status === statusFilter);
     }
     if (dataset === "projects" && statusFilter !== "all") {
-      list = list.filter((r) => r.project.status === statusFilter);
+      list = list.filter((r) => r.project?.status === statusFilter);
     }
     if (dataset === "people" && statusFilter !== "all") {
-      if (statusFilter === "admins") list = list.filter((r) => r.user.role === "admin");
-      else if (statusFilter === "members") list = list.filter((r) => r.user.role !== "admin");
-      else if (statusFilter === "active") list = list.filter((r) => r.user.membershipStatus !== "ex");
-      else if (statusFilter === "ex") list = list.filter((r) => r.user.membershipStatus === "ex");
+      if (statusFilter === "admins")      list = list.filter((r) => r.user?.role === "admin");
+        else if (statusFilter === "members") list = list.filter((r) => r.user?.role !== "admin");
+      else if (statusFilter === "active") list = list.filter((r) => r.user?.membershipStatus !== "ex");
+      else if (statusFilter === "ex") list = list.filter((r) => r.user?.membershipStatus === "ex");
     }
     return list;
   }, [raw, search, cols, dataset, closetId, categoryId, statusFilter]);
