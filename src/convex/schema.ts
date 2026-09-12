@@ -145,6 +145,8 @@ const schema = defineSchema(
       decidedAt: v.optional(v.number()),
       // Timestamp of the member's most recent package-level return request.
       returnRequestedAt: v.optional(v.number()),
+      // When the admin processes the package return (all-or-nothing).
+      returnDecidedAt: v.optional(v.number()),
     })
       .index("by_user", ["userId"])
       .index("by_status", ["status"]),

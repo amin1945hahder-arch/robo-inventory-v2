@@ -240,10 +240,10 @@ async function notifyAdmin(ctx: any, text: string, link?: string) {
 }
 
 /**
- * Push the printable rent card (PNG) for a rental to the Telegram club group.
- * Used whenever a return is requested or processed so the admins get the
- * receipt as an image right next to the usual text message. Fire-and-forget:
- * a render/send failure never blocks the mutation.
+ * Push the printable rent card (PDF) for a rental to the Telegram club group.
+ * ONE message: the PDF document + every detail on its own caption line.
+ * For package units pass `extraUnits` so the card lists the whole bundle.
+ * Fire-and-forget: a render/send failure never blocks the mutation.
  */
 async function scheduleRentCard(
   ctx: any,
@@ -254,6 +254,7 @@ async function scheduleRentCard(
   statusLabel: string,
   caption: string,
   projectName?: string,
+  extraUnits?: { tag: string; groupName: string }[],
 ) {
   await ctx.scheduler.runAfter(0, internal.rentCardTelegram.sendRentCardToGroup, {
     card: {
@@ -271,6 +272,7 @@ async function scheduleRentCard(
       projectName,
     },
     caption,
+    extraUnits,
   });
 }
 
@@ -731,6 +733,102 @@ export const adminRentalAction = mutation({
       );
     }
     return { ok: true };
+  },
+});
+
+/**
+ * Admin processes the return of EVERY active unit of a package in one click.
+ * All units go to the same destination (shelf or project) with the same
+ * condition; per-unit fine-tuning can follow via the normal unit returns.
+ */
+export const returnWholePackage = mutation({
+  args: {
+    packageId: v.id("rentalPackages"),
+    destination: v.union(v.literal("shelf"), v.literal("project")),
+    projectId: v.optional(v.id("projects")),
+    functional: v.boolean(),
+    conditionReport: v.optional(v.string()),
+  },
+  handler: async (ctx, { packageId, destination, projectId, functional, conditionReport }) => {
+    const admin = await requireAdmin(ctx);
+    const pkg = await ctx.db.get(packageId);
+    if (!pkg) throw new Error("Package not found");
+    const mine = await ctx.db
+      .query("rentals")
+      .withIndex("by_user", (q) => q.eq("userId", pkg.userId))
+      .collect();
+    const active = mine.filter((r) => r.packageId === packageId && r.status === "active");
+    if (active.length === 0) throw new Error("No active units left in this package");
+
+    let project: any = null;
+    if (destination === "project") {
+      if (!projectId) throw new Error("Select a project");
+      project = await ctx.db.get(projectId);
+      if (!project || project.status !== "active") throw new Error("Project must be active");
+    }
+
+    const now = Date.now();
+    const member = await ctx.db.get(pkg.userId);
+    const units: { tag: string; groupName: string }[] = [];
+    for (const r of active) {
+      const part = await ctx.db.get(r.partId);
+      if (!part) continue;
+      const group = await ctx.db.get(part.groupId);
+      units.push({ tag: part.tag, groupName: group?.name ?? "Part" });
+      if (destination === "shelf") {
+        await ctx.db.patch(r._id, {
+          status: "returned",
+          returnedAt: now,
+          returnDestination: "shelf",
+          functional,
+          conditionReport: conditionReport?.trim(),
+          returnRequestedAt: undefined,
+        });
+        await ctx.db.patch(part._id, {
+          status: functional ? "available" : "broken",
+          currentHolderId: undefined,
+        });
+      } else {
+        await ctx.db.patch(r._id, {
+          status: "on_project",
+          returnedAt: now,
+          returnDestination: "project",
+          projectId,
+          functional,
+          conditionReport: conditionReport?.trim(),
+          returnRequestedAt: undefined,
+        });
+        await ctx.db.patch(part._id, {
+          status: "on_project",
+          currentProjectId: projectId,
+          currentHolderId: undefined,
+        });
+      }
+    }
+    // Package row: mark the return flag cleared and log the batch decision.
+    await ctx.db.patch(packageId, { returnRequestedAt: undefined, returnDecidedAt: now });
+
+    const summaryText = await summarize(ctx, pkg.lines);
+    await telegramGroup(
+      ctx,
+      `↩️ ${admin.name ?? admin.email} processed the return of ${member?.name ?? member?.email ?? "a member"}'s package (${summaryText}) — ${units.length} unit${units.length === 1 ? "" : "s"} ${destination === "shelf" ? (functional ? "back on the shelf" : "marked BROKEN") : `assigned to “${project?.name}”`}.`,
+    );
+    // ONE combined PDF card for the whole bundle.
+    const first = active[0];
+    const firstPart = await ctx.db.get(first.partId);
+    const firstGroup = firstPart ? await ctx.db.get(firstPart.groupId) : null;
+    await scheduleRentCard(
+      ctx,
+      { ...first, returnedAt: now, conditionReport: conditionReport?.trim() },
+      firstPart,
+      firstGroup,
+      member,
+      destination === "project" ? "assigned to project (package)" : functional ? "returned to shelf (package)" : "returned · marked broken (package)",
+      `↩️ Package return processed (${units.length} unit${units.length === 1 ? "" : "s"})`,
+      project?.name,
+      units,
+    );
+    return { ok: true, processed: units.length };
   },
 });
 
@@ -1348,22 +1446,29 @@ export const requestPackageReturn = mutation({
       `↩️ ${user.name ?? user.email ?? "A member"} wants to return their package (${summaryText}) — process it in the Requests console.`,
       admins.filter((a) => a.role === "admin" && a.telegramUsername).map((a) => ({ name: a.name, telegramUsername: a.telegramUsername })),
     );
-    // Attach a printable card per unit (capped so a 20-unit package doesn't
-    // spam the group).
+    // ONE combined package card: a single PDF listing every unit of the
+    // bundle (no per-unit message spam).
     const cache = docCache();
-    for (const r of active.slice(0, 5)) {
+    const first = active[0];
+    const firstPart = await cache.get(ctx, first.partId);
+    const firstGroup = firstPart ? await cache.get(ctx, firstPart.groupId) : null;
+    const units: { tag: string; groupName: string }[] = [];
+    for (const r of active) {
       const part = await cache.get(ctx, r.partId);
       const group = part ? await cache.get(ctx, part.groupId) : null;
-      await scheduleRentCard(
-        ctx,
-        r,
-        part,
-        group,
-        user,
-        "active · return requested",
-        `↩️ Rent card (package) — ${group?.name ?? "part"} (${part?.tag ?? "?"}) return requested.`,
-      );
+      units.push({ tag: part?.tag ?? "?", groupName: group?.name ?? "Part" });
     }
+    await scheduleRentCard(
+      ctx,
+      first,
+      firstPart,
+      firstGroup,
+      user,
+      "active · return requested",
+      `↩️ Package return requested (${units.length} unit${units.length === 1 ? "" : "s"})`,
+      undefined,
+      units,
+    );
     return { ok: true };
   },
 });

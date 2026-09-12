@@ -22,7 +22,7 @@ export const resolve = query({
         .query("parts")
         .withIndex("by_tag", (q) => q.eq("tag", raw.toUpperCase()))
         .first();
-      if (part) return { type: "unit" as const, id: part._id, url: `/part/${part._id}` };
+      if (part) return { type: "unit" as const, id: part._id, groupId: part.groupId, url: `/part/${part._id}` };
       return null;
     };
 
@@ -31,7 +31,7 @@ export const resolve = query({
         .query("parts")
         .withIndex("by_tag", (q) => q.eq("tag", value?.toUpperCase() ?? ""))
         .first();
-      if (part) return { type: "unit" as const, id: part._id, url: `/part/${part._id}` };
+      if (part) return { type: "unit" as const, id: part._id, groupId: part.groupId, url: `/part/${part._id}` };
       const alt = await byTag();
       if (alt) return alt;
       return null;
