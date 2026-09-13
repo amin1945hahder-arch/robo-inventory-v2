@@ -161,6 +161,9 @@ const schema = defineSchema(
       status: v.union(
         v.literal("pending"),
         v.literal("approved"),
+        // "approved" = admin said yes but the unit has NOT been handed over
+        // yet; "active" = admin confirmed the handover (taken) — inventory
+        // decrements exactly at that moment.
         v.literal("active"),
         v.literal("on_project"),
         v.literal("returned"),
@@ -233,8 +236,11 @@ const schema = defineSchema(
     }).index("by_list_key", ["listKey"]),
 
     // Member-submitted rank/position upgrade requests (e.g. "make me مدرب").
+    // `kind` distinguishes a rank request (list of club positions) from a
+    // membership upgrade request (a student asking to become a full member).
     rankRequests: defineTable({
       userId: v.id("users"),
+      kind: v.optional(v.union(v.literal("rank"), v.literal("member"))),
       requestedRoles: v.array(v.string()),
       message: v.optional(v.string()),
       status: v.union(v.literal("pending"), v.literal("approved"), v.literal("denied")),

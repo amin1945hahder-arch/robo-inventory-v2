@@ -629,8 +629,9 @@ export const decideRental = mutation({
     const student = await ctx.db.get(rental.userId);
 
     if (approve) {
-      await ctx.db.patch(rentalId, { status: "active", decidedAt: Date.now(), pickedUpAt: Date.now() });
-      await ctx.db.patch(part._id, { status: "rented", currentHolderId: rental.userId });
+      // Approval does NOT hand the unit over — the admin confirms the physical
+      // handover separately ("Taken" step), which decrements inventory.
+      await ctx.db.patch(rentalId, { status: "approved", decidedAt: Date.now() });
     } else {
       await ctx.db.patch(rentalId, { status: "denied", decidedAt: Date.now() });
       // A denied broken-unit request goes back to broken, NOT available —
@@ -680,6 +681,7 @@ export const adminRentalAction = mutation({
       v.literal("deny"),
       v.literal("mark_returned"),
       v.literal("assign_project"),
+      v.literal("mark_taken"),
       v.literal("mark_broken"),
     ),
     projectId: v.optional(v.id("projects")),
@@ -697,9 +699,10 @@ export const adminRentalAction = mutation({
     const now = Date.now();
 
     if (action === "approve") {
+      // Approval reserves the unit for the member; the physical handover is a
+      // separate admin step ("Taken"), which decrements inventory.
       if (rental.status !== "pending") throw new Error("This request was already handled");
-      await ctx.db.patch(rentalId, { status: "active", decidedAt: now, pickedUpAt: now });
-      await ctx.db.patch(part._id, { status: "rented", currentHolderId: rental.userId });
+      await ctx.db.patch(rentalId, { status: "approved", decidedAt: now });
       if (student?.email) {
         await ctx.scheduler.runAfter(0, api.emails.sendRentalDecisionEmail, {
           to: student.email,
@@ -711,20 +714,20 @@ export const adminRentalAction = mutation({
       if (student?.phone) {
         await sendWhatsApp(
           student.phone,
-          `✅ Your request was approved — ${group?.name ?? "a part"} (${part.tag}). You can pick it up from the lab.`,
+          `✅ Your request was approved — ${group?.name ?? "a part"} (${part.tag}). Pick it up from the lab; the admin confirms the handover there.`,
         );
       }
       if (student?.telegramChatId || student?.telegramUsername) {
         await telegramDM(
           ctx,
           { name: student.name ?? student.email, telegramUsername: student.telegramUsername, telegramChatId: student.telegramChatId },
-          `✅ Approved: ${group?.name ?? "a part"} (${part.tag}). You can pick it up from the lab.`,
+          `✅ Approved: ${group?.name ?? "a part"} (${part.tag}). Pick it up from the lab — the admin marks it as taken.`,
           { name: admin.name ?? admin.email },
         );
       }
       await telegramGroup(
         ctx,
-        `✅ ${admin.name ?? admin.email} approved ${student?.name ?? student?.email ?? "a member"}'s rental of ${group?.name ?? "a part"} (${part.tag}).`,
+        `✅ ${admin.name ?? admin.email} approved ${student?.name ?? student?.email ?? "a member"}'s rental of ${group?.name ?? "a part"} (${part.tag}) — waiting for handover.`,
       );
     } else if (action === "deny") {
       if (rental.status !== "pending") throw new Error("This request was already handled");
@@ -758,6 +761,27 @@ export const adminRentalAction = mutation({
       await telegramGroup(
         ctx,
         `❌ ${admin.name ?? admin.email} denied ${student?.name ?? student?.email ?? "a member"}'s rental request for ${group?.name ?? "a part"} (${part.tag}).`,
+      );
+    } else if (action === "mark_taken") {
+      // The admin physically hands the approved unit to the member — THIS is
+      // the moment the unit leaves the inventory (status → rented, holder set,
+      // pickup timestamp recorded).
+      if (rental.status !== "approved") {
+        throw new Error("Only approved (not yet handed over) rentals can be marked taken");
+      }
+      await ctx.db.patch(rentalId, { status: "active", pickedUpAt: now });
+      await ctx.db.patch(part._id, { status: "rented", currentHolderId: rental.userId });
+      if (student?.telegramChatId || student?.telegramUsername) {
+        await telegramDM(
+          ctx,
+          { name: student.name ?? student.email, telegramUsername: student.telegramUsername, telegramChatId: student.telegramChatId },
+          `📦 Taken: ${group?.name ?? "a part"} (${part.tag}) was handed to you. Return it to the lab when done.`,
+          { name: admin.name ?? admin.email },
+        );
+      }
+      await telegramGroup(
+        ctx,
+        `📦 ${admin.name ?? admin.email} marked ${group?.name ?? "a part"} (${part.tag}) as TAKEN by ${student?.name ?? student?.email ?? "a member"} — inventory updated.`,
       );
     } else if (action === "mark_returned") {
       if (rental.status !== "active") throw new Error("Rental is not active");
