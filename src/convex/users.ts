@@ -54,6 +54,8 @@ export const claimAdminIfEligible = mutation({
 // Bootstrap B (no env vars needed): while there are ZERO admins in the system,
 // the signed-in caller is promoted to admin. This guarantees the first real
 // user (e.g. Dr. Essa) always lands in control, even before ADMIN_EMAILS is set.
+// Every OTHER new account starts as the restricted "student" role until an
+// admin promotes them — the app shell runs this once per sign-in.
 export const claimAdminIfNoAdmins = mutation({
   args: {},
   handler: async (ctx) => {
@@ -63,11 +65,18 @@ export const claimAdminIfNoAdmins = mutation({
     if (!user) return { promoted: false, reason: "no-user" };
     if (user.role === "admin") return { promoted: false, alreadyAdmin: true };
     const all = await ctx.db.query("users").collect();
-    if (all.some((u) => u.role === "admin")) {
+    const patch: Record<string, unknown> = {};
+    if (!all.some((u) => u.role === "admin")) {
+      patch.role = "admin";
+    } else if (!user.role) {
+      // Brand-new accounts default to the restricted student role.
+      patch.role = "student";
+    }
+    if (Object.keys(patch).length === 0) {
       return { promoted: false, reason: "admins-exist" };
     }
-    await ctx.db.patch(userId, { role: "admin" });
-    return { promoted: true };
+    await ctx.db.patch(userId, patch);
+    return { promoted: patch.role === "admin" };
   },
 });
 
@@ -117,7 +126,13 @@ export const updatePersonProfile = mutation({
     githubUrl: v.optional(v.string()),
   },
   handler: async (ctx, { userId, role, clubRoles, academicState, major, telegramChatId, dateOfBirth, githubUrl }) => {
-    await requireAdmin(ctx);
+    const admin = await requireAdmin(ctx);
+    // The last line of defence for the admin role: an admin cannot demote
+    // themselves (member/student) — another admin must do it, so the club can
+    // never end up with zero admins by accident.
+    if (role && role !== "admin" && userId === admin._id) {
+      throw new Error("Admins cannot change their own role — ask another admin");
+    }
     const patch: Record<string, unknown> = {};
     if (role) patch.role = role;
     if (clubRoles !== undefined) patch.clubRoles = clubRoles;
@@ -241,6 +256,91 @@ export const deletePerson = mutation({
     // 3) The user document itself. Past rental history rows are kept (they
     //    render "(removed)") — deleting a member never rewrites the ledger.
     await ctx.db.delete(userId);
+  },
+});
+
+// ===== Person profile card (behind a person QR label) =====
+
+/**
+ * Profile card for a scanned person QR: the club profile for every signed-in
+ * role, plus their rental history when the viewer is an admin or the person
+ * themselves. Guests never resolve (they are not people).
+ */
+export const getPersonCard = query({
+  args: { userId: v.id("users") },
+  handler: async (ctx, { userId }) => {
+    const me = await requireUser(ctx);
+    const person = await ctx.db.get(userId);
+    if (!person || person.isAnonymous) return null;
+
+    const canSeeHistory = me.role === "admin" || me._id === userId;
+    const rentals: {
+      _id: string;
+      status: string;
+      requestedAt: number;
+      decidedAt?: number;
+      pickedUpAt?: number;
+      returnedAt?: number;
+      partTag: string;
+      groupName: string;
+      partId?: string;
+    }[] = [];
+    if (canSeeHistory) {
+      const cache = new Map<string, Promise<any>>();
+      const get = (id: string | undefined) => {
+        if (!id) return null;
+        let p = cache.get(id);
+        if (!p) {
+          p = ctx.db.get(id as any);
+          cache.set(id, p);
+        }
+        return p;
+      };
+      const rows = await ctx.db
+        .query("rentals")
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .collect();
+      for (const r of rows.sort((a, b) => b.requestedAt - a.requestedAt)) {
+        const part = (await get(r.partId)) as any;
+        const group = part ? ((await get(part.groupId)) as any) : null;
+        rentals.push({
+          _id: r._id,
+          status: r.status,
+          requestedAt: r.requestedAt,
+          decidedAt: r.decidedAt,
+          pickedUpAt: r.pickedUpAt,
+          returnedAt: r.returnedAt,
+          partTag: part?.tag ?? "?",
+          groupName: group?.name ?? "Part",
+          partId: part?._id,
+        });
+      }
+    }
+
+    return {
+      person: {
+        _id: person._id,
+        name: person.name,
+        email: person.email,
+        image: safeImage(person.image),
+        role: person.role,
+        studentId: person.studentId,
+        phone: person.phone,
+        clubRoles: person.clubRoles,
+        academicState: person.academicState,
+        major: person.major,
+        studentCode: person.studentCode,
+        dateOfBirth: person.dateOfBirth,
+        githubUrl: person.githubUrl,
+        telegramUsername: person.telegramUsername,
+        membershipStatus: person.membershipStatus,
+        profileApproved: person.profileApproved,
+      },
+      canSeeHistory,
+      isSelf: me._id === userId,
+      viewerIsAdmin: me.role === "admin",
+      rentals,
+    };
   },
 });
 
@@ -377,6 +477,9 @@ export const submitMyProfile = mutation({
       studentId: studentId?.trim() || undefined,
       phone: phone?.trim() || undefined,
       telegramUsername: telegramUsername?.trim().replace(/^@/, "") || user.telegramUsername,
+      // Explicitly pending: new submissions wait for admin approval (legacy
+      // seeded members without the flag stay grandfathered).
+      profileApproved: false,
     });
     await ctx.db.insert("notifications", {
       forRole: "admin",
@@ -407,6 +510,9 @@ export const approveProfile = mutation({
 });
 
 // Who still needs profile approval (People page badge + Requests console).
+// ONLY explicitly-pending submissions count (profileApproved === false) —
+// legacy members without the flag are grandfathered and must not inflate the
+// Requests badge with numbers that don't match any actionable list.
 export const listUnapprovedProfiles = query({
   args: {},
   handler: async (ctx) => {
@@ -416,7 +522,7 @@ export const listUnapprovedProfiles = query({
       .filter(
         (u) =>
           !u.isAnonymous &&
-          u.profileApproved !== true &&
+          u.profileApproved === false &&
           (u.name || u.studentId || u.phone),
       )
       .map((u) => ({
