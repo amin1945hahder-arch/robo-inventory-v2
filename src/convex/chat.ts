@@ -329,8 +329,14 @@ export const syncProjectGroup = internalMutation({
     const admins = (await ctx.db.query("users").collect())
       .filter((u) => u.role === "admin")
       .map((u) => u._id);
-    // The owner is the canonical project member in the current data model;
-    // anyone who currently holds a part assigned to this project counts too.
+    // Team membership is canonical: every projectMembers row joins the chat
+    // group, plus anyone currently holding a part assigned to this project.
+    const team = (
+      await ctx.db
+        .query("projectMembers")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .collect()
+    ).map((m) => m.userId);
     const holders = (
       await ctx.db
         .query("parts")
@@ -339,7 +345,7 @@ export const syncProjectGroup = internalMutation({
     )
       .map((p) => p.currentHolderId)
       .filter((x): x is Id<"users"> => Boolean(x));
-    const memberIds = [...new Set([...admins, ...(project.ownerId ? [project.ownerId] : []), ...holders])];
+    const memberIds = [...new Set([...admins, ...(project.ownerId ? [project.ownerId] : []), ...team, ...holders])];
     await ctx.db.patch(group._id, {
       name: project.name,
       deleted: undefined,

@@ -11,6 +11,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Progress } from "@/components/ui/progress";
 import {
   Dialog,
   DialogContent,
@@ -20,12 +21,20 @@ import {
 } from "@/components/ui/dialog";
 import { projectQr } from "@/lib/qr";
 import { toast } from "sonner";
-import { FolderKanban, Plus } from "lucide-react";
+import {
+  FolderKanban,
+  ListChecks,
+  Plus,
+  Users,
+  UserCog,
+  Zap,
+} from "lucide-react";
 
 export default function Projects() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const projects = useQuery(api.projects.listProjects, {});
+  const summaries = useQuery(api.projectWorkspace.listSummaries, {});
   const upsert = useMutation(api.projects.upsertProject);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -34,13 +43,14 @@ export default function Projects() {
 
   const active = (projects ?? []).filter((p) => p.status === "active");
   const past = (projects ?? []).filter((p) => p.status !== "active");
+  const summaryOf = (id: string) => (summaries ?? []).find((s) => s.project._id === id);
 
   const create = async () => {
     if (!name.trim()) return;
     setBusy(true);
     try {
       await upsert({ name: name.trim(), description: description.trim() || undefined, status: "active" });
-      toast.success("Project created");
+      toast.success("Project created — its chat group and workspace are live");
       setOpen(false);
       setName("");
       setDescription("");
@@ -58,7 +68,8 @@ export default function Projects() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Projects</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Parts assigned to a project stay checked out until it's dismantled.
+              Each project is a working center: team, six centers of missions, references and live
+              progress. Parts assigned stay checked out until it's dismantled.
             </p>
           </div>
           {isAdmin && (
@@ -73,33 +84,65 @@ export default function Projects() {
         ) : (
           <>
             <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {active.map((p) => (
-                <Card key={p._id} className="group relative overflow-hidden border-border/80 shadow-none transition-colors hover:border-primary/40">
-                  <CardContent className="flex flex-col gap-3 p-5">
-                    <div className="flex items-start justify-between gap-3">
-                      <Link to={`/projects/${p._id}`} className="min-w-0 flex-1">
-                        <p className="truncate text-base font-semibold">{p.name}</p>
-                        <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                          {p.description ?? "Club project"}
+              {active.map((p) => {
+                const s = summaryOf(p._id);
+                const pct = s && s.taskTotal > 0 ? Math.round((s.taskDone / s.taskTotal) * 100) : 0;
+                return (
+                  <Card key={p._id} className="group relative overflow-hidden border-border/80 shadow-none transition-colors hover:border-primary/40">
+                    <CardContent className="flex flex-col gap-3 p-5">
+                      <div className="flex items-start justify-between gap-3">
+                        <Link to={`/projects/${p._id}`} className="min-w-0 flex-1">
+                          <p className="truncate text-base font-semibold">{p.name}</p>
+                          <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                            {p.description ?? "Club project"}
+                          </p>
+                        </Link>
+                        <QrChip payload={projectQr(p._id)} label={p.name} />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <StatusBadge status={p.status} />
+                        {s && s.leaderName && (
+                          <span className="flex items-center gap-1 rounded-full bg-muted/60 px-2 py-0.5 text-xs text-muted-foreground">
+                            <UserCog className="size-3" /> {s.leaderName}
+                          </span>
+                        )}
+                      </div>
+                      <div className="grid gap-1.5">
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <Users className="size-3" /> {s?.teamSize ?? 0} on team
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <ListChecks className="size-3" /> {s?.taskDone ?? 0}/{s?.taskTotal ?? 0} missions
+                          </span>
+                        </div>
+                        <Progress value={pct} className="h-1.5" />
+                      </div>
+                      {s && s.taskDoing > 0 && (
+                        <p className="flex items-center gap-1 text-[11px] text-primary">
+                          <Zap className="size-3" /> {s.taskDoing} in progress
                         </p>
-                      </Link>
-                      <QrChip payload={projectQr(p._id)} label={p.name} />
-                    </div>
-                    <StatusBadge status={p.status} />
-                  </CardContent>
-                </Card>
-              ))}
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
               {active.length === 0 && (
                 <div className="col-span-full flex flex-col items-center gap-2 rounded-lg border border-dashed px-6 py-12 text-center">
                   <FolderKanban className="size-8 text-muted-foreground" />
                   <p className="text-sm text-muted-foreground">No active projects yet.</p>
+                  {isAdmin && (
+                    <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+                      <Plus className="size-3.5" /> Create the first one
+                    </Button>
+                  )}
                 </div>
               )}
             </section>
 
             {past.length > 0 && (
               <section className="flex flex-col gap-3">
-                <h2 className="text-sm font-semibold">Completed & dismantled</h2>
+                <h2 className="text-sm font-semibold">Completed &amp; dismantled</h2>
                 <ul className="divide-y rounded-lg border">
                   {past.map((p) => (
                     <li key={p._id} className="flex items-center justify-between gap-3 px-4 py-3">

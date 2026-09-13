@@ -123,6 +123,78 @@ const schema = defineSchema(
       deleted: v.optional(v.boolean()),
     }).index("by_status", ["status"]),
 
+    // ===== Project workspace (professional working center) =====
+
+    // A person assigned to work on a project. `role` distinguishes the team
+    // leader (assigns missions, follows the team) from regular contributors.
+    projectMembers: defineTable({
+      projectId: v.id("projects"),
+      userId: v.id("users"),
+      role: v.union(v.literal("leader"), v.literal("member")),
+      // Optional center specialization, e.g. "programming" — informational.
+      center: v.optional(
+        v.union(
+          v.literal("mechanical"),
+          v.literal("electrical"),
+          v.literal("programming"),
+          v.literal("inventory"),
+        ),
+      ),
+      addedAt: v.number(),
+      addedBy: v.optional(v.id("users")),
+    })
+      .index("by_project", ["projectId"])
+      .index("by_user", ["userId"]),
+
+    // A mission (task) inside one of the project's six centers.
+    projectTasks: defineTable({
+      projectId: v.id("projects"),
+      center: v.union(
+        v.literal("mechanical"),
+        v.literal("electrical"),
+        v.literal("inventory"),
+        v.literal("programming"),
+        v.literal("references"),
+        v.literal("students"),
+      ),
+      title: v.string(),
+      details: v.optional(v.string()),
+      status: v.union(
+        v.literal("todo"),
+        v.literal("doing"),
+        v.literal("review"),
+        v.literal("done"),
+      ),
+      priority: v.union(v.literal("low"), v.literal("normal"), v.literal("high"), v.literal("urgent")),
+      assigneeId: v.optional(v.id("users")),
+      createdBy: v.id("users"),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+      completedAt: v.optional(v.number()),
+      dueAt: v.optional(v.number()),
+    })
+      .index("by_project", ["projectId"])
+      .index("by_assignee", ["assigneeId"]),
+
+    // Free-form pinned notes / references stored inside one center
+    // (datasheet links, design decisions, meeting summaries…).
+    projectNotes: defineTable({
+      projectId: v.id("projects"),
+      center: v.union(
+        v.literal("mechanical"),
+        v.literal("electrical"),
+        v.literal("inventory"),
+        v.literal("programming"),
+        v.literal("references"),
+        v.literal("students"),
+      ),
+      title: v.string(),
+      body: v.optional(v.string()),
+      url: v.optional(v.string()),
+      createdBy: v.id("users"),
+      createdAt: v.number(),
+    }).index("by_project", ["projectId"]),
+
     // A package bundles several units (possibly from different groups) into one
     // rental request — "lend me 3 Arduino Unos and 2 servo motors in one go".
     // Each concrete unit in the package is still a row in `rentals` (so per-part
