@@ -47,6 +47,11 @@ export function GroupFormDialog({
   const [datasheetUrl, setDatasheetUrl] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [quantityTotal, setQuantityTotal] = useState("1");
+  // Counting mode: discrete units, or bulk stock (weight/length).
+  const [measure, setMeasure] = useState<"count" | "weight" | "length">("count");
+  const [measureUnit, setMeasureUnit] = useState("kg");
+  const [measureStock, setMeasureStock] = useState("0");
+  const [measureLowAt, setMeasureLowAt] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -60,6 +65,10 @@ export function GroupFormDialog({
       setDatasheetUrl(group?.datasheetUrl ?? "");
       setImageUrl(group?.imageUrl ?? "");
       setQuantityTotal(String(group?.quantityTotal ?? 1));
+      setMeasure(group?.measure ?? "count");
+      setMeasureUnit(group?.measureUnit ?? "kg");
+      setMeasureStock(group?.measureStock ?? "0");
+      setMeasureLowAt(group?.measureLowAt ?? "");
     }
   }, [open, group, defaults]);
 
@@ -81,6 +90,10 @@ export function GroupFormDialog({
         datasheetUrl: datasheetUrl.trim() || undefined,
         imageUrl: imageUrl.trim() || undefined,
         quantityTotal: Math.max(1, parseInt(quantityTotal, 10) || 1),
+        measure,
+        measureUnit: measure !== "count" ? measureUnit : undefined,
+        measureStock: measure !== "count" ? measureStock : undefined,
+        measureLowAt: measure !== "count" ? measureLowAt.trim() || undefined : undefined,
       });
       toast.success(group ? "Group updated" : "Group created");
       onOpenChange(false);
@@ -137,17 +150,74 @@ export function GroupFormDialog({
               <Input value={model} onChange={(e) => setModel(e.target.value)} placeholder="A000066" />
             </div>
           </div>
-          {!group && (
-            <div className="grid gap-2">
-              <Label>How many units</Label>
-              <Input
-                type="number"
-                min={1}
-                value={quantityTotal}
-                onChange={(e) => setQuantityTotal(e.target.value)}
-              />
+          {/* Counting mode */}
+          <div className="grid gap-2">
+            <Label>How is this counted?</Label>
+            <Select value={measure} onValueChange={(v) => setMeasure(v as any)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="count">🔢 Count (discrete units, each with a QR tag)</SelectItem>
+                <SelectItem value="weight">⚖️ Weight (filament, resin… by kg/g)</SelectItem>
+                <SelectItem value="length">📏 Length (wires, tubes… by m/cm/mm)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {measure === "count" ? (
+            !group && (
+              <div className="grid gap-2">
+                <Label>How many units</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={quantityTotal}
+                  onChange={(e) => setQuantityTotal(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Each unit gets its own QR tag automatically (ARD-001, ARD-002, …).
+                </p>
+              </div>
+            )
+          ) : (
+            <div className="grid gap-3 rounded-lg border border-dashed p-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="grid gap-2">
+                  <Label>Unit</Label>
+                  <Select value={measureUnit} onValueChange={setMeasureUnit}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {(measure === "weight" ? ["kg", "g"] : ["m", "cm", "mm"]).map((u) => (
+                        <SelectItem key={u} value={u}>{u}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Stock on hand</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={measureStock}
+                    onChange={(e) => setMeasureStock(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <Label>Low-stock warning at (optional)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step="any"
+                  value={measureLowAt}
+                  onChange={(e) => setMeasureLowAt(e.target.value)}
+                  placeholder="e.g. 0.5 — flagged when stock drops below"
+                />
+              </div>
               <p className="text-xs text-muted-foreground">
-                Each unit gets its own QR tag automatically (ARD-001, ARD-002, …).
+                Bulk groups have no per-unit QR tags — members request an amount, and the admin
+                records what was actually taken at pick-up.
               </p>
             </div>
           )}

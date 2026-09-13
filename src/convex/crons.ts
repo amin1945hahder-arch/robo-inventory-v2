@@ -8,4 +8,8 @@ const crons = cronJobs();
 // database never accumulates conversation logs.
 crons.interval("sweep-chat-relay", { minutes: 5 }, internal.chat.sweep, {});
 
+// Pickup reminders: approved rentals with a scheduled pick-up get a Telegram
+// nudge ~24h before and again ~1h before (each fires once).
+crons.interval("pickup-reminders", { minutes: 15 }, internal.parts.pickupReminders, {});
+
 export default crons;

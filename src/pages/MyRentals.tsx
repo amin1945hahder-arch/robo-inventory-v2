@@ -193,12 +193,16 @@ export default function MyRentals() {
                 section shows only true singles (badge counts stay in sync). */}
             {groups.map(({ title, statuses }) => {
               const visible = title === "Awaiting approval"
-                ? pendingSingle
+                ? rentals.filter(
+                    (r) =>
+                      !r.rental.packageId &&
+                      (r.rental.status === "pending" || r.rental.status === "approved"),
+                  )
                 : rentals.filter((r) => !r.rental.packageId && statuses.includes(r.rental.status));
               if (visible.length === 0) return null;
               return (
                 <section key={title} className="flex flex-col gap-3">
-                  <h2 className="text-sm font-semibold">{title}</h2>
+                  <h2 className="text-sm font-semibold">{title === "Awaiting approval" ? "Requests & scheduled pickups" : title}</h2>
                   <ul className="divide-y rounded-lg border">
                     {visible.map(({ rental, part, group, projectName }) => (
                       <li key={rental._id} className="flex flex-wrap items-center gap-3 px-4 py-3">
@@ -211,6 +215,12 @@ export default function MyRentals() {
                           </p>
                           <p className="text-xs text-muted-foreground">
                             Requested {new Date(rental.requestedAt).toLocaleDateString()}
+                            {rental.status === "approved" && rental.pickupAt
+                              ? ` · 📅 pick-up ${new Date(rental.pickupAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}`
+                              : ""}
+                            {rental.amount !== undefined
+                              ? ` · ${rental.amount} ${group?.measureUnit ?? ""}`
+                              : ""}
                             {projectName ? ` · ${projectName}` : ""}
                             {rental.conditionReport ? ` · ${rental.conditionReport}` : ""}
                           </p>

@@ -85,6 +85,20 @@ const schema = defineSchema(
       datasheetUrl: v.optional(v.string()),
       imageUrl: v.optional(v.string()),
       quantityTotal: v.number(),
+      // How this group is counted: "count" = discrete units (default);
+      // "weight" = filament, resin, screws by mass; "length" = wires, tubes.
+      // Weight/length groups don't use per-unit QR tags — the admin logs a
+      // quantity in the group's unit (kg/g or m/cm/mm) and rentals deduct it.
+      measure: v.optional(
+        v.union(v.literal("count"), v.literal("weight"), v.literal("length")),
+      ),
+      // Display unit for weight/length groups: "kg" | "g" | "m" | "cm" | "mm".
+      measureUnit: v.optional(v.string()),
+      // For weight/length groups: current stock in `measureUnit` (number as
+      // string to avoid float drift), e.g. "1.25" kg of PLA.
+      measureStock: v.optional(v.string()),
+      // Stock level considered low — the admin console flags it.
+      measureLowAt: v.optional(v.string()),
       deleted: v.optional(v.boolean()),
     })
       .index("by_category", ["categoryId"])
@@ -234,8 +248,8 @@ const schema = defineSchema(
         v.literal("pending"),
         v.literal("approved"),
         // "approved" = admin said yes but the unit has NOT been handed over
-        // yet; "active" = admin confirmed the handover (taken) — inventory
-        // decrements exactly at that moment.
+        // yet; "active" = admin confirmed the handover (taken/picked up) —
+        // inventory decrements exactly at that moment.
         v.literal("active"),
         v.literal("on_project"),
         v.literal("returned"),
@@ -245,7 +259,15 @@ const schema = defineSchema(
       requestedAt: v.number(),
       decidedAt: v.optional(v.number()),
       pickedUpAt: v.optional(v.number()),
+      // Pickup scheduling: when the approved member should come take the part.
+      // Set at approval time; reminders fire 1 day + 1 hour before.
+      pickupAt: v.optional(v.number()),
+      pickupRemindedDay: v.optional(v.boolean()),
+      pickupRemindedHour: v.optional(v.boolean()),
       returnedAt: v.optional(v.number()),
+      // Weight/length rentals (measure-based groups): amount taken, in the
+      // group's measureUnit, e.g. 0.25 (kg) or 120 (cm).
+      amount: v.optional(v.number()),
       projectId: v.optional(v.id("projects")),
       returnDestination: v.optional(
         v.union(v.literal("shelf"), v.literal("project")),

@@ -37,6 +37,7 @@ const Courses = lazy(() => import("./pages/Courses.tsx"));
 const Chat = lazy(() => import("./pages/Chat.tsx"));
 const Profile = lazy(() => import("./pages/Profile.tsx"));
 const PersonCard = lazy(() => import("./pages/PersonCard.tsx"));
+const Printing3D = lazy(() => import("./pages/Printing3D.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
 // Loading fallback for route transitions (spinner + page shell)
@@ -361,6 +362,17 @@ createRoot(document.getElementById("root")!).render(
                 element={
                   <RequireAuth>
                     <PersonCard />
+                  </RequireAuth>
+                }
+              />
+              {/* 3D printing farm: placeholder module, gated like inventory. */}
+              <Route
+                path="/3d-printing"
+                element={
+                  <RequireAuth>
+                    <RequireNonStudent>
+                      <Printing3D />
+                    </RequireNonStudent>
                   </RequireAuth>
                 }
               />

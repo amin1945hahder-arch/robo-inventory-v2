@@ -18,6 +18,7 @@ import {
   BarChart3,
   Bell,
   Boxes,
+  Box,
   FileDown,
   FolderKanban,
   GraduationCap,
@@ -43,6 +44,7 @@ const NAV = [
   { to: "/closets", label: "Closets", icon: Warehouse, studentBlocked: true },
   { to: "/projects", label: "Projects", icon: FolderKanban, studentBlocked: true },
   { to: "/rentals", label: "My rentals", icon: PackageSearch, studentBlocked: true },
+  { to: "/3d-printing", label: "3D printing", icon: Box, studentBlocked: true },
   { to: "/courses", label: "Courses", icon: GraduationCap, studentBlocked: false },
   { to: "/chat", label: "Chat", icon: MessagesSquare, studentBlocked: false },
 ];

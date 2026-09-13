@@ -1,8 +1,9 @@
 "use node";
 
 import { v } from "convex/values";
-import { internalAction } from "./_generated/server";
+import { action, internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { getAuthUserId } from "@convex-dev/auth/server";
 import { renderRentCardPdf, type RentCardData } from "../lib/rent-card-pdf";
 
 /**
@@ -37,6 +38,61 @@ function cardCaption(card: RentCardData, headline: string, extraUnitLines?: stri
   if (card.conditionReport) lines.push(`📝 Condition: ${card.conditionReport}`);
   return lines.join(LINE);
 }
+
+/**
+ * Public action: an admin sends a rent-card PDF rendered in THEIR browser
+ * (hi-fi pipeline — the exact on-screen card, Arabic included) to the club
+ * group. One message: PDF document + every detail as caption lines.
+ */
+export const deliverRentCardPdf = action({
+  args: {
+    pdfBase64: v.string(),
+    captionLines: v.string(),
+  },
+  handler: async (
+    ctx,
+    { pdfBase64, captionLines },
+  ): Promise<{ sent: boolean; reason?: string }> => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) throw new Error("Sign in first");
+    const me = (await ctx.runQuery(internal.chatAuth.me, { userId })) as { role?: string } | null;
+    if (!me || me.role !== "admin") {
+      throw new Error("Only admins can send rent cards to the group");
+    }
+    const cfg = await ctx.runQuery(internal.settings.getTelegramConfigQuery, {});
+    const token: string = cfg.botToken || process.env.TELEGRAM_BOT_TOKEN || "";
+    if (!token) return { sent: false, reason: "no-bot-token" };
+    const groupChatId: string = cfg.clubGroupChatId || process.env.TELEGRAM_CHAT_ID || "";
+    if (!groupChatId) return { sent: false, reason: "no-group-chat-id" };
+    if (cfg.notificationsOn === false) return { sent: false, reason: "disabled-in-settings" };
+
+    try {
+      const bin = atob(pdfBase64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const form = new FormData();
+      form.append("chat_id", groupChatId);
+      form.append("caption", captionLines.slice(0, 1024));
+      form.append(
+        "document",
+        new Blob([bytes], { type: "application/pdf" }),
+        "rent-card.pdf",
+      );
+      const res = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, {
+        method: "POST",
+        body: form,
+      });
+      if (!res.ok) {
+        console.warn(`[telegram] deliverRentCardPdf failed: ${res.status}`);
+        return { sent: false, reason: `http-${res.status}` };
+      }
+      return { sent: true };
+    } catch (e) {
+      console.warn("[telegram] deliverRentCardPdf error", e);
+      return { sent: false, reason: "send-error" };
+    }
+  },
+});
 
 export const sendRentCardToGroup = internalAction({
   args: {

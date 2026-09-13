@@ -12,7 +12,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ageFromIso, compressImageFile } from "@/lib/utils";
 import { toast } from "sonner";
-import { Camera, Github, Loader2, LogOut, Send, ShieldCheck } from "lucide-react";
+import { Camera, Github, IdCard, Loader2, LogOut, Send, ShieldCheck } from "lucide-react";
+import { PersonBadgeDialog } from "@/components/PersonBadgeDialog";
 
 // A member can request any of the club positions — the list is admin-editable
 // (Settings → Club lists) and falls back to these defaults.
@@ -54,6 +55,7 @@ export default function Profile() {
   // telegram username self-service
   const [tgName, setTgName] = useState(user?.telegramUsername ?? "");
   const [tgBusy, setTgBusy] = useState(false);
+  const [badgeOpen, setBadgeOpen] = useState(false);
 
   // Keep the form in sync when the user object loads/changes after mount.
   const [syncedFor, setSyncedFor] = useState<string | null>(user?._id ?? null);
@@ -227,6 +229,14 @@ export default function Profile() {
             <p className="truncate text-sm font-semibold">{user?.name ?? "Unnamed member"}</p>
             <p className="truncate text-xs text-muted-foreground">{user?.email}</p>
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                title="Show my badge card"
+                onClick={() => setBadgeOpen(true)}
+                className="flex items-center gap-1 rounded-full border bg-muted/60 px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+              >
+                <IdCard className="size-3" /> Badge
+              </button>
               {user?.role === "admin" ? (
                 <span className="rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-xs text-primary">
                   Admin
@@ -445,6 +455,25 @@ export default function Profile() {
         >
           <LogOut className="size-4" /> Sign out
         </Button>
+
+        {badgeOpen && (
+          <PersonBadgeDialog
+            p={{
+              userId: user!._id,
+              name: user?.name ?? user?.email ?? "Member",
+              email: user?.email,
+              image: user?.image,
+              role: user?.role,
+              studentId: user?.studentId,
+              clubRoles: user?.clubRoles,
+              academicState: user?.academicState,
+              major: user?.major,
+              phone: user?.phone,
+              telegramUsername: user?.telegramUsername,
+            }}
+            onClose={() => setBadgeOpen(false)}
+          />
+        )}
       </div>
     </AppShell>
   );

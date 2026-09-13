@@ -7,7 +7,8 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Loader2, MessageCircle, Pencil, UserRound } from "lucide-react";
+import { Loader2, MessageCircle, Pencil, UserRound, IdCard } from "lucide-react";
+import { PersonBadgeDialog } from "@/components/PersonBadgeDialog";
 
 const fmt = (n?: number) => (n ? new Date(n).toLocaleString() : "—");
 
@@ -19,6 +20,7 @@ export default function PersonCard() {
 
   const openDm = useMutation(api.chat.openDm);
   const [dmBusy, setDmBusy] = useState(false);
+  const [badgeOpen, setBadgeOpen] = useState(false);
 
   if (card === undefined) {
     return (
@@ -189,6 +191,9 @@ export default function PersonCard() {
               Chat
             </Button>
           )}
+          <Button variant="outline" onClick={() => setBadgeOpen(true)}>
+            <IdCard className="size-4" /> Badge card
+          </Button>
           {viewerIsAdmin && (
             <Button variant="outline" onClick={() => navigate("/people")}>
               <Pencil className="size-4" /> Edit in People
@@ -236,6 +241,25 @@ export default function PersonCard() {
               </ul>
             )}
           </section>
+        )}
+
+        {badgeOpen && (
+          <PersonBadgeDialog
+            p={{
+              userId: p._id,
+              name: p.name ?? "Member",
+              email: p.email,
+              image: p.image,
+              role: p.role,
+              studentId: p.studentId,
+              clubRoles: p.clubRoles,
+              academicState: p.academicState,
+              major: p.major,
+              phone: p.phone,
+              telegramUsername: p.telegramUsername,
+            }}
+            onClose={() => setBadgeOpen(false)}
+          />
         )}
       </div>
     </AppShell>

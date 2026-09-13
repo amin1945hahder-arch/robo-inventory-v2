@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { api } from "./_generated/api";
 import { requireAdmin, requireNonGuest, requireInteractingMember, requireUser, safeImage } from "./lib";
 import { adminPhones, sendWhatsApp } from "./whatsapp";
@@ -687,8 +687,11 @@ export const adminRentalAction = mutation({
     projectId: v.optional(v.id("projects")),
     functional: v.optional(v.boolean()),
     conditionReport: v.optional(v.string()),
+    // Approvals: when the member should come pick the unit up. The approving
+    // admin picks a date+time (or reuses an existing scheduled pickup).
+    pickupAt: v.optional(v.number()),
   },
-  handler: async (ctx, { rentalId, action, projectId, functional, conditionReport }) => {
+  handler: async (ctx, { rentalId, action, projectId, functional, conditionReport, pickupAt }) => {
     const admin = await requireAdmin(ctx);
     const rental = await ctx.db.get(rentalId);
     if (!rental) throw new Error("Rental not found");
@@ -700,9 +703,12 @@ export const adminRentalAction = mutation({
 
     if (action === "approve") {
       // Approval reserves the unit for the member; the physical handover is a
-      // separate admin step ("Taken"), which decrements inventory.
+      // separate admin step ("Taken"/"Picked up"), which decrements inventory.
       if (rental.status !== "pending") throw new Error("This request was already handled");
-      await ctx.db.patch(rentalId, { status: "approved", decidedAt: now });
+      await ctx.db.patch(rentalId, { status: "approved", decidedAt: now, pickupAt });
+      const pickupLabel = pickupAt
+        ? new Date(pickupAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })
+        : "as soon as the lab is open";
       if (student?.email) {
         await ctx.scheduler.runAfter(0, api.emails.sendRentalDecisionEmail, {
           to: student.email,
@@ -714,20 +720,30 @@ export const adminRentalAction = mutation({
       if (student?.phone) {
         await sendWhatsApp(
           student.phone,
-          `✅ Your request was approved — ${group?.name ?? "a part"} (${part.tag}). Pick it up from the lab; the admin confirms the handover there.`,
+          `✅ Your request was approved — ${group?.name ?? "a part"} (${part.tag}). Pick it up ${pickupLabel}.`,
         );
       }
       if (student?.telegramChatId || student?.telegramUsername) {
         await telegramDM(
           ctx,
           { name: student.name ?? student.email, telegramUsername: student.telegramUsername, telegramChatId: student.telegramChatId },
-          `✅ Approved: ${group?.name ?? "a part"} (${part.tag}). Pick it up from the lab — the admin marks it as taken.`,
+          `✅ Approved: ${group?.name ?? "a part"} (${part.tag}).\\n📅 Pick-up time: ${pickupLabel}.\\nThe admin hands it over when you arrive — then it counts as rented.`,
           { name: admin.name ?? admin.email },
         );
       }
       await telegramGroup(
         ctx,
-        `✅ ${admin.name ?? admin.email} approved ${student?.name ?? student?.email ?? "a member"}'s rental of ${group?.name ?? "a part"} (${part.tag}) — waiting for handover.`,
+        `✅ ${admin.name ?? admin.email} approved ${student?.name ?? student?.email ?? "a member"}'s rental of ${group?.name ?? "a part"} (${part.tag}).\\n📅 Scheduled pick-up: ${pickupLabel} — waiting for handover.`,
+      );
+      // PDF rent card follows the approval, same as returns do.
+      await scheduleRentCard(
+        ctx,
+        { ...rental, status: "approved", decidedAt: now, pickupAt },
+        part,
+        group,
+        student,
+        "approved · awaiting pickup",
+        `✅ ${admin.name ?? admin.email} approved ${student?.name ?? student?.email ?? "a member"}'s rental of ${group?.name ?? "a part"} (${part.tag}) — pick-up ${pickupLabel}.`,
       );
     } else if (action === "deny") {
       if (rental.status !== "pending") throw new Error("This request was already handled");
@@ -763,11 +779,11 @@ export const adminRentalAction = mutation({
         `❌ ${admin.name ?? admin.email} denied ${student?.name ?? student?.email ?? "a member"}'s rental request for ${group?.name ?? "a part"} (${part.tag}).`,
       );
     } else if (action === "mark_taken") {
-      // The admin physically hands the approved unit to the member — THIS is
-      // the moment the unit leaves the inventory (status → rented, holder set,
-      // pickup timestamp recorded).
+      // The admin physically hands the approved unit to the member (picked
+      // up) — THIS is the moment the unit leaves the inventory (status →
+      // rented, holder set, pickup timestamp recorded).
       if (rental.status !== "approved") {
-        throw new Error("Only approved (not yet handed over) rentals can be marked taken");
+        throw new Error("Only approved (not yet picked up) rentals can be marked taken");
       }
       await ctx.db.patch(rentalId, { status: "active", pickedUpAt: now });
       await ctx.db.patch(part._id, { status: "rented", currentHolderId: rental.userId });
@@ -1697,3 +1713,91 @@ export const promoteByEmail = mutation({
 });
 
 export type PartId = Id<"parts">;
+
+// ===== Pickup scheduling (approval → handover stage) =====
+
+/**
+ * Approved rentals with a scheduled pick-up the member has NOT taken yet.
+ * The admin console shows these so they can reuse an existing slot for a new
+ * request ("same date as the other pickup") or chase no-shows.
+ */
+export const scheduledPickups = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+    const rows = await ctx.db
+      .query("rentals")
+      .withIndex("by_status", (q) => q.eq("status", "approved"))
+      .collect();
+    const cache = docCache();
+    const out = [];
+    for (const r of rows.sort((a, b) => (a.pickupAt ?? Infinity) - (b.pickupAt ?? Infinity))) {
+      const part = await cache.get(ctx, r.partId);
+      const group = part ? await cache.get(ctx, part.groupId) : null;
+      const student = await cache.get(ctx, r.userId);
+      out.push({
+        rentalId: r._id,
+        pickupAt: r.pickupAt,
+        groupName: group?.name ?? "Part",
+        tag: part?.tag,
+        studentName: student?.name ?? student?.email,
+      });
+    }
+    return out;
+  },
+});
+
+/**
+ * Reminder sweep, run by the cron every 15 minutes: approved rentals with a
+ * scheduled pick-up get a Telegram nudge 24h before and again 1h before.
+ * Each stage fires once (flagged on the rental row).
+ */
+export const pickupReminders = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db
+      .query("rentals")
+      .withIndex("by_status", (q) => q.eq("status", "approved"))
+      .collect();
+    const now = Date.now();
+    let sent = 0;
+    for (const r of rows) {
+      if (!r.pickupAt || r.pickupAt < now) continue;
+      const untilMs = r.pickupAt - now;
+      const part = await ctx.db.get(r.partId);
+      const group = part ? await ctx.db.get(part.groupId) : null;
+      const student = await ctx.db.get(r.userId);
+      const when = new Date(r.pickupAt).toLocaleString("en-GB", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      });
+      const dm = async (text: string) => {
+        if (student?.telegramChatId || student?.telegramUsername) {
+          await telegramDM(
+            ctx,
+            {
+              name: student.name ?? student.email,
+              telegramUsername: student.telegramUsername,
+              telegramChatId: student.telegramChatId,
+            },
+            text,
+          );
+          sent += 1;
+        }
+      };
+      if (untilMs <= 26 * 36e5 && untilMs > 23 * 36e5 && !r.pickupRemindedDay) {
+        await ctx.db.patch(r._id, { pickupRemindedDay: true });
+        await dm(
+          `⏰ Reminder: pick up ${group?.name ?? "your part"} (${part?.tag ?? "?"}) tomorrow — ${when}.`,
+        );
+      }
+      if (untilMs <= 61 * 60_000 && untilMs > 45 * 60_000 && !r.pickupRemindedHour) {
+        await ctx.db.patch(r._id, { pickupRemindedHour: true });
+        await dm(
+          `⏰ Pick-up in ~1 hour: ${group?.name ?? "your part"} (${part?.tag ?? "?"}) at ${when}. See you at the lab!`,
+        );
+      }
+    }
+    return { sent };
+  },
+});

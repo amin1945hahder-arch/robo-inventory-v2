@@ -44,6 +44,8 @@ export default function AdminRequests() {
   const pendingSingles = (pendingRowsQ ?? []).filter((r: any) => r.kind === "single");
   const pendingPkgRows = (pendingRowsQ ?? []).filter((r: any) => r.kind === "package");
   const active = useQuery(api.parts.listAllRentals, { status: "active" });
+  // Approved but not yet handed over — the pick-up stage.
+  const awaiting = useQuery(api.parts.listAllRentals, { status: "approved" });
   const onProject = useQuery(api.parts.listAllRentals, { status: "on_project" });
   const history = useQuery(api.parts.listAllRentals, { status: "returned" });
   const packages = useQuery(api.parts.listPackages, { scope: "all" });
@@ -71,8 +73,14 @@ export default function AdminRequests() {
   const act = useMutation(api.parts.adminRentalAction);
   const decidePkg = useMutation(api.parts.decidePackage);
   const unapproved = useQuery(api.users.listUnapprovedProfiles, {});
+  // Scheduled pick-ups for approved rentals: reusable slots + a no-show list.
+  const pickups = useQuery(api.parts.scheduledPickups, {});
 
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Approve flow: pick the pick-up date/time (or reuse a scheduled slot).
+  const [approveFor, setApproveFor] = useState<Row | null>(null);
+  const [pickupLocal, setPickupLocal] = useState("");
+  const [approveBusy, setApproveBusy] = useState(false);
   const [returnFor, setReturnFor] = useState<Row | null>(null);
   const [destination, setDestination] = useState<"shelf" | "project">("shelf");
   const [functional, setFunctional] = useState(true);
@@ -134,15 +142,41 @@ export default function AdminRequests() {
     }
   };
 
-  const decide = async (row: Row, approve: boolean) => {
+  const deny = async (row: Row) => {
     setBusyId(row.rental._id);
     try {
-      await act({ rentalId: row.rental._id, action: approve ? "approve" : "deny" });
-      toast.success(approve ? "Approved — student notified" : "Denied — unit back on shelf");
+      await act({ rentalId: row.rental._id, action: "deny" });
+      toast.success("Denied — unit back on shelf");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
     } finally {
       setBusyId(null);
+    }
+  };
+
+  // Approve opens the pick-up scheduling dialog (date+time is optional but
+  // recommended — it drives the Telegram reminders and the group post).
+  const submitApprove = async () => {
+    if (!approveFor) return;
+    setApproveBusy(true);
+    try {
+      const pickupAt = pickupLocal ? new Date(pickupLocal).getTime() : undefined;
+      await act({
+        rentalId: approveFor.rental._id,
+        action: "approve",
+        pickupAt: Number.isFinite(pickupAt as number) ? pickupAt : undefined,
+      });
+      toast.success(
+        pickupLocal
+          ? "Approved — pick-up scheduled, member and group notified with the PDF"
+          : "Approved — member notified",
+      );
+      setApproveFor(null);
+      setPickupLocal("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setApproveBusy(false);
     }
   };
 
@@ -281,6 +315,30 @@ export default function AdminRequests() {
           </TabsList>
 
           <TabsContent value="pending" className="mt-4">
+            {/* Scheduled pick-ups: awaiting handover, with reminder countdown. */}
+            {(pickups ?? []).length > 0 && (
+              <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
+                <p className="text-xs font-semibold uppercase tracking-widest text-amber-400">
+                  Scheduled pick-ups · {(pickups ?? []).length}
+                </p>
+                <ul className="mt-2 flex flex-col gap-1.5">
+                  {(pickups ?? []).map((p) => (
+                    <li key={p.rentalId} className="flex flex-wrap items-center gap-2 text-sm">
+                      <span className="font-medium">{p.groupName}</span>
+                      <span className="font-mono text-xs text-muted-foreground">{p.tag}</span>
+                      <span className="text-muted-foreground">· {p.studentName}</span>
+                      <span className="text-amber-400">
+                        · {p.pickupAt ? new Date(p.pickupAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }) : "no time set"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  Members are reminded 24h and 1h before. Mark them as taken from the Active tab or
+                  by scanning the unit.
+                </p>
+              </div>
+            )}
             {pendingRowsQ === undefined ? (
               <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
             ) : pendingRows.length === 0 && pendingPkgRows.length === 0 ? (
@@ -298,7 +356,10 @@ export default function AdminRequests() {
                         <Button
                           size="sm"
                           disabled={busyId === row.key}
-                          onClick={() => decide(row as Row, true)}
+                          onClick={() => {
+                            setApproveFor(row as Row);
+                            setPickupLocal("");
+                          }}
                         >
                           <Check className="size-4" /> Approve
                         </Button>
@@ -306,7 +367,7 @@ export default function AdminRequests() {
                           size="sm"
                           variant="outline"
                           disabled={busyId === row.key}
-                          onClick={() => decide(row as Row, false)}
+                          onClick={() => deny(row as Row)}
                         >
                           <X className="size-4" /> Deny
                         </Button>
@@ -511,9 +572,51 @@ export default function AdminRequests() {
           </TabsContent>
 
           <TabsContent value="active" className="mt-4">
+            {/* Awaiting pick-up: approved, not yet handed over. */}
+            {(awaiting ?? []).length > 0 && (
+              <section className="mb-5">
+                <h2 className="mb-2 text-xs font-semibold uppercase tracking-widest text-amber-400">
+                  Awaiting pick-up · {(awaiting ?? []).length}
+                </h2>
+                <ul className="divide-y rounded-lg border border-amber-500/30">
+                  {(awaiting ?? []).map((row) => (
+                    <RowCard
+                      key={row.rental._id}
+                      row={row as Row}
+                      actions={
+                        <div className="flex flex-col items-end gap-1">
+                          {row.rental.pickupAt && (
+                            <span className="text-[11px] text-amber-400">
+                              📅 {new Date(row.rental.pickupAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}
+                            </span>
+                          )}
+                          <Button
+                            size="sm"
+                            disabled={busyId === row.rental._id}
+                            onClick={async () => {
+                              setBusyId(row.rental._id);
+                              try {
+                                await act({ rentalId: row.rental._id, action: "mark_taken" });
+                                toast.success("Marked as picked up — unit is now rented");
+                              } catch (e) {
+                                toast.error(e instanceof Error ? e.message : "Failed");
+                              } finally {
+                                setBusyId(null);
+                              }
+                            }}
+                          >
+                            <Check className="size-4" /> Mark picked up
+                          </Button>
+                        </div>
+                      }
+                    />
+                  ))}
+                </ul>
+              </section>
+            )}
             {active === undefined ? (
               <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
-            ) : active.length === 0 ? (
+            ) : active.length === 0 && (awaiting?.length ?? 0) === 0 ? (
               <p className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
                 Nothing is out on rental right now.
               </p>
@@ -951,6 +1054,73 @@ export default function AdminRequests() {
             <Button variant="outline" onClick={() => setWholeFor(null)}>Cancel</Button>
             <Button onClick={submitWholeReturn} disabled={!wholeValid || wholeBusy}>
               <RotateCcw className="size-4" /> {wholeBusy ? "Processing…" : "Process all units"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ===== Approve: schedule the pick-up ===== */}
+      <Dialog open={Boolean(approveFor)} onOpenChange={(v) => !v && setApproveFor(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Approve &amp; schedule pick-up</DialogTitle>
+            <DialogDescription>
+              {approveFor && (
+                <>
+                  {approveFor.group?.name ?? "Part"} ({approveFor.part?.tag}) for{" "}
+                  {approveFor.student?.name ?? approveFor.student?.email ?? "a member"}.
+                </>
+              )}
+              {" "}They'll be notified with the date, and reminded 24h and 1h before on Telegram.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <div className="grid gap-2">
+              <Label htmlFor="pickup-at">Pick-up date &amp; time</Label>
+              <Input
+                id="pickup-at"
+                type="datetime-local"
+                value={pickupLocal}
+                onChange={(e) => setPickupLocal(e.target.value)}
+              />
+            </div>
+            {(pickups ?? []).length > 0 && (
+              <div className="grid gap-1.5">
+                <Label className="text-xs text-muted-foreground">
+                  Or reuse an existing scheduled slot
+                </Label>
+                <div className="flex max-h-32 flex-col gap-1 overflow-y-auto">
+                  {(pickups ?? [])
+                    .filter((p) => p.pickupAt)
+                    .slice(0, 6)
+                    .map((p) => (
+                      <button
+                        key={p.rentalId}
+                        type="button"
+                        className="rounded-md border px-3 py-1.5 text-left text-xs transition-colors hover:border-primary/40 hover:bg-muted/50"
+                        onClick={() => {
+                          const d = new Date(p.pickupAt!);
+                          const pad = (n: number) => String(n).padStart(2, "0");
+                          setPickupLocal(
+                            `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`,
+                          );
+                        }}
+                      >
+                        📅 {new Date(p.pickupAt!).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}
+                        <span className="text-muted-foreground"> — {p.studentName} · {p.groupName}</span>
+                      </button>
+                    ))}
+                </div>
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Leaving it empty means "come whenever the lab is open" — no reminders will be sent.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setApproveFor(null)}>Cancel</Button>
+            <Button onClick={submitApprove} disabled={approveBusy}>
+              <Check className="size-4" /> {approveBusy ? "Approving…" : "Approve"}
             </Button>
           </DialogFooter>
         </DialogContent>

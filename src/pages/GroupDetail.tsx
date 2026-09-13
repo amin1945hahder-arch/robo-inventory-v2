@@ -13,7 +13,7 @@ import { ReturnDialog } from "@/components/ReturnDialog";
 import { PackageBuilderDialog } from "@/components/PackageBuilderDialog";
 import { groupQr, unitQr } from "@/lib/qr";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2, PackagePlus, Package, RotateCcw } from "lucide-react";
+import { ArrowLeft, Loader2, PackagePlus, Package, RotateCcw, Scale } from "lucide-react";
 
 export default function GroupDetail() {
   const { id } = useParams();
@@ -31,6 +31,8 @@ export default function GroupDetail() {
   const addPart = useMutation(api.catalog.addPartToGroup);
   const requestRental = useMutation(api.parts.requestRental);
   const requestQty = useMutation(api.parts.requestRentalQuantity);
+  const requestBulkRental = useMutation(api.catalog.requestBulkRental);
+  const adjustStock = useMutation(api.catalog.adjustBulkStock);
   const playSound = useSound();
 
   const [returnFor, setReturnFor] = useState<{ rentalId: string; partId: string; tag: string } | null>(null);
@@ -54,6 +56,30 @@ export default function GroupDetail() {
   const s = stats?.[id ?? ""];
   const total = s?.total ?? 0;
   const availableUnits = (parts ?? []).filter((p) => p.status === "available");
+  // Bulk stock group (weight/length): rentals deduct an amount, not units.
+  const isBulk = group?.measure === "weight" || group?.measure === "length";
+  const stock = Number(group?.measureStock ?? 0);
+  const [bulkAmount, setBulkAmount] = useState("");
+
+  const requestBulk = async () => {
+    if (!group) return;
+    const amount = Number(bulkAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error("Enter the amount you need");
+      return;
+    }
+    setQtyBusy(true);
+    try {
+      await requestBulkRental({ groupId: group._id, amount });
+      playSound("rental_request");
+      toast.success(`Requested ${amount} ${group.measureUnit} — the lab admin has been notified`);
+      setBulkAmount("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setQtyBusy(false);
+    }
+  };
 
   const requestQuantity = async () => {
     if (!group) return;
@@ -124,33 +150,76 @@ export default function GroupDetail() {
               )}
               {/* Rental requests are available to every signed-in member —
                   admins included (they often demo or reserve units too). */}
-              <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  min={1}
-                  max={Math.max(1, availableUnits.length)}
-                  value={qty}
-                  onChange={(e) =>
-                    setQty(Math.max(1, Math.min(availableUnits.length || 1, Math.floor(Number(e.target.value) || 1))))
-                  }
-                  className="w-20"
-                  disabled={availableUnits.length === 0}
-                />
-                <Button
-                  disabled={availableUnits.length === 0 || qtyBusy}
-                  onClick={requestQuantity}
-                >
-                  {qtyBusy ? <Loader2 className="size-4 animate-spin" /> : <Package className="size-4" />}
-                  {availableUnits.length > 0 ? `Request ${qty} unit${qty > 1 ? "s" : ""}` : "No units available"}
-                </Button>
-              </div>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setPkgOpen(true)}
-              >
-                <PackagePlus className="size-4" /> Request multiple items (package)
-              </Button>
+              {isBulk ? (
+                <div className="flex flex-col items-stretch gap-2 sm:items-end">
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={0}
+                      step="any"
+                      value={bulkAmount}
+                      onChange={(e) => setBulkAmount(e.target.value)}
+                      placeholder={`Amount in ${group.measureUnit}`}
+                      className="w-36"
+                    />
+                    <Button disabled={qtyBusy || stock <= 0} onClick={requestBulk}>
+                      {qtyBusy ? <Loader2 className="size-4 animate-spin" /> : <Scale className="size-4" />}
+                      Request amount
+                    </Button>
+                  </div>
+                  {isAdmin && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        const v = window.prompt(
+                          `Set the stock of ${group.name} (in ${group.measureUnit}):`,
+                          String(stock),
+                        );
+                        if (v === null) return;
+                        try {
+                          await adjustStock({ groupId: group._id, newStock: Number(v) });
+                          toast.success(`Stock set to ${v} ${group.measureUnit}`);
+                        } catch (e) {
+                          toast.error(e instanceof Error ? e.message : "Failed");
+                        }
+                      }}
+                    >
+                      <Scale className="size-3.5" /> Set stock
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={1}
+                      max={Math.max(1, availableUnits.length)}
+                      value={qty}
+                      onChange={(e) =>
+                        setQty(Math.max(1, Math.min(availableUnits.length || 1, Math.floor(Number(e.target.value) || 1))))
+                      }
+                      className="w-20"
+                      disabled={availableUnits.length === 0}
+                    />
+                    <Button
+                      disabled={availableUnits.length === 0 || qtyBusy}
+                      onClick={requestQuantity}
+                    >
+                      {qtyBusy ? <Loader2 className="size-4 animate-spin" /> : <Package className="size-4" />}
+                      {availableUnits.length > 0 ? `Request ${qty} unit${qty > 1 ? "s" : ""}` : "No units available"}
+                    </Button>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setPkgOpen(true)}
+                  >
+                    <PackagePlus className="size-4" /> Request multiple items (package)
+                  </Button>
+                </>
+              )}
             </div>
           </header>
 
@@ -166,10 +235,29 @@ export default function GroupDetail() {
             <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{group.description}</p>
           )}
 
-          <section className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border md:grid-cols-5">
+          {isBulk ? (
+            <section className="grid grid-cols-3 gap-px overflow-hidden rounded-lg border bg-border">
+              {[
+                ["Stock", `${stock} ${group.measureUnit}`, ""],
+                ["Low-stock at", group.measureLowAt ? `${group.measureLowAt} ${group.measureUnit}` : "—", ""],
+                [
+                  "Status",
+                  group.measureLowAt && stock <= Number(group.measureLowAt) ? "⚠️ LOW" : "OK",
+                  group.measureLowAt && stock <= Number(group.measureLowAt) ? "text-rose-400" : "text-emerald-400",
+                ],
+              ].map(([label, value, cls]) => (
+                <div key={label as string} className="bg-background px-5 py-5">
+                  <p className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground">{label}</p>
+                  <p className={`mt-1 text-2xl font-semibold tabular-nums ${cls ?? ""}`}>{value}</p>
+                </div>
+              ))}
+            </section>
+          ) : (
+          <section className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border md:grid-cols-6">
             {[
               ["Total", total, ""],
               ["Available", s?.available ?? 0, "text-emerald-400"],
+              ["Pending", s?.pending ?? 0, "text-amber-400"],
               ["Rented", s?.rented ?? 0, "text-sky-400"],
               ["On projects", s?.onProject ?? 0, "text-violet-400"],
               ["Broken", s?.broken ?? 0, "text-rose-400"],
@@ -181,10 +269,11 @@ export default function GroupDetail() {
                 <p className={`mt-1 text-2xl font-semibold tabular-nums ${cls ?? ""}`}>
                   {value as number}
                 </p>
-              </div>
-            ))}
+              </div>              ))}
           </section>
+          )}
 
+          {!isBulk && (
           <section className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold">Units · each with its own QR</h2>
@@ -261,6 +350,7 @@ export default function GroupDetail() {
               </ul>
             )}
           </section>
+          )}
         </div>
       )}
 

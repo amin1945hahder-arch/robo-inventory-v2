@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { requireAdmin, requireNonStudent } from "./lib";
+import { requireAdmin, requireInteractingMember, requireNonStudent } from "./lib";
+import { telegramGroup } from "./notify";
 
 // ===== Closets =====
 
@@ -154,6 +155,14 @@ export const upsertGroup = mutation({
     datasheetUrl: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
     quantityTotal: v.number(),
+    // Counting mode: discrete units (default), or bulk stock tracked by
+    // weight (kg/g) or length (m/cm/mm). Bulk groups skip per-unit tags.
+    measure: v.optional(
+      v.union(v.literal("count"), v.literal("weight"), v.literal("length")),
+    ),
+    measureUnit: v.optional(v.string()),
+    measureStock: v.optional(v.string()),
+    measureLowAt: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await requireAdmin(ctx);
@@ -168,8 +177,26 @@ export const upsertGroup = mutation({
       datasheetUrl,
       imageUrl,
       quantityTotal,
+      measure,
+      measureUnit,
+      measureStock,
+      measureLowAt,
     } = args;
-    if (!id && quantityTotal <= 0) {
+    const isBulk = measure === "weight" || measure === "length";
+    if (isBulk) {
+      const validUnits: Record<string, string[]> = {
+        weight: ["kg", "g"],
+        length: ["m", "cm", "mm"],
+      };
+      if (!measureUnit || !validUnits[measure].includes(measureUnit)) {
+        throw new Error(`Pick a unit for ${measure}: ${validUnits[measure].join(" or ")}`);
+      }
+      const stock = Number(measureStock);
+      if (!Number.isFinite(stock) || stock < 0) {
+        throw new Error("Stock must be a number ≥ 0");
+      }
+    }
+    if (!id && !isBulk && quantityTotal <= 0) {
       throw new Error("Total quantity must be at least 1");
     }
     const data = {
@@ -181,13 +208,20 @@ export const upsertGroup = mutation({
       description: description?.trim(),
       datasheetUrl: datasheetUrl?.trim(),
       imageUrl: imageUrl?.trim(),
-      quantityTotal,
+      quantityTotal: isBulk ? 0 : quantityTotal,
+      measure: measure ?? "count",
+      measureUnit: isBulk ? measureUnit : undefined,
+      measureStock: isBulk ? String(Number(measureStock)) : undefined,
+      measureLowAt: isBulk && measureLowAt?.trim() ? String(Number(measureLowAt)) : undefined,
     };
     if (id) {
-      await ctx.db.patch(id, data);
+      await ctx.db.patch(id, data as any);
       return id;
     }
-    const groupId = await ctx.db.insert("groups", data);
+    const groupId = await ctx.db.insert("groups", data as any);
+
+    // Bulk groups (weight/length) have no discrete units to tag.
+    if (isBulk) return groupId;
 
     // create physical parts (individual QR tags) for the group
     const prefix = name
@@ -272,5 +306,88 @@ export const addPartToGroup = mutation({
     }
     await ctx.db.patch(groupId, { quantityTotal: parts.length + n });
     return parts.length + n;
+  },
+});
+
+// ===== Bulk stock groups (weight / length) =====
+
+/**
+ * Request an amount of a bulk-stock group (kg/g or m/cm/mm). Creates a
+ * pending rental row (no physical unit) carrying the amount; the admin's
+ * approval flow and stock handling stay in one place.
+ */
+export const requestBulkRental = mutation({
+  args: {
+    groupId: v.id("groups"),
+    amount: v.number(),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, { groupId, amount, note }) => {
+    const user = await requireInteractingMember(ctx);
+    const group = await ctx.db.get(groupId);
+    if (!group || group.deleted) throw new Error("Group not found");
+    if (group.measure !== "weight" && group.measure !== "length") {
+      throw new Error("This group is counted in units, not by weight/length");
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error("Enter the amount you need");
+    }
+    const stock = Number(group.measureStock ?? 0);
+    if (amount > stock) {
+      throw new Error(`Only ${stock} ${group.measureUnit} in stock`);
+    }
+    // A "placeholder" part row carries the rental ledger for bulk groups —
+    // one per group, tagged BULK so it never appears as a physical unit.
+    let part = await ctx.db
+      .query("parts")
+      .withIndex("by_group", (q) => q.eq("groupId", groupId))
+      .filter((q) => q.eq(q.field("tag"), "BULK"))
+      .first();
+    if (!part) {
+      const partId = await ctx.db.insert("parts", {
+        groupId,
+        tag: "BULK",
+        status: "available",
+        note: "Bulk stock holder (weight/length group)",
+      });
+      part = await ctx.db.get(partId);
+    }
+    const rentalId = await ctx.db.insert("rentals", {
+      partId: part!._id,
+      userId: user._id,
+      status: "pending",
+      requestedAt: Date.now(),
+      amount,
+    });
+    await ctx.db.insert("notifications", {
+      forRole: "admin",
+      type: "rental_request",
+      text: `${user.name ?? user.email} requested ${amount} ${group.measureUnit} of ${group.name}`,
+      link: "/admin/requests",
+    });
+    await telegramGroup(
+      ctx,
+      `📤 ${user.name ?? user.email} requested ${amount} ${group.measureUnit} of ${group.name}. Awaiting admin approval.`,
+    );
+    return { rentalId };
+  },
+});
+
+/** Admin restocks/corrects the stock of a bulk group. */
+export const adjustBulkStock = mutation({
+  args: {
+    groupId: v.id("groups"),
+    newStock: v.number(),
+  },
+  handler: async (ctx, { groupId, newStock }) => {
+    await requireAdmin(ctx);
+    const group = await ctx.db.get(groupId);
+    if (!group) throw new Error("Group not found");
+    if (group.measure !== "weight" && group.measure !== "length") {
+      throw new Error("This group is not a bulk-stock group");
+    }
+    if (!Number.isFinite(newStock) || newStock < 0) throw new Error("Stock must be ≥ 0");
+    await ctx.db.patch(groupId, { measureStock: String(newStock) });
+    return { ok: true };
   },
 });
