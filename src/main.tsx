@@ -36,6 +36,7 @@ const AdminSettings = lazy(() => import("./pages/AdminSettings.tsx"));
 const Courses = lazy(() => import("./pages/Courses.tsx"));
 const Chat = lazy(() => import("./pages/Chat.tsx"));
 const Profile = lazy(() => import("./pages/Profile.tsx"));
+const PersonCard = lazy(() => import("./pages/PersonCard.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
 // Loading fallback for route transitions (spinner + page shell)
@@ -351,6 +352,15 @@ createRoot(document.getElementById("root")!).render(
                 element={
                   <RequireAuth>
                     <Profile />
+                  </RequireAuth>
+                }
+              />
+              {/* Person QR: scanned member card (all signed-in roles). */}
+              <Route
+                path="/person/:id"
+                element={
+                  <RequireAuth>
+                    <PersonCard />
                   </RequireAuth>
                 }
               />

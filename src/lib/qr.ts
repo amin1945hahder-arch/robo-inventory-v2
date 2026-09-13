@@ -6,7 +6,13 @@ export type QrTarget =
   | { kind: "unit"; tag: string }
   | { kind: "category"; name: string }
   | { kind: "closet"; id: string }
-  | { kind: "project"; id: string };
+  | { kind: "project"; id: string }
+  | { kind: "person"; id: string };
+
+/** Person QR: `person:<userId>` — scanning opens the member's profile card. */
+export function personQr(id: string) {
+  return `person:${id}`;
+}
 
 export function groupQr(name: string) {
   return `inv:${name}`;

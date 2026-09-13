@@ -481,7 +481,7 @@ export default function PartDetail() {
                 value={editStatus}
                 onChange={(e) => setEditStatus(e.target.value)}
               >
-                {["available", "pending", "rented", "on_project", "broken"].map((s) => (
+                {["available", "rented", "on_project", "broken"].map((s) => (
                   <option key={s} value={s}>{s}</option>
                 ))}
               </select>

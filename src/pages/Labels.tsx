@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { categoryQr, closetQr, groupQr, projectQr, qrUrl, unitQr } from "@/lib/qr";
+import { categoryQr, closetQr, groupQr, personQr, projectQr, qrUrl, unitQr } from "@/lib/qr";
 import { downloadCsv, toCsv } from "@/lib/csv";
 import {
   computeColumns,
@@ -202,6 +202,7 @@ export default function Labels() {
                   ...data.groups.flatMap(({ group, parts }) =>
                     parts.map((p) => ["unit", p.tag, group.name, unitQr(p.tag)]),
                   ),
+                  ...data.people.map((p: any) => ["person", p.name, p.sub ?? "", personQr(p._id)]),
                 ];
                 downloadCsv(`qr-labels-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(rows));
               }}
@@ -226,6 +227,7 @@ export default function Labels() {
                 ["projects", "Projects"],
                 ["groups", "Groups"],
                 ["units", "Units"],
+                ["people", "People"],
               ] as const
             ).map(([key, label]) => (
               <Button
@@ -247,6 +249,7 @@ export default function Labels() {
             {(section === "all" || section === "projects") && sizeControl("projects", "Projects")}
             {(section === "all" || section === "groups") && sizeControl("groups", "Groups")}
             {(section === "all" || section === "units") && sizeControl("units", "Units")}
+            {(section === "all" || section === "people") && sizeControl("people", "People")}
             <div className="ml-auto flex flex-wrap items-end gap-4">
               <div className="grid gap-1">
                 <Label className="text-[11px] text-muted-foreground">Paper</Label>
@@ -373,6 +376,26 @@ export default function Labels() {
                       </div>
                     )),
                   )}
+                </div>
+              </section>
+            )}
+
+            {show("people") && data.people.length > 0 && (
+              <section>
+                <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-neutral-500">
+                  People
+                </h2>
+                <div style={gridStyle}>
+                  {data.people.map((p: any) => (
+                    <div key={p._id} style={gridOverlay} className="print-cell">
+                      <MmLabel
+                        value={personQr(p._id)}
+                        title={p.name}
+                        sub={p.sub || undefined}
+                        sizeMm={sizes.people}
+                      />
+                    </div>
+                  ))}
                 </div>
               </section>
             )}

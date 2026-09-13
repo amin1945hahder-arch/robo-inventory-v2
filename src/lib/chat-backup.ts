@@ -264,3 +264,117 @@ export async function restoreFromZip(file: File): Promise<{ restored: number }> 
 function attachment0(m: { attachment?: { mime: string } | null }) {
   return m.attachment?.mime ?? "application/octet-stream";
 }
+
+/**
+ * Back up EVERY conversation in one archive: one zip with a folder per chat
+ * (messages.json + chat_transcript.txt + media/ inside each folder) plus a
+ * top-level conversations_index.json. This is what the "Backup everything"
+ * button and the scheduled auto-sync routine call.
+ */
+export async function buildAllChatsZip(
+  userName: string,
+  meId: string,
+): Promise<{ blob: Blob; fileName: string; chatCount: number; messageCount: number } | null> {
+  const convos = await chatDb.conversations.toArray();
+  if (convos.length === 0) return null;
+
+  const zip = new JSZip();
+  const index: unknown[] = [];
+  let messageCount = 0;
+  let chatCount = 0;
+
+  for (const conversation of convos.sort((a, b) => b.lastActivityAt - a.lastActivityAt)) {
+    const visible = (await chatDb.messages.where("conversationId").equals(conversation.id).toArray())
+      .filter((m) => !m.deletedForEveryone && m.status !== "deleted");
+    const chatName = safeChatName(conversation.memberProfiles, conversation.name, conversation.kind, meId);
+    const folder = zip.folder(chatName)!;
+
+    folder.file(
+      "messages.json",
+      JSON.stringify(
+        {
+          app: "RoboShelf",
+          schema: 1,
+          exportedAt: new Date().toISOString(),
+          user: userName,
+          conversation: {
+            id: conversation.id,
+            kind: conversation.kind,
+            name: conversation.name ?? null,
+            projectId: conversation.projectId ?? null,
+            members: conversation.memberProfiles,
+          },
+          messages: visible.map((m) => ({
+            id: m.id,
+            senderId: m.senderId,
+            senderName: m.senderName ?? null,
+            body: m.body,
+            createdAt: m.createdAt,
+            editedAt: m.editedAt ?? null,
+            replyToId: m.replyToId ?? null,
+            attachment: m.attachment
+              ? { name: m.attachment.name, mime: m.attachment.mime, size: m.attachment.size }
+              : null,
+            attachmentFile: m.attachment ? `media/${mediaFileName(m.attachment.name)}` : null,
+          })),
+        },
+        null,
+        2,
+      ),
+    );
+    folder.file("chat_transcript.txt", transcriptOf(visible, chatName, userName));
+
+    const media = folder.folder("media");
+    const used = new Map<string, number>();
+    for (const m of visible) {
+      if (!m.attachment) continue;
+      const base = mediaFileName(m.attachment.name);
+      const n = (used.get(base) ?? 0) + 1;
+      used.set(base, n);
+      const name = n === 1 ? base : `${n}_${base}`;
+      media?.file(name, dataUrlToBytes(m.attachment.dataUrl));
+      messageCount += 1;
+    }
+    messageCount += visible.length;
+    chatCount += 1;
+
+    index.push({
+      id: conversation.id,
+      kind: conversation.kind,
+      name: conversation.name ?? null,
+      members: conversation.memberProfiles.map((m) => m.name ?? m.email ?? m._id),
+      messages: visible.length,
+      lastActivityAt: conversation.lastActivityAt,
+    });
+  }
+
+  zip.file("conversations_index.json", JSON.stringify({ user: userName, chats: index }, null, 2));
+
+  const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
+  const fileName = `${safeUserName(userName)}_All_Chats_${dateStamp()}_Backup.zip`;
+  return { blob, fileName, chatCount, messageCount };
+}
+
+/** Backup-everything entry point used by the Chat page. */
+export async function backupAllChats(userName: string, meId: string): Promise<string | null> {
+  const out = await buildAllChatsZip(userName, meId);
+  if (!out) return null;
+  triggerDownload(out.blob, out.fileName);
+  return out.fileName;
+}
+
+/** Download a finished archive directly (used alongside remote destinations). */
+export function triggerBlobDownload(blob: Blob, fileName: string) {
+  triggerDownload(blob, fileName);
+}
+
+/** Blob → base64 (no data: prefix) for the Telegram relay action. */
+export async function blobToBase64(blob: Blob): Promise<string> {
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  let bin = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < buf.length; i += CHUNK) {
+    bin += String.fromCharCode(...buf.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+}

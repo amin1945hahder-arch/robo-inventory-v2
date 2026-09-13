@@ -36,6 +36,13 @@ export const getCurrentUser = async (ctx: QueryCtx) => {
   return await ctx.db.get(userId);
 };
 
+// Internal twin of `currentUser` for Node actions (they can only run internal
+// queries) — e.g. the database-reset actions verifying the caller is an admin.
+export const currentInternalUser = internalQuery({
+  args: {},
+  handler: async (ctx) => getCurrentUser(ctx),
+});
+
 // Bootstrap A: the first user who signs in with an email on the admin allow-list
 // (ADMIN_EMAILS env var, comma-separated) is promoted to admin automatically.
 export const claimAdminIfEligible = mutation({

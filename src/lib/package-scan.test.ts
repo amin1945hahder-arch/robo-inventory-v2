@@ -86,6 +86,20 @@ describe("rent card PDF", () => {
     const text = Buffer.from(pdf).toString("latin1");
     expect(text.startsWith("%PDF-1.4")).toBe(true);
   });
+
+  it("transliterates Arabic names instead of printing question marks", () => {
+    const pdf = renderRentCardPdf({
+      ...card,
+      holderName: "أمين حيدر",
+      groupName: "أردوينو أونو",
+    });
+    const text = Buffer.from(pdf).toString("latin1");
+    // Arabic letters become their Latin transliteration (amyn hydr …);
+    // no run of question marks may appear in the drawn text.
+    expect(text).toContain("(amyn hydr)");
+    expect(text).toContain("(ardwynw awnw)");
+    expect(text).not.toContain("(?????");
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { Loader2, Plus, Save, SendHorizonal, Trash2, Volume2 } from "lucide-react";
+import { Loader2, Plus, Save, SendHorizonal, Trash2, TriangleAlert, Volume2 } from "lucide-react";
 
 /** A single admin-editable list (positions or academic states). */
 function ListEditor({
@@ -95,6 +95,104 @@ function ListEditor({
         </Button>
       </div>
     </div>
+  );
+}
+
+/**
+ * Dangerous zone: full database reset with email verification + DELETE ALL.
+ * Two-step: request a code (emailed), then confirm with code + phrase.
+ */
+function ResetDatabaseCard() {
+  const requestReset = useAction(api.resetDb.requestReset);
+  const confirmReset = useAction(api.resetDb.confirmReset);
+  const [stage, setStage] = useState<"idle" | "awaiting">("idle");
+  const [busy, setBusy] = useState(false);
+  const [code, setCode] = useState("");
+  const [phrase, setPhrase] = useState("");
+
+  const requestCode = async () => {
+    setBusy(true);
+    try {
+      await requestReset({});
+      setStage("awaiting");
+      toast.success("Verification code emailed — check your inbox");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirm = async () => {
+    setBusy(true);
+    try {
+      const res = await confirmReset({ code, confirmPhrase: phrase });
+      const total = Object.entries(res.counts)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(", ");
+      toast.success(`Database reset complete — deleted: ${total}`);
+      setStage("idle");
+      setCode("");
+      setPhrase("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="flex flex-col gap-4 rounded-lg border border-red-500/40 bg-red-500/5 p-5">
+      <div>
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-red-400">
+          <TriangleAlert className="size-4" /> Danger zone — reset the database
+        </h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Permanently deletes every inventory item, rental, request, project, chat relay row and
+          person — except you (the admin confirming) and the app settings. A verification code is
+          emailed to you, and you must type DELETE ALL to confirm. This cannot be undone.
+        </p>
+      </div>
+      {stage === "idle" ? (
+        <Button variant="destructive" className="self-start" disabled={busy} onClick={requestCode}>
+          {busy ? <Loader2 className="size-4 animate-spin" /> : <TriangleAlert className="size-4" />}
+          Email me a reset code
+        </Button>
+      ) : (
+        <div className="flex flex-col gap-3">
+          <div className="grid max-w-sm gap-2">
+            <Label htmlFor="reset-code">Email verification code</Label>
+            <Input
+              id="reset-code"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="6-digit code"
+              inputMode="numeric"
+              autoComplete="off"
+            />
+          </div>
+          <div className="grid max-w-sm gap-2">
+            <Label htmlFor="reset-phrase">Type DELETE ALL to confirm</Label>
+            <Input
+              id="reset-phrase"
+              value={phrase}
+              onChange={(e) => setPhrase(e.target.value)}
+              placeholder="DELETE ALL"
+              autoComplete="off"
+            />
+          </div>
+          <div className="flex gap-2">
+            <Button variant="destructive" disabled={busy || phrase.trim() !== "DELETE ALL" || code.trim().length === 0} onClick={confirm}>
+              {busy ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+              Delete everything
+            </Button>
+            <Button variant="outline" disabled={busy} onClick={() => setStage("idle")}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -489,6 +587,9 @@ export default function AdminSettings() {
             </Button>
           </div>
         </section>
+
+        {/* ===== danger zone: full database reset ===== */}
+        <ResetDatabaseCard />
       </div>
     </AppShell>
   );

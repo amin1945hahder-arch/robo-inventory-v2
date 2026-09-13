@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { useAuth } from "@/hooks/use-auth";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -47,8 +47,11 @@ import {
 } from "@/lib/chat-db";
 import {
   backupConversation,
+  blobToBase64,
+  buildAllChatsZip,
   downloadLastBackup,
   lastBackupOf,
+  triggerBlobDownload,
 } from "@/lib/chat-backup";
 import {
   useChatSync,
@@ -129,6 +132,7 @@ export default function Chat() {
 
   const openDm = useMutation(api.chat.openDm);
   const createGroup = useMutation(api.chat.createGroup);
+  const deliverBackup = useAction(api.chatActions.deliverBackup);
 
   const { sendToRelay, editMessage, deleteForEveryone, deleteForMe, notifyTyping, markConversationRead } =
     useChatSync(meId, meName);
@@ -146,6 +150,12 @@ export default function Chat() {
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupMembers, setNewGroupMembers] = useState<string[]>([]);
   const [backupMeta, setBackupMeta] = useState<ChatBackupMeta | null>(null);
+  const [backupAllBusy, setBackupAllBusy] = useState(false);
+  const [autoSync, setAutoSync] = useState(() => localStorage.getItem("roboshelf_chat_autosync") === "1");
+  const [lastAutoSync, setLastAutoSync] = useState<number | null>(() => {
+    const raw = localStorage.getItem("roboshelf_chat_autosync_last");
+    return raw ? Number(raw) : null;
+  });
   const [mobileView, setMobileView] = useState<"list" | "thread">("list");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -184,6 +194,33 @@ export default function Chat() {
     if (activeId && meId)
       void lastBackupOf(activeId, meId).then((meta) => setBackupMeta(meta ?? null));
   }, [activeId, meId]);
+
+  // Daily auto-backup: when enabled, a full zip is saved once per day while
+  // the app is open (checked every 10 minutes; state lives in localStorage so
+  // it survives reloads). Backups are built client-side and never uploaded.
+  useEffect(() => {
+    localStorage.setItem("roboshelf_chat_autosync", autoSync ? "1" : "0");
+    if (!autoSync || !meId) return;
+    const DAY = 24 * 36e5;
+    const run = async () => {
+      const last = Number(localStorage.getItem("roboshelf_chat_autosync_last") ?? 0);
+      if (Date.now() - last < DAY) return;
+      try {
+        const out = await buildAllChatsZip(meName ?? "user", meId);
+        if (out) {
+          triggerBlobDownload(out.blob, out.fileName);
+          localStorage.setItem("roboshelf_chat_autosync_last", String(Date.now()));
+          setLastAutoSync(Date.now());
+          toast.info(`Daily chat backup saved: ${out.fileName}`);
+        }
+      } catch {
+        /* silent — the next interval retries */
+      }
+    };
+    void run();
+    const t = setInterval(() => void run(), 10 * 60_000);
+    return () => clearInterval(t);
+  }, [autoSync, meId, meName]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -420,9 +457,69 @@ export default function Chat() {
               )}
             </div>
           )}
-          <p className="border-t px-3 py-2 text-[10px] text-muted-foreground">
-            Local-first: messages live on this device; zip backups keep them portable.
-          </p>
+          <div className="border-t px-3 py-2">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[10px] text-muted-foreground">
+                Local-first: messages live on this device.
+              </p>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 gap-1 px-2 text-[10px]"
+                disabled={backupAllBusy}
+                onClick={async () => {
+                  setBackupAllBusy(true);
+                  try {
+                    const out = await buildAllChatsZip(meName ?? "user", meId ?? "");
+                    if (!out) {
+                      toast.info("Nothing to back up yet");
+                      return;
+                    }
+                    // Always keep a local copy, then follow the admin-set
+                    // destination (download-only no-ops server-side).
+                    triggerBlobDownload(out.blob, out.fileName);
+                    try {
+                      const res = await deliverBackup({
+                        fileName: out.fileName,
+                        dataBase64: await blobToBase64(out.blob),
+                        caption: `RoboShelf chat backup — ${out.chatCount} conversations`,
+                      });
+                      if (res?.sent) toast.success(`Backup saved locally and delivered (${out.chatCount} chats)`);
+                      else toast.success(`Backup saved: ${out.fileName}`);
+                    } catch {
+                      toast.success(`Backup saved: ${out.fileName}`);
+                    }
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : "Backup failed");
+                  } finally {
+                    setBackupAllBusy(false);
+                  }
+                }}
+              >
+                {backupAllBusy ? <Loader2 className="size-3 animate-spin" /> : <FileDown className="size-3" />}
+                Backup everything
+              </Button>
+            </div>
+            {/* Auto-sync: a scheduled backup routine the user opts into. */}
+            <div className="mt-1.5 flex items-center justify-between gap-2">
+              <label className="flex cursor-pointer items-center gap-1.5 text-[10px] text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={autoSync}
+                  onChange={(e) => {
+                    setAutoSync(e.target.checked);
+                    if (e.target.checked) toast.info("Auto-backup enabled — a zip is saved daily while the app is open");
+                  }}
+                />
+                Daily auto-backup
+              </label>
+              {autoSync && lastAutoSync && (
+                <span className="text-[10px] text-muted-foreground">
+                  last: {new Date(lastAutoSync).toLocaleDateString("en-GB")}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* ===== thread column ===== */}

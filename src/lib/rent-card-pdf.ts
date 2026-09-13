@@ -62,14 +62,44 @@ function pdfEscape(s: string): string {
   return s.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
 }
 
+// Arabic → Latin transliteration. The PDF is rendered with WinAnsi Helvetica,
+// which has no Arabic glyphs — without this, every Arabic character would show
+// as "?" on the printed card. Transliteration keeps the card readable while
+// the app UI (which uses the full Unicode font stack) shows the original text.
+const ARABIC_MAP: Record<string, string> = {
+  "ء": "'", "آ": "aa", "أ": "a", "ؤ": "w", "إ": "i", "ئ": "y",
+  "ا": "a", "ب": "b", "ة": "h", "ت": "t", "ث": "th", "ج": "j",
+  "ح": "h", "خ": "kh", "د": "d", "ذ": "dh", "ر": "r", "ز": "z",
+  "س": "s", "ش": "sh", "ص": "s", "ض": "d", "ط": "t", "ظ": "z",
+  "ع": "a", "غ": "gh", "ـ": "", // tatweel: dropped
+  "ف": "f", "ق": "q", "ك": "k", "ل": "l", "م": "m", "ن": "n",
+  "ه": "h", "و": "w", "ى": "a", "ي": "y",
+  "َ": "a", "ُ": "u", "ِ": "i", "ّ": "", // diacritics: dropped
+  "ْ": "", "ٍ": "", "ٌ": "", "ً": "",
+  "٠": "0", "١": "1", "٢": "2", "٣": "3", "٤": "4",
+  "٥": "5", "٦": "6", "٧": "7", "٨": "8", "٩": "9",
+};
+
+function transliterateArabic(s: string): string {
+  let out = "";
+  for (const ch of s) {
+    const mapped = ARABIC_MAP[ch];
+    out += mapped !== undefined ? mapped : ch;
+  }
+  return out;
+}
+
 function latin1(s: string): string {
   // WinAnsi 0x80–0x9F maps smart quotes etc. to PRINTABLE chars for widths.
+  // Arabic (0x0600+) is transliterated first so names like "أمين" render as
+  // "amin" instead of "?????" on the printed rent card.
+  s = transliterateArabic(s);
   const fixes: Record<number, string> = {
     0x2018: "'", 0x2019: "'", 0x201c: '"', 0x201d: '"',
     0x2013: "-", 0x2014: "-", 0x2026: "...",
     0x00a0: " ", 0x2190: "<-", 0x2192: "->", 0x00d7: "x",
-    0x2022: "*", 0x00b7: "-", 0x25cf: "o", 0x26a0: "!", 0x2705: "OK",
   };
+  // (emoji removed from fixes — they map to "?" below, keeping captions short)
   let out = "";
   for (const ch of s) {
     const cp = ch.codePointAt(0)!;

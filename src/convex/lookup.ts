@@ -56,6 +56,16 @@ export const resolve = query({
       return null;
     }
 
+    // Person QR labels: scanning opens the member's profile card. Guests are
+    // not people (they are not stored), so they never resolve.
+    if (scheme === "person") {
+      const person = (await ctx.db.get(value as any)) as any;
+      if (person && !person.isAnonymous && (person.name || person.email)) {
+        return { type: "person" as const, id: person._id, url: `/person/${person._id}` };
+      }
+      return null;
+    }
+
     if (scheme === "rental") {
       const rental = await ctx.db
         .query("rentals")
@@ -86,6 +96,12 @@ export const resolve = query({
     }
 
     // fallback: treat raw as a part tag, then group name
+    // (a bare Convex id can also be a person QR scanned without its prefix)
+    const personById =
+      value && /^[0-9a-f]{32}$/i.test(value) ? ((await ctx.db.get(value as any)) as any) : null;
+    if (personById && !personById.isAnonymous) {
+      return { type: "person" as const, id: personById._id, url: `/person/${personById._id}` };
+    }
     const alt = await byTag();
     if (alt) return alt;
     const groups = await ctx.db

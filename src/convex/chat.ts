@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { internalMutation, mutation, query, QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
-import { requireAdmin, requireNonStudent, requireUser, safeImage } from "./lib";
+import { requireAdmin, requireNonGuest, requireNonStudent, requireUser, safeImage } from "./lib";
 
 /**
  * Chat relay backend.
@@ -172,7 +172,9 @@ export const getConversation = query({
 export const openDm = mutation({
   args: { userId: v.id("users") },
   handler: async (ctx, { userId }) => {
-    const me = await requireNonStudent(ctx);
+    // DMs are open to every real (non-guest) account — students included — so
+    // a scanned person QR can always offer "Chat" as an action.
+    const me = await requireNonGuest(ctx);
     if (userId === me._id) throw new Error("You cannot DM yourself");
     const other = await ctx.db.get(userId);
     if (!other || other.isAnonymous) throw new Error("Person not found");

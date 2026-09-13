@@ -4,7 +4,14 @@
  * and how many columns fit the paper — the source of the old overlap bug.
  */
 
-export type SectionKey = "all" | "closets" | "categories" | "projects" | "groups" | "units";
+export type SectionKey =
+  | "all"
+  | "closets"
+  | "categories"
+  | "projects"
+  | "groups"
+  | "units"
+  | "people";
 
 export type SectionSizes = Record<Exclude<SectionKey, "all">, number>;
 
@@ -38,6 +45,7 @@ export const DEFAULT_SIZES: SectionSizes = {
   projects: 25,
   groups: 20,
   units: 15,
+  people: 20,
 };
 
 /** Physical width of a label of `sizeMm`, in mm. */
