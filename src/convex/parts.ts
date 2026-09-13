@@ -562,7 +562,8 @@ export const deleteMyRentalRequest = mutation({
     const part = await ctx.db.get(rental.partId);
     await ctx.db.delete(rentalId);
     if (part && part.status === "pending") {
-      await ctx.db.patch(part._id, { status: "available" });
+      // Deleted broken-unit requests restore the broken flag, not the shelf.
+      await ctx.db.patch(part._id, { status: rental.rentBroken ? "broken" : "available" });
     }
     const group = part ? await ctx.db.get(part.groupId) : null;
     await telegramGroup(ctx, `🗑 ${user.name ?? user.email ?? "A member"} deleted their rental request for ${group?.name ?? "a part"}${part ? ` (${part.tag})` : ""}.`);
@@ -632,7 +633,11 @@ export const decideRental = mutation({
       await ctx.db.patch(part._id, { status: "rented", currentHolderId: rental.userId });
     } else {
       await ctx.db.patch(rentalId, { status: "denied", decidedAt: Date.now() });
-      await ctx.db.patch(part._id, { status: "available" });
+      // A denied broken-unit request goes back to broken, NOT available —
+      // the unit was flagged broken before the request and still is.
+      if (part.status === "pending") {
+        await ctx.db.patch(part._id, { status: rental.rentBroken ? "broken" : "available" });
+      }
     }
     if (student?.email) {
       await ctx.scheduler.runAfter(0, api.emails.sendRentalDecisionEmail, {
@@ -724,7 +729,10 @@ export const adminRentalAction = mutation({
     } else if (action === "deny") {
       if (rental.status !== "pending") throw new Error("This request was already handled");
       await ctx.db.patch(rentalId, { status: "denied", decidedAt: now });
-      if (part.status === "pending") await ctx.db.patch(part._id, { status: "available" });
+      // Broken-unit requests return the unit to the broken pool, not the shelf.
+      if (part.status === "pending") {
+        await ctx.db.patch(part._id, { status: rental.rentBroken ? "broken" : "available" });
+      }
       if (student?.email) {
         await ctx.scheduler.runAfter(0, api.emails.sendRentalDecisionEmail, {
           to: student.email,
@@ -1053,7 +1061,8 @@ export const cancelMyRequest = mutation({
     await ctx.db.patch(rentalId, { status: "canceled", decidedAt: Date.now() });
     const part = await ctx.db.get(rental.partId);
     if (part && part.status === "pending") {
-      await ctx.db.patch(part._id, { status: "available" });
+      // Broken-unit requests put the unit back into the broken pool.
+      await ctx.db.patch(part._id, { status: rental.rentBroken ? "broken" : "available" });
     }
   },
 });

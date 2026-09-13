@@ -7,6 +7,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import {
   InputOTP,
@@ -16,7 +17,17 @@ import {
 
 import { useAuth } from "@/hooks/use-auth";
 import logo from "@/assets/logo.svg";
-import { ArrowRight, Loader2, Mail, UserX } from "lucide-react";
+import {
+  api,
+} from "@/convex/_generated/api";
+import { useMutation } from "convex/react";
+import {
+  clearSavedAccount,
+  getSavedAccount,
+  saveAccount,
+  type SavedAccount,
+} from "@/lib/tokens";
+import { ArrowRight, Loader2, LogIn, Mail, UserX, X } from "lucide-react";
 import { Suspense, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
@@ -46,6 +57,56 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const [otp, setOtp] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Saved fast sign-in for this device ("Continue as Amin").
+  const [saved, setSaved] = useState<SavedAccount | null>(() => getSavedAccount());
+  const issueToken = useMutation(api.deviceTokens.issueDeviceToken);
+  const whoAmI = useMutation(api.deviceTokens.whoAmIToken);
+
+  // Self-heal the chip: drop tokens the server no longer knows, and refresh
+  // the stored name/avatar (the local copy starts as the email prefix).
+  useEffect(() => {
+    const current = getSavedAccount();
+    if (!current) return;
+    let alive = true;
+    void whoAmI({ token: current.token })
+      .then((profile) => {
+        if (!alive) return;
+        if (!profile) {
+          clearSavedAccount();
+          setSaved(null);
+          return;
+        }
+        const refreshed: SavedAccount = {
+          ...current,
+          name: profile.name || current.name,
+          email: profile.email || current.email,
+          image: profile.image,
+          role: profile.role,
+        };
+        saveAccount(refreshed);
+        setSaved(refreshed);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const quickSignIn = async () => {
+    if (!saved) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      await signIn("device", { token: saved.token });
+      navigate(redirect);
+    } catch {
+      // Token no longer valid (revoked / database reset) — drop the chip.
+      clearSavedAccount();
+      setSaved(null);
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
@@ -89,9 +150,24 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     setError(null);
     try {
       const formData = new FormData(event.currentTarget);
+      const email = String(formData.get("email") ?? "");
       await signIn("email-otp", formData);
 
-      console.log("signed in");
+      // Remember this device: issue a token so the next sign-in on this
+      // browser skips the email code entirely ("Continue as …" chip).
+      try {
+        const { token } = await issueToken({});
+        const account: SavedAccount = {
+          token,
+          name: email.split("@")[0] || email,
+          email,
+          savedAt: Date.now(),
+        };
+        saveAccount(account);
+        setSaved(account);
+      } catch {
+        // Non-fatal: quick sign-in just won't be available on this device.
+      }
 
       navigate(redirect);
     } catch (error) {
@@ -146,6 +222,41 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                   Enter your email to log in or sign up
                 </CardDescription>
               </CardHeader>
+              {saved && !isLoading && (
+                <div className="mx-6 mb-1 flex items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5">
+                  <Avatar className="size-8 border">
+                    <AvatarImage src={saved.image} />
+                    <AvatarFallback className="text-xs font-semibold">
+                      {(saved.name || saved.email || "?").slice(0, 1).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{saved.name}</p>
+                    <p className="truncate text-xs text-muted-foreground">{saved.email}</p>
+                  </div>
+                  <Button
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => void quickSignIn()}
+                    disabled={isLoading}
+                  >
+                    <LogIn className="size-3.5" />
+                    Continue
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-7 text-muted-foreground"
+                    title="Forget this saved sign-in on this device"
+                    onClick={() => {
+                      clearSavedAccount();
+                      setSaved(null);
+                    }}
+                  >
+                    <X className="size-3.5" />
+                  </Button>
+                </div>
+              )}
               <form onSubmit={handleEmailSubmit}>
                 <CardContent>
                   

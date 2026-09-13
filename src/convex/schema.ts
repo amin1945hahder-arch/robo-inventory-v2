@@ -307,6 +307,21 @@ const schema = defineSchema(
       typingAt: v.optional(v.number()),
       lastSeenAt: v.optional(v.number()),
     }).index("by_user", ["userId"]),
+
+    // ===== Fast sign-in ("remember this device") =====
+    // A per-device secret issued right after a successful email-code sign-in.
+    // The raw token lives ONLY in that device's localStorage; the database
+    // stores its SHA-256 hash, so a database dump can never be replayed as a
+    // login. Signing in with a saved token skips the email code entirely.
+    deviceTokens: defineTable({
+      userId: v.id("users"),
+      tokenHash: v.string(),
+      deviceName: v.optional(v.string()),
+      createdAt: v.number(),
+      lastUsedAt: v.optional(v.number()),
+    })
+      .index("by_tokenHash", ["tokenHash"])
+      .index("by_user", ["userId"]),
   },
   {
     schemaValidation: false,

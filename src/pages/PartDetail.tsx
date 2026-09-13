@@ -363,7 +363,7 @@ export default function PartDetail() {
                     <p className="text-sm text-muted-foreground">
                       Marked broken — waiting on repair. An admin can change the status via Edit.
                     </p>
-                    {!isAdmin && !myPending && (
+                    {!myPending && (
                       <>
                         <Textarea
                           value={note}
@@ -392,7 +392,8 @@ export default function PartDetail() {
                         </Button>
                         <p className="text-xs text-muted-foreground">
                           Broken units can only be requested from the unit's own page — the admin
-                          sees the broken flag when deciding.
+                          sees the broken flag when deciding. Admins can request too (e.g. to send
+                          a unit out for repair with a tracked loan record).
                         </p>
                       </>
                     )}
