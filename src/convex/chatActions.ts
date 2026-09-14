@@ -29,9 +29,10 @@ export const deliverBackup = action({
       role?: string;
     } | null;
     if (!me) throw new Error("User not found");
-    if (me.role !== "admin") {
-      throw new Error("Only admins can send chat archives to shared destinations");
-    }
+    // Any signed-in member may deliver THEIR OWN local archive to the
+    // admin-configured destination (the destination itself stays admin-only).
+    // "telegram-dm" always targets the caller's own chat, so this is safe
+    // for every role.
     const dest = (await ctx.runQuery(
       internal.settings.getChatBackupDestinationInternal,
       {},

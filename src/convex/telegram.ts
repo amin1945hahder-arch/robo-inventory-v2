@@ -1,7 +1,7 @@
 "use node";
 
 import { v } from "convex/values";
-import { internalAction } from "./_generated/server";
+import { action, internalAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 
 /**
@@ -196,5 +196,77 @@ export const dmMember = internalAction({
       return { sent: ok };
     }
     return { sent: false, reason: "member-has-no-telegram" };
+  },
+});
+
+// ===== Bot auto-linking: messaging the club bot stores a member's chat id =====
+
+type TgUpdate = {
+  update_id: number;
+  message?: {
+    chat: { id: number; type: string };
+    from?: { username?: string };
+    text?: string;
+  };
+};
+
+/**
+ * Periodic bot poll (cron). Reads pending updates from the Telegram API and,
+ * for every private message the bot receives, links the sender's chat id to
+ * the club member with that @username. This is how a member "activates"
+ * their Telegram DMs: set your @username in the profile, send anything to
+ * the club bot once, and the pairing happens automatically. The offset
+ * cursor lives in the settings table so nothing is processed twice.
+ */
+export const pollUpdates = internalAction({
+  args: {},
+  handler: async (ctx): Promise<{ checked: number; linked: number }> => {
+    const cfg = await ctx.runQuery(internal.settings.getTelegramConfigQuery, {});
+    const token = cfg.botToken || process.env.TELEGRAM_BOT_TOKEN || "";
+    if (!token) return { checked: 0, linked: 0 };
+
+    const offset = (await ctx.runQuery(internal.settings.getTelegramPollOffset, {})) + 1;
+    const res = await fetch(
+      `https://api.telegram.org/bot${token}/getUpdates?offset=${offset}&limit=50&timeout=0`,
+    );
+    if (!res.ok) return { checked: 0, linked: 0 };
+    const json = (await res.json()) as { ok: boolean; result?: TgUpdate[] };
+    const updates = json.result ?? [];
+
+    let linked = 0;
+    let maxId = offset - 1;
+    for (const u of updates) {
+      maxId = Math.max(maxId, u.update_id);
+      const msg = u.message;
+      if (!msg || msg.chat?.type !== "private") continue;
+      const r = (await ctx.runMutation(api.users.linkTelegramChatByUsername, {
+        chatId: String(msg.chat.id),
+        username: msg.from?.username,
+      })) as { linked?: boolean } | null;
+      if (r?.linked) linked++;
+    }
+    if (maxId >= offset) {
+      await ctx.runMutation(internal.settings.setTelegramPollOffset, { offset: maxId + 1 });
+    }
+    return { checked: updates.length, linked };
+  },
+});
+
+/** The club bot's public @username, so the profile can tell members exactly
+ * which bot to message to activate their Telegram DMs. */
+export const getBotUsername = action({
+  args: {},
+  handler: async (ctx): Promise<string | null> => {
+    const cfg = await ctx.runQuery(internal.settings.getTelegramConfigQuery, {});
+    const token = cfg.botToken || process.env.TELEGRAM_BOT_TOKEN || "";
+    if (!token) return null;
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${token}/getMe`);
+      if (!res.ok) return null;
+      const json = (await res.json()) as { ok: boolean; result?: { username?: string } };
+      return json.result?.username ?? null;
+    } catch {
+      return null;
+    }
   },
 });

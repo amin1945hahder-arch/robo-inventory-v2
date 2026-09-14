@@ -59,7 +59,9 @@ const schema = defineSchema(
       // change flow and applied on admin approval).
       dateOfBirth: v.optional(v.string()),
       githubUrl: v.optional(v.string()),
-    }).index("email", ["email"]), // index for the email. do not remove or modify
+    })
+      .index("email", ["email"]) // index for the email. do not remove or modify
+      .index("by_telegram_username", ["telegramUsername"]),
 
     // ===== Robotics Club Inventory =====
 

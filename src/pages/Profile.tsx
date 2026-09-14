@@ -34,6 +34,7 @@ export default function Profile() {
   const requestChange = useMutation(api.notifications.requestProfileChange);
   const requestRank = useMutation(api.users.requestRankUpgrade);
   const setTgUser = useMutation(api.users.setMyTelegramUsername);
+  const setTgChatMut = useMutation(api.users.setMyTelegramChatId);
   const submitProfile = useMutation(api.users.submitMyProfile);
   const updateMyImage = useMutation(api.users.updateMyImage);
   const hasPendingRequest = useQuery(api.notifications.myPendingProfileRequest, {});
@@ -52,8 +53,9 @@ export default function Profile() {
   const [wantedRoles, setWantedRoles] = useState<string[]>([]);
   const [rankMsg, setRankMsg] = useState("");
 
-  // telegram username self-service
+  // telegram username + chat id self-service
   const [tgName, setTgName] = useState(user?.telegramUsername ?? "");
+  const [tgChat, setTgChat] = useState(user?.telegramChatId ?? "");
   const [tgBusy, setTgBusy] = useState(false);
   const [badgeOpen, setBadgeOpen] = useState(false);
 
@@ -67,6 +69,7 @@ export default function Profile() {
     setDob(user.dateOfBirth ?? "");
     setGithub(user.githubUrl ?? "");
     setTgName(user.telegramUsername ?? "");
+    setTgChat(user.telegramChatId ?? "");
   }
 
   const isGuest = Boolean(user?.isAnonymous);
@@ -331,6 +334,38 @@ export default function Profile() {
             >
               Save
             </Button>
+          </div>
+          <div className="grid gap-2">
+            <Label>Chat ID (for personal bot DMs & backups)</Label>
+            <div className="flex gap-2">
+              <Input
+                value={tgChat}
+                onChange={(e) => setTgChat(e.target.value)}
+                placeholder="e.g. 123456789"
+                inputMode="numeric"
+              />
+              <Button
+                variant="outline"
+                disabled={tgBusy || tgChat.trim() === (user?.telegramChatId ?? "")}
+                onClick={async () => {
+                  setTgBusy(true);
+                  try {
+                    await setTgChatMut({ chatId: tgChat.trim() });
+                    toast.success("Telegram chat ID saved");
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : "Failed");
+                  } finally {
+                    setTgBusy(false);
+                  }
+                }}
+              >
+                Save
+              </Button>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Easiest: just message the club bot once on Telegram — it links your chat ID
+              automatically. Or paste your numeric ID here (get it from @userinfobot).
+            </p>
           </div>
         </section>
 

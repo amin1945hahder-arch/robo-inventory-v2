@@ -230,6 +230,50 @@ export const getChatBackupDestinationInternal = internalQuery({
   },
 });
 
+/**
+ * Any signed-in member can read the archive destination *mode* (never the
+ * group chat id) so the client knows whether a Telegram delivery will happen
+ * and can skip the local download / demand a linked Telegram account first.
+ */
+export const getMyBackupDestination = query({
+  args: {},
+  handler: async (ctx): Promise<{ mode: ChatBackupSettings["mode"] }> => {
+    await requireUser(ctx);
+    const row = await ctx.db
+      .query("settings")
+      .withIndex("by_key", (q) => q.eq("key", CHAT_BACKUP_KEY))
+      .unique();
+    const parsed = row?.value ? (JSON.parse(row.value) as ChatBackupSettings) : null;
+    return { mode: parsed?.mode ?? "download" };
+  },
+});
+
+const TELEGRAM_POLL_OFFSET_KEY = "telegram_poll_offset";
+
+/** Last Telegram update id the bot poller processed (cursor, not a secret). */
+export const getTelegramPollOffset = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<number> => {
+    const row = await ctx.db
+      .query("settings")
+      .withIndex("by_key", (q) => q.eq("key", TELEGRAM_POLL_OFFSET_KEY))
+      .unique();
+    return row?.value ? Number(row.value) || 0 : 0;
+  },
+});
+
+export const setTelegramPollOffset = internalMutation({
+  args: { offset: v.number() },
+  handler: async (ctx, { offset }) => {
+    const row = await ctx.db
+      .query("settings")
+      .withIndex("by_key", (q) => q.eq("key", TELEGRAM_POLL_OFFSET_KEY))
+      .unique();
+    if (row) await ctx.db.patch(row._id, { value: String(offset) });
+    else await ctx.db.insert("settings", { key: TELEGRAM_POLL_OFFSET_KEY, value: String(offset) });
+  },
+});
+
 export const setChatBackupDestination = mutation({
   args: {
     mode: v.union(

@@ -181,6 +181,46 @@ export const setMyTelegramUsername = mutation({
   },
 });
 
+// Member sets their own Telegram chat id (the number @chatid_echo_bot and
+// similar bots report). Self-service — mirrors the admin override in People.
+export const setMyTelegramChatId = mutation({
+  args: { chatId: v.string() },
+  handler: async (ctx, { chatId }) => {
+    const user = await requireNonGuest(ctx);
+    const clean = chatId.trim();
+    if (clean !== "" && !/^-?\d{4,}$/.test(clean)) {
+      throw new Error("That does not look like a Telegram chat id (numbers only)");
+    }
+    await ctx.db.patch(user._id, {
+      telegramChatId: clean === "" ? undefined : clean,
+    });
+  },
+});
+
+/**
+ * Bot-side auto-linking: the club bot periodically reads its updates and, for
+ * any private message it receives, records the sender's chat id. Callers pass
+ * a chat id + username (as Telegram reports them); if a member with that
+ * @username exists and has no chat id yet, it is linked automatically.
+ * Unauthenticated by design — anyone messaging the bot gets linked.
+ */
+export const linkTelegramChatByUsername = mutation({
+  args: { chatId: v.string(), username: v.optional(v.string()) },
+  handler: async (ctx, { chatId, username }) => {
+    const clean = chatId.trim();
+    if (!/^-?\d{4,}$/.test(clean)) return { linked: false };
+    const cleanUser = username?.trim().replace(/^@/, "");
+    if (!cleanUser) return { linked: false };
+    const person = await ctx.db
+      .query("users")
+      .withIndex("by_telegram_username", (q) => q.eq("telegramUsername", cleanUser))
+      .unique();
+    if (!person || person.telegramChatId === clean) return { linked: false };
+    await ctx.db.patch(person._id, { telegramChatId: clean });
+    return { linked: true };
+  },
+});
+
 // Remove a person from the app entirely. Blocked while they still hold parts
 // or have pending requests so inventory never loses track of a unit. Purges
 // every row tied to the user — auth accounts/sessions/tokens (so their login

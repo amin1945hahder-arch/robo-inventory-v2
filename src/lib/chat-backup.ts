@@ -59,7 +59,7 @@ function triggerDownload(blob: Blob, fileName: string) {
   setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
-async function buildZip(
+export async function buildZip(
   conversationId: string,
   userName: string,
   meId: string,

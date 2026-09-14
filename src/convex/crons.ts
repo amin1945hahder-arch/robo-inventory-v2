@@ -12,6 +12,11 @@ crons.interval("sweep-chat-relay", { minutes: 5 }, internal.chat.sweep, {});
 // nudge ~24h before and again ~1h before (each fires once).
 crons.interval("pickup-reminders", { minutes: 15 }, internal.parts.pickupReminders, {});
 
+// Bot auto-linking: every minute, read the club bot's pending Telegram
+// updates and pair a member's chat id once they message the bot (after
+// setting their @username in the profile).
+crons.interval("telegram-poll-updates", { minutes: 1 }, internal.telegram.pollUpdates, {});
+
 // Rent-card relay hygiene: reclaim stuck renders and prune finished jobs.
 crons.interval("rent-card-relay-sweep", { minutes: 2 }, internal.rentCardRelay.sweep, {});
 

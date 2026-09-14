@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
+import { TelegramLinkDialog } from "@/components/TelegramLinkDialog";
 import { useAuth } from "@/hooks/use-auth";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -48,6 +49,7 @@ import {
 import {
   backupConversation,
   blobToBase64,
+  buildZip,
   buildAllChatsZip,
   downloadLastBackup,
   lastBackupOf,
@@ -151,6 +153,13 @@ export default function Chat() {
   const [newGroupMembers, setNewGroupMembers] = useState<string[]>([]);
   const [backupMeta, setBackupMeta] = useState<ChatBackupMeta | null>(null);
   const [backupAllBusy, setBackupAllBusy] = useState(false);
+  const [showTelegramLink, setShowTelegramLink] = useState(false);
+  // Where archives go (admin setting). "download" keeps everything local;
+  // telegram modes deliver to Telegram INSTEAD of downloading a .zip.
+  const backupDest = useQuery(api.settings.getMyBackupDestination, {});
+  const telegramDest = backupDest?.mode === "telegram" || backupDest?.mode === "telegram-dm";
+  const needsTelegramSetup =
+    telegramDest && Boolean(meId) && !user?.telegramChatId && !showTelegramLink;
   const [autoSync, setAutoSync] = useState(() => localStorage.getItem("roboshelf_chat_autosync") === "1");
   const [lastAutoSync, setLastAutoSync] = useState<number | null>(() => {
     const raw = localStorage.getItem("roboshelf_chat_autosync_last");
@@ -195,9 +204,10 @@ export default function Chat() {
       void lastBackupOf(activeId, meId).then((meta) => setBackupMeta(meta ?? null));
   }, [activeId, meId]);
 
-  // Daily auto-backup: when enabled, a full zip is saved once per day while
+  // Daily auto-backup: when enabled, a full archive runs once per day while
   // the app is open (checked every 10 minutes; state lives in localStorage so
-  // it survives reloads). Backups are built client-side and never uploaded.
+  // it survives reloads). Follows the admin-set destination: delivered to
+  // Telegram when configured (no download), saved locally otherwise.
   useEffect(() => {
     localStorage.setItem("roboshelf_chat_autosync", autoSync ? "1" : "0");
     if (!autoSync || !meId) return;
@@ -208,10 +218,29 @@ export default function Chat() {
       try {
         const out = await buildAllChatsZip(meName ?? "user", meId);
         if (out) {
-          triggerBlobDownload(out.blob, out.fileName);
+          // Follow the admin-set destination: Telegram modes deliver the
+          // archive without downloading it; download mode saves locally.
+          let delivered = false;
+          if (telegramDest) {
+            try {
+              const res = await deliverBackup({
+                fileName: out.fileName,
+                dataBase64: await blobToBase64(out.blob),
+                caption: `RoboShelf auto-backup — ${out.chatCount} conversations`,
+              });
+              delivered = Boolean(res?.sent);
+            } catch {
+              delivered = false;
+            }
+          }
+          if (!delivered) {
+            triggerBlobDownload(out.blob, out.fileName);
+            toast.info(`Daily chat backup saved: ${out.fileName}`);
+          } else {
+            toast.info(`Daily chat backup delivered to Telegram (${out.chatCount} chats)`);
+          }
           localStorage.setItem("roboshelf_chat_autosync_last", String(Date.now()));
           setLastAutoSync(Date.now());
-          toast.info(`Daily chat backup saved: ${out.fileName}`);
         }
       } catch {
         /* silent — the next interval retries */
@@ -220,7 +249,8 @@ export default function Chat() {
     void run();
     const t = setInterval(() => void run(), 10 * 60_000);
     return () => clearInterval(t);
-  }, [autoSync, meId, meName]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSync, meId, meName, telegramDest]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -250,6 +280,18 @@ export default function Chat() {
   const activePartner = active?.kind === "dm" ? activeMembers.find((m) => m._id !== meId) : undefined;
 
   // ---- actions ----
+
+  // Telegram destination banner: nudge once per session until linked.
+  const tgNudgeShown = useRef(false);
+  useEffect(() => {
+    if (needsTelegramSetup && !tgNudgeShown.current) {
+      tgNudgeShown.current = true;
+      toast.info("Backups go to Telegram — set your @username to receive yours", {
+        action: { label: "Set up", onClick: () => setShowTelegramLink(true) },
+        duration: 8000,
+      });
+    }
+  }, [needsTelegramSetup]);
 
   const handleSend = async () => {
     if (!activeId) return;
@@ -468,6 +510,21 @@ export default function Chat() {
                 className="h-6 gap-1 px-2 text-[10px]"
                 disabled={backupAllBusy}
                 onClick={async () => {
+                  // Telegram destination: the archive is delivered there
+                  // INSTEAD of downloading — but only once the member has
+                  // their @username set (and a linked chat for DM mode).
+                  if (telegramDest) {
+                    if (!user?.telegramUsername) {
+                      setShowTelegramLink(true);
+                      toast.info("Set your Telegram @username first so the backup can reach you");
+                      return;
+                    }
+                    if (backupDest?.mode === "telegram-dm" && !user?.telegramChatId) {
+                      setShowTelegramLink(true);
+                      toast.info("Link your chat id once — then backups land in your Telegram DMs");
+                      return;
+                    }
+                  }
                   setBackupAllBusy(true);
                   try {
                     const out = await buildAllChatsZip(meName ?? "user", meId ?? "");
@@ -475,18 +532,23 @@ export default function Chat() {
                       toast.info("Nothing to back up yet");
                       return;
                     }
-                    // Always keep a local copy, then follow the admin-set
-                    // destination (download-only no-ops server-side).
-                    triggerBlobDownload(out.blob, out.fileName);
-                    try {
-                      const res = await deliverBackup({
-                        fileName: out.fileName,
-                        dataBase64: await blobToBase64(out.blob),
-                        caption: `RoboShelf chat backup — ${out.chatCount} conversations`,
-                      });
-                      if (res?.sent) toast.success(`Backup saved locally and delivered (${out.chatCount} chats)`);
-                      else toast.success(`Backup saved: ${out.fileName}`);
-                    } catch {
+                    const caption = `RoboShelf chat backup — ${out.chatCount} conversations`;
+                    if (telegramDest) {
+                      // Telegram destination: deliver the archive, no local
+                      // download (the admin chose Telegram as the store).
+                      try {
+                        const res = await deliverBackup({
+                          fileName: out.fileName,
+                          dataBase64: await blobToBase64(out.blob),
+                          caption,
+                        });
+                        if (res?.sent) toast.success(`Backup delivered to Telegram (${out.chatCount} chats)`);
+                        else toast.error("Telegram delivery failed — check the bot settings");
+                      } catch (e) {
+                        toast.error(e instanceof Error ? e.message : "Telegram delivery failed");
+                      }
+                    } else {
+                      triggerBlobDownload(out.blob, out.fileName);
                       toast.success(`Backup saved: ${out.fileName}`);
                     }
                   } catch (e) {
@@ -573,18 +635,53 @@ export default function Chat() {
                   <DropdownMenuContent align="end" className="w-60">
                     <DropdownMenuItem
                       onClick={async () => {
-                        const name = await backupConversation(
-                          active.id,
-                          meName ?? "user",
-                          meId ?? undefined,
-                        );
-                        if (name) {
-                          toast.success(`Backup saved: ${name}`);
-                          setBackupMeta((await lastBackupOf(active.id, meId ?? undefined)) ?? null);
+                        // Telegram destination: deliver to Telegram instead
+                        // of downloading (username must be set first).
+                        if (telegramDest) {
+                          if (!user?.telegramUsername) {
+                            setShowTelegramLink(true);
+                            toast.info("Set your Telegram @username first so the backup can reach you");
+                            return;
+                          }
+                          if (backupDest?.mode === "telegram-dm" && !user?.telegramChatId) {
+                            setShowTelegramLink(true);
+                            toast.info("Link your chat id once — then backups land in your Telegram DMs");
+                            return;
+                          }
+                        }
+                        const out = await buildZip(active.id, meName ?? "user", meId ?? "");
+                        if (!out) {
+                          toast.info("Nothing to back up yet");
+                          return;
+                        }
+                        await chatDb.backups.put({
+                          chatKey: `${meId}_${active.id}`,
+                          chatName: title,
+                          userName: meName ?? "user",
+                          lastBackupAt: Date.now(),
+                          fileName: out.fileName,
+                        });
+                        setBackupMeta((await lastBackupOf(active.id, meId ?? undefined)) ?? null);
+                        if (telegramDest) {
+                          try {
+                            const res = await deliverBackup({
+                              fileName: out.fileName,
+                              dataBase64: await blobToBase64(out.blob),
+                              caption: `RoboShelf chat backup — ${title}`,
+                            });
+                            if (res?.sent) toast.success("Backup delivered to Telegram");
+                            else toast.error("Telegram delivery failed — check the bot settings");
+                          } catch (e) {
+                            toast.error(e instanceof Error ? e.message : "Telegram delivery failed");
+                          }
+                        } else {
+                          triggerBlobDownload(out.blob, out.fileName);
+                          toast.success(`Backup saved: ${out.fileName}`);
                         }
                       }}
                     >
-                      <FileDown className="size-4" /> Backup this chat (.zip)
+                      <FileDown className="size-4" />
+                      {telegramDest ? "Backup this chat (→ Telegram)" : "Backup this chat (.zip)"}
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={async () => {
@@ -909,6 +1006,9 @@ export default function Chat() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Telegram onboarding: shown whenever a backup needs a linked account */}
+      <TelegramLinkDialog open={showTelegramLink} onOpenChange={setShowTelegramLink} />
     </AppShell>
   );
 }
