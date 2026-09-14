@@ -1,82 +1,781 @@
+import { useState } from "react";
 import { AppShell } from "@/components/AppShell";
-import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
-import { Box, Droplets, Layers, Printer, Wrench } from "lucide-react";
+import { useQuery, useMutation } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import type { Doc } from "@/convex/_generated/dataModel";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
+import {
+  Activity,
+  Boxes,
+  CircleDollarSign,
+  Clock,
+  Cog,
+  Cpu,
+  EllipsisVertical,
+  Gauge,
+  HardDrive,
+  LifeBuoy,
+  Loader2,
+  Package,
+  Plus,
+  Printer,
+  TriangleAlert,
+  Wrench,
+  Zap,
+} from "lucide-react";
+import { NewJobDialog } from "@/components/printing/NewJobDialog";
+import { ScheduleJobDialog } from "@/components/printing/ScheduleJobDialog";
+import { PrinterFormDialog } from "@/components/printing/PrinterFormDialog";
+import { FilamentFormDialog } from "@/components/printing/FilamentFormDialog";
 
-/**
- * 3D Printing — placeholder module (filled in later).
- * The layout anticipates a print-job queue: printers, materials, and jobs.
- * Kept visually consistent with the rest of the app so the eventual module
- * drops straight into this shell.
- */
+const STATUS_META: Record<
+  Doc<"printJobs">["status"],
+  { label: string; className: string }
+> = {
+  pending: { label: "Review", className: "bg-amber-500/15 text-amber-500 border-amber-500/30" },
+  need_slicing: { label: "Needs slicing", className: "bg-fuchsia-500/15 text-fuchsia-400 border-fuchsia-500/30" },
+  slicing: { label: "Slicing…", className: "bg-violet-500/15 text-violet-400 border-violet-500/30" },
+  queued: { label: "Queued", className: "bg-sky-500/15 text-sky-400 border-sky-500/30" },
+  printing: { label: "Printing", className: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" },
+  done: { label: "Done", className: "bg-emerald-600/15 text-emerald-500 border-emerald-600/30" },
+  failed: { label: "Failed", className: "bg-red-500/15 text-red-400 border-red-500/30" },
+  canceled: { label: "Canceled", className: "bg-zinc-500/15 text-zinc-400 border-zinc-500/30" },
+};
+
+const PRINTER_META: Record<
+  Doc<"printers">["status"],
+  { label: string; dot: string; className: string }
+> = {
+  printing: { label: "Printing", dot: "bg-emerald-400", className: "border-emerald-500/40" },
+  idle: { label: "Idle", dot: "bg-sky-400", className: "border-sky-500/30" },
+  maintenance: { label: "Maintenance", dot: "bg-amber-400", className: "border-amber-500/30" },
+  offline: { label: "Offline", dot: "bg-zinc-500", className: "border-zinc-500/30" },
+};
+
+function StatTile({
+  icon: Icon,
+  label,
+  value,
+  hint,
+  danger,
+}: {
+  icon: typeof Printer;
+  label: string;
+  value: number | string;
+  hint?: string;
+  danger?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg border bg-card/60 p-3">
+      <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10">
+        <Icon className={`size-4.5 ${danger ? "text-amber-400" : "text-primary"}`} />
+      </div>
+      <div className="min-w-0">
+        <p className="truncate text-xs text-muted-foreground">{label}</p>
+        <p className="text-lg font-semibold leading-tight">{value}</p>
+        {hint && <p className="truncate text-[11px] text-muted-foreground">{hint}</p>}
+      </div>
+    </div>
+  );
+}
+
 export default function Printing3D() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
 
-  const placeholderCards = [
-    {
-      icon: Printer,
-      title: "Printers",
-      body: "Register the club's printers, track status (idle / printing / maintenance) and current job.",
-    },
-    {
-      icon: Layers,
-      title: "Print jobs",
-      body: "Members submit a job with file, material and estimated time; admins approve the queue.",
-    },
-    {
-      icon: Droplets,
-      title: "Materials",
-      body: "Filament spools and resin tied to the inventory's weight-tracked groups — usage deducts stock.",
-    },
-    {
-      icon: Wrench,
-      title: "Maintenance",
-      body: "Nozzle changes, bed leveling and failure logs per printer.",
-    },
-  ];
+  const printers = useQuery(api.printing.listPrinters) ?? [];
+  const filaments = useQuery(api.printing.listFilaments) ?? [];
+  const jobs = useQuery(api.printing.listJobs) ?? [];
+  const stats = useQuery(api.printing.farmStats);
+  const costs = useQuery(api.printing.getCostSettings);
+
+  const startPrint = useMutation(api.printing.startPrint);
+  const completePrint = useMutation(api.printing.completePrint);
+  const failPrint = useMutation(api.printing.failPrint);
+  const cancelJob = useMutation(api.printing.cancelJob);
+  const claimSlicing = useMutation(api.printing.claimSlicing);
+  const setPrinterStatus = useMutation(api.printing.setPrinterStatus);
+  const deletePrinter = useMutation(api.printing.deletePrinter);
+  const archiveFilament = useMutation(api.printing.archiveFilament);
+  const setCostSettings = useMutation(api.printing.setCostSettings);
+  const addMaintenance = useMutation(api.printing.addMaintenance);
+
+  const [newJobOpen, setNewJobOpen] = useState(false);
+  const [scheduleJob, setScheduleJob] = useState<Doc<"printJobs"> | null>(null);
+  const [printerForm, setPrinterForm] = useState<Doc<"printers"> | null>(null);
+  const [printerFormOpen, setPrinterFormOpen] = useState(false);
+  const [filamentForm, setFilamentForm] = useState<Doc<"filaments"> | null>(null);
+  const [filamentFormOpen, setFilamentFormOpen] = useState(false);
+  const [maintPrinter, setMaintPrinter] = useState<Doc<"printers"> | null>(null);
+  const [maintText, setMaintText] = useState("");
+  const [maintKind, setMaintKind] = useState<"routine" | "repair">("routine");
+  const [completeJob, setCompleteJob] = useState<Doc<"printJobs"> | null>(null);
+  const [completeWeight, setCompleteWeight] = useState("");
+  const [completeMinutes, setCompleteMinutes] = useState("");
+  const [failJob, setFailJob] = useState<Doc<"printJobs"> | null>(null);
+  const [failReason, setFailReason] = useState("");
+  const [costOpen, setCostOpen] = useState(false);
+  const [electricityPrice, setElectricityPrice] = useState("");
+  const [laborRate, setLaborRate] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const activeJobs = jobs.filter((j) => j.status === "printing");
+  const queueJobs = jobs.filter((j) => ["queued", "pending", "need_slicing", "slicing"].includes(j.status));
+  const historyJobs = jobs.filter((j) => ["done", "failed", "canceled"].includes(j.status));
+  const jobPrinter = (id: string | undefined) => printers.find((p) => p._id === id);
+  const jobSpool = (id: string | undefined) => filaments.find((f) => f._id === id);
+
+  const act = async (fn: () => Promise<unknown>, ok: string) => {
+    setBusy(true);
+    try {
+      await fn();
+      toast.success(ok);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Something went wrong");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openCostDialog = () => {
+    setElectricityPrice(costs ? String(costs.electricityPrice) : "");
+    setLaborRate(costs ? String(costs.laborRate) : "");
+    setCostOpen(true);
+  };
+
+  const submitMaintenance = async () => {
+    if (!maintPrinter || !maintText.trim()) return;
+    await act(
+      () =>
+        addMaintenance({
+          printerId: maintPrinter._id,
+          kind: maintKind,
+          text: maintText.trim(),
+        }),
+      "Maintenance logged.",
+    );
+    setMaintPrinter(null);
+    setMaintText("");
+  };
 
   return (
     <AppShell>
-      <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-6">
         <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
           <div>
             <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
-              <Box className="size-6 text-primary" /> 3D Printing
+              <Printer className="size-6 text-primary" /> 3D Print Farm
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              The club's print farm — printers, job queue and material tracking. Coming soon.
+              Printers, the job queue, filament stock and real cost tracking — all in one console.
             </p>
           </div>
-          {isAdmin && (
-            <Button variant="outline" disabled title="Module in development">
-              Configure printers
+          <div className="flex flex-wrap items-center gap-2">
+            {isAdmin && (
+              <Button variant="outline" size="sm" onClick={openCostDialog}>
+                <CircleDollarSign className="size-4" /> Cost settings
+              </Button>
+            )}
+            <Button size="sm" onClick={() => setNewJobOpen(true)}>
+              <Plus className="size-4" /> New print request
             </Button>
-          )}
+          </div>
         </header>
 
-        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {placeholderCards.map(({ icon: Icon, title, body }) => (
-            <div
-              key={title}
-              className="flex flex-col gap-2 rounded-lg border border-dashed p-5 text-muted-foreground"
-            >
-              <Icon className="size-5 text-primary/70" />
-              <p className="text-sm font-semibold text-foreground">{title}</p>
-              <p className="text-xs leading-5">{body}</p>
-            </div>
-          ))}
-        </section>
+        {/* Farm overview strip */}
+        {stats && (
+          <section className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
+            <StatTile icon={Printer} label="Printers" value={stats.printers} hint={`${stats.printing} printing · ${stats.maintenance} in maintenance`} />
+            <StatTile icon={Clock} label="Queue" value={stats.queue} hint="waiting jobs" />
+            <StatTile icon={Activity} label="Active prints" value={stats.active} />
+            <StatTile icon={Package} label="Completed" value={stats.done} />
+            <StatTile icon={TriangleAlert} label="Failed" value={stats.failed} danger={stats.failed > 0} />
+            <StatTile icon={Boxes} label="Spools" value={stats.spools} hint="on the shelf" />
+            <StatTile icon={TriangleAlert} label="Low filament" value={stats.lowFilaments} danger={stats.lowFilaments > 0} hint="below threshold" />
+            {costs && (
+              <StatTile icon={Zap} label="Energy price" value={`${costs.electricityPrice}/kWh`} hint={`machine rate ${costs.laborRate}/h`} />
+            )}
+          </section>
+        )}
 
-        <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed px-6 py-16 text-center">
-          <Box className="size-8 text-muted-foreground/50" />
-          <p className="text-sm font-medium">The print farm module is on its way</p>
-          <p className="max-w-md text-xs leading-5 text-muted-foreground">
-            It will plug into the inventory you already manage — material usage will draw from
-            weight-tracked stock (PLA, PETG, resin), and each job will get its own receipt like
-            rentals do.
-          </p>
-        </div>
+        <Tabs defaultValue="dashboard">
+          <TabsList className="w-full justify-start overflow-x-auto">
+            <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
+            <TabsTrigger value="jobs">
+              Jobs {queueJobs.length > 0 && <Badge variant="secondary" className="ml-1.5 px-1.5">{queueJobs.length}</Badge>}
+            </TabsTrigger>
+            <TabsTrigger value="filament">
+              Filament {stats && stats.lowFilaments > 0 && <span className="ml-1.5 text-amber-400">⚠</span>}
+            </TabsTrigger>
+            {isAdmin && <TabsTrigger value="printers">Printers</TabsTrigger>}
+          </TabsList>
+
+          {/* ===== Dashboard tab ===== */}
+          <TabsContent value="dashboard" className="flex flex-col gap-4">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {printers.length === 0 && (
+                <Card className="md:col-span-2 xl:col-span-3">
+                  <CardContent className="flex flex-col items-center gap-2 py-10 text-center">
+                    <Printer className="size-8 text-muted-foreground/50" />
+                    <p className="text-sm font-medium">No printers registered yet</p>
+                    <p className="max-w-sm text-xs text-muted-foreground">
+                      {isAdmin
+                        ? "Add your first machine from the Printers tab to start scheduling jobs."
+                        : "Ask an admin to register the club's printers."}
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+              {printers.map((p) => {
+                const current = activeJobs.find((j) => j.printerId === p._id);
+                const upcoming = queueJobs
+                  .filter((j) => j.printerId === p._id && j.status === "queued")
+                  .sort((a, b) => (a.queuePos ?? 0) - (b.queuePos ?? 0));
+                const meta = PRINTER_META[p.status];
+                const elapsedMin = current?.startedAt ? Math.round((Date.now() - current.startedAt) / 60000) : 0;
+                const pct = current?.minutes ? Math.min(100, Math.round((elapsedMin / current.minutes) * 100)) : 0;
+                return (
+                  <Card key={p._id} className={meta.className}>
+                    <CardHeader className="pb-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <CardTitle className="flex items-center gap-2 text-base">
+                            <span className={`inline-block size-2 rounded-full ${meta.dot} ${p.status === "printing" ? "animate-pulse" : ""}`} />
+                            {p.name}
+                          </CardTitle>
+                          <CardDescription className="truncate">
+                            {p.model ?? "—"} {p.nozzleMm !== undefined && `· ${p.nozzleMm} mm nozzle`}
+                            {p.buildVolumeCm && ` · ${p.buildVolumeCm.w}×${p.buildVolumeCm.d}×${p.buildVolumeCm.h} cm`}
+                          </CardDescription>
+                        </div>
+                        <Badge variant="outline" className="shrink-0">{meta.label}</Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="flex flex-col gap-3">
+                      {current ? (
+                        <div className="flex flex-col gap-2 rounded-lg border bg-background/60 p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="truncate text-sm font-medium">{current.name}</p>
+                            <span className="shrink-0 text-xs text-muted-foreground">
+                              {elapsedMin} / {current.minutes ?? "?"} min
+                            </span>
+                          </div>
+                          <Progress value={pct} />
+                          <div className="flex items-center justify-between text-xs text-muted-foreground">
+                            <span className="truncate">
+                              {current.requesterName} · {jobSpool(current.filamentId)?.colorName ?? "—"} ({current.weightG ?? "?"} g)
+                            </span>
+                            <span>{pct}%</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="rounded-lg border border-dashed p-3 text-center text-xs text-muted-foreground">
+                          {upcoming.length > 0
+                            ? `Next in queue: ${upcoming[0].name}`
+                            : p.status === "maintenance"
+                              ? "Under maintenance"
+                              : "Nothing printing — ready for jobs"}
+                        </p>
+                      )}
+                      <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                        {upcoming.length > 0 && (
+                          <Badge variant="secondary" className="text-[11px]">
+                            {upcoming.length} queued
+                          </Badge>
+                        )}
+                        {p.powerW !== undefined && (
+                          <span className="inline-flex items-center gap-1">
+                            <Zap className="size-3" /> {p.powerW} W
+                          </span>
+                        )}
+                        {p.hourRate && (
+                          <span className="inline-flex items-center gap-1">
+                            <Gauge className="size-3" /> {p.hourRate}/h
+                          </span>
+                        )}
+                      </div>
+                      {isAdmin && (
+                        <div className="flex gap-2">
+                          {current && (
+                            <>
+                              <Button
+                                size="sm"
+                                className="h-7 flex-1 text-xs"
+                                onClick={() => {
+                                  setCompleteJob(current);
+                                  setCompleteWeight(String(current.weightG ?? ""));
+                                  setCompleteMinutes(String(current.minutes ?? ""));
+                                }}
+                                disabled={busy}
+                              >
+                                Finish
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 flex-1 text-xs"
+                                onClick={() => {
+                                  setFailJob(current);
+                                  setFailReason("");
+                                }}
+                                disabled={busy}
+                              >
+                                Failed
+                              </Button>
+                            </>
+                          )}
+                          {!current && p.status === "idle" && upcoming[0] && (
+                            <Button
+                              size="sm"
+                              className="h-7 flex-1 text-xs"
+                              onClick={() => act(() => startPrint({ jobId: upcoming[0]._id }), "Print started.")}
+                              disabled={busy}
+                            >
+                              Start “{upcoming[0].name.slice(0, 18)}”
+                            </Button>
+                          )}
+                          {p.status !== "printing" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs"
+                              onClick={() => {
+                                setMaintPrinter(p);
+                                setMaintKind(p.status === "maintenance" ? "routine" : "repair");
+                                setMaintText("");
+                              }}
+                            >
+                              <Wrench className="size-3.5" />
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </TabsContent>
+
+          {/* ===== Jobs tab ===== */}
+          <TabsContent value="jobs" className="flex flex-col gap-4">
+            {queueJobs.length > 0 && (
+              <section className="flex flex-col gap-2">
+                <h2 className="text-sm font-semibold text-muted-foreground">Queue &amp; preparation</h2>
+                {queueJobs.map((j) => {
+                  const meta = STATUS_META[j.status];
+                  const spool = jobSpool(j.filamentId);
+                  return (
+                    <Card key={j._id} className="py-3">
+                      <CardContent className="flex flex-col gap-2 px-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="truncate text-sm font-medium">{j.name}</p>
+                            <Badge variant="outline" className={`text-[11px] ${meta.className}`}>{meta.label}</Badge>
+                            {j.priority === "high" && <Badge className="bg-red-500/15 text-red-400 text-[11px]">High</Badge>}
+                            {j.filamentId && j.status === "queued" && (
+                              <Badge variant="secondary" className="text-[11px]">
+                                #{j.queuePos} on {jobPrinter(j.printerId)?.name ?? "?"}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                            {j.requesterName} · {j.fileName ?? "no file"}
+                            {j.estWeightG !== undefined && ` · ~${j.estWeightG} g`}
+                            {j.estMinutes !== undefined && ` · ~${Math.round(j.estMinutes / 60)} h`}
+                            {j.slicingNote && ` · “${j.slicingNote}”`}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+                          {j.status === "need_slicing" && isAdmin && (
+                            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => act(() => claimSlicing({ jobId: j._id }), "Slicing claimed.")} disabled={busy}>
+                              <LifeBuoy className="size-3.5" /> Take slicing
+                            </Button>
+                          )}
+                          {isAdmin && j.status !== "slicing" && (
+                            <Button size="sm" className="h-7 text-xs" onClick={() => setScheduleJob(j)} disabled={busy}>
+                              <Cog className="size-3.5" /> Schedule
+                            </Button>
+                          )}
+                          {(isAdmin || j.requesterId === user?._id) && ["pending", "need_slicing", "slicing"].includes(j.status) && (
+                            <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground" onClick={() => act(() => cancelJob({ jobId: j._id }), "Job canceled.")} disabled={busy}>
+                              Cancel
+                            </Button>
+                          )}
+                          {isAdmin && j.status === "queued" && (
+                            <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground" onClick={() => act(() => cancelJob({ jobId: j._id }), "Job canceled.")} disabled={busy}>
+                              <EllipsisVertical className="size-3.5" />
+                            </Button>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </section>
+            )}
+
+            <section className="flex flex-col gap-2">
+              <h2 className="text-sm font-semibold text-muted-foreground">History</h2>
+              {historyJobs.length === 0 && (
+                <p className="rounded-lg border border-dashed p-6 text-center text-xs text-muted-foreground">
+                  No finished prints yet.
+                </p>
+              )}
+              {historyJobs.map((j) => {
+                const meta = STATUS_META[j.status];
+                return (
+                  <Card key={j._id} className="py-3">
+                    <CardContent className="flex flex-col gap-1 px-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="truncate text-sm font-medium">{j.name}</p>
+                          <Badge variant="outline" className={`text-[11px] ${meta.className}`}>{meta.label}</Badge>
+                        </div>
+                        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                          {j.requesterName}
+                          {j.weightG !== undefined && ` · ${j.weightG} g`}
+                          {j.minutes !== undefined && ` · ${Math.round(j.minutes)} min`}
+                          {j.failureNote && ` · ${j.failureNote}`}
+                        </p>
+                      </div>
+                      {j.status === "done" && j.costTotal !== undefined && (
+                        <div className="shrink-0 text-right">
+                          <p className="text-sm font-semibold">{j.costTotal}</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            fil {j.costFilament} · en {j.costEnergy} · mach {j.costMachine}
+                          </p>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </section>
+          </TabsContent>
+
+          {/* ===== Filament tab ===== */}
+          <TabsContent value="filament" className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">
+                Spools on the shelf — grams are deducted automatically as prints complete.
+              </p>
+              <Button size="sm" variant="outline" onClick={() => { setFilamentForm(null); setFilamentFormOpen(true); }}>
+                <Plus className="size-4" /> Add spool
+              </Button>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {filaments.length === 0 && (
+                <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground sm:col-span-2 xl:col-span-3">
+                  No spools registered yet — add the first one to start scheduling prints.
+                </p>
+              )}
+              {filaments.map((f) => {
+                const remaining = Number(f.remainingG);
+                const pct = Math.min(100, Math.round((remaining / Math.max(1, f.weightG)) * 100));
+                const low = f.lowAtG !== undefined && remaining <= f.lowAtG;
+                return (
+                  <Card key={f._id} className={low ? "border-amber-500/40" : undefined}>
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center gap-3">
+                        <span className="size-8 shrink-0 rounded-lg border shadow-inner" style={{ background: f.colorHex ?? "#666" }} />
+                        <div className="min-w-0 flex-1">
+                          <CardTitle className="truncate text-base">
+                            {f.material} · {f.colorName}
+                          </CardTitle>
+                          <CardDescription className="truncate">
+                            {f.brand ?? "Generic"} {f.pricePerKg && `· ${f.pricePerKg}/kg`}
+                          </CardDescription>
+                        </div>
+                        {low && <Badge className="shrink-0 bg-amber-500/15 text-amber-400 text-[11px]">Low</Badge>}
+                      </div>
+                    </CardHeader>
+                    <CardContent className="flex flex-col gap-2">
+                      <div className="flex items-baseline justify-between">
+                        <p className="text-sm font-semibold">
+                          {f.remainingG} g <span className="text-xs font-normal text-muted-foreground">/ {f.weightG} g</span>
+                        </p>
+                        <span className="text-xs text-muted-foreground">{pct}%</span>
+                      </div>
+                      <Progress value={pct} />
+                      {f.inventoryGroupId && (
+                        <p className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                          <HardDrive className="size-3" /> Synced with club inventory
+                        </p>
+                      )}
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="outline" className="h-7 flex-1 text-xs" onClick={() => { setFilamentForm(f); setFilamentFormOpen(true); }}>
+                          Adjust
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-xs text-muted-foreground"
+                          onClick={() => act(() => archiveFilament({ id: f._id }), "Spool archived.")}
+                          disabled={busy}
+                        >
+                          Archive
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </TabsContent>
+
+          {/* ===== Printers tab (admin) ===== */}
+          {isAdmin && (
+            <TabsContent value="printers" className="flex flex-col gap-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-muted-foreground">
+                  Register machines and keep their config — power and hourly rate feed the cost engine.
+                </p>
+                <Button size="sm" onClick={() => { setPrinterForm(null); setPrinterFormOpen(true); }}>
+                  <Plus className="size-4" /> Add printer
+                </Button>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {printers.map((p) => {
+                  const meta = PRINTER_META[p.status];
+                  return (
+                    <Card key={p._id} className={meta.className}>
+                      <CardHeader className="pb-2">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <CardTitle className="text-base">{p.name}</CardTitle>
+                            <CardDescription>{p.model ?? "—"}</CardDescription>
+                          </div>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="size-7">
+                                <EllipsisVertical className="size-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => { setPrinterForm(p); setPrinterFormOpen(true); }}>
+                                <Cog className="size-4" /> Configure
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => { setMaintPrinter(p); setMaintKind("routine"); setMaintText(""); }}>
+                                <Wrench className="size-4" /> Log maintenance
+                              </DropdownMenuItem>
+                              {p.status !== "maintenance" ? (
+                                <DropdownMenuItem onClick={() => act(() => setPrinterStatus({ id: p._id, status: "maintenance" }), "Marked under maintenance.")}>
+                                  <Wrench className="size-4" /> Take down for maintenance
+                                </DropdownMenuItem>
+                              ) : (
+                                <DropdownMenuItem onClick={() => act(() => setPrinterStatus({ id: p._id, status: "idle" }), "Printer back online.")}>
+                                  <Activity className="size-4" /> Back online
+                                </DropdownMenuItem>
+                              )}
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem className="text-destructive" onClick={() => act(() => deletePrinter({ id: p._id }), "Printer removed.")} disabled={busy}>
+                                Remove
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+                        <Badge variant="outline" className="w-fit">{meta.label}</Badge>
+                        {p.buildVolumeCm && <span>Build volume {p.buildVolumeCm.w}×{p.buildVolumeCm.d}×{p.buildVolumeCm.h} cm</span>}
+                        <span className="inline-flex items-center gap-1"><Cpu className="size-3" /> {p.nozzleMm ?? "?"} mm nozzle</span>
+                        <span className="inline-flex items-center gap-1"><Zap className="size-3" /> {p.powerW ?? "?"} W draw</span>
+                        <span className="inline-flex items-center gap-1"><Gauge className="size-3" /> {p.hourRate ?? costs?.laborRate ?? "1"} / machine-hour</span>
+                        {p.note && <span className="mt-1 italic">{p.note}</span>}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </TabsContent>
+          )}
+        </Tabs>
+
+        {/* ===== Dialogs ===== */}
+        <NewJobDialog open={newJobOpen} onOpenChange={setNewJobOpen} />
+        <ScheduleJobDialog job={scheduleJob} open={scheduleJob !== null} onOpenChange={(o) => !o && setScheduleJob(null)} />
+        <PrinterFormDialog printer={printerForm} open={printerFormOpen} onOpenChange={setPrinterFormOpen} />
+        <FilamentFormDialog spool={filamentForm} open={filamentFormOpen} onOpenChange={setFilamentFormOpen} />
+
+        {/* Complete print */}
+        <Dialog open={completeJob !== null} onOpenChange={(o) => !o && setCompleteJob(null)}>
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Finish “{completeJob?.name}”</DialogTitle>
+              <DialogDescription>
+                Confirm the real numbers — filament is deducted and the cost breakdown is computed.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid grid-cols-2 gap-3 py-2">
+              <div className="grid gap-2">
+                <Label htmlFor="fin-weight">Filament used (g)</Label>
+                <Input id="fin-weight" type="number" value={completeWeight} onChange={(e) => setCompleteWeight(e.target.value)} />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="fin-min">Duration (min)</Label>
+                <Input id="fin-min" type="number" value={completeMinutes} onChange={(e) => setCompleteMinutes(e.target.value)} />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setCompleteJob(null)} disabled={busy}>Cancel</Button>
+              <Button
+                disabled={busy || !completeWeight || !completeMinutes}
+                onClick={async () => {
+                  if (!completeJob) return;
+                  await act(
+                    () =>
+                      completePrint({
+                        jobId: completeJob._id,
+                        weightG: Number(completeWeight),
+                        minutes: Number(completeMinutes),
+                      }),
+                    "Print finished — spool and costs updated.",
+                  );
+                  setCompleteJob(null);
+                }}
+              >
+                {busy && <Loader2 className="size-4 animate-spin" />} Finish print
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Fail print */}
+        <Dialog open={failJob !== null} onOpenChange={(o) => !o && setFailJob(null)}>
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Mark “{failJob?.name}” as failed</DialogTitle>
+              <DialogDescription>
+                The printer goes to maintenance and a repair entry is logged.
+              </DialogDescription>
+            </DialogHeader>
+            <Textarea
+              className="mt-2"
+              rows={2}
+              value={failReason}
+              onChange={(e) => setFailReason(e.target.value)}
+              placeholder="Spaghetti at layer 12, bed adhesion lost…"
+            />
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setFailJob(null)} disabled={busy}>Cancel</Button>
+              <Button
+                variant="destructive"
+                disabled={busy || !failReason.trim()}
+                onClick={async () => {
+                  if (!failJob) return;
+                  await act(() => failPrint({ jobId: failJob._id, reason: failReason.trim() }), "Marked as failed.");
+                  setFailJob(null);
+                }}
+              >
+                Mark failed
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Maintenance log */}
+        <Dialog open={maintPrinter !== null} onOpenChange={(o) => !o && setMaintPrinter(null)}>
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Maintenance — {maintPrinter?.name}</DialogTitle>
+              <DialogDescription>Log what was done; the printer's history keeps everything.</DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-3 py-2">
+              <div className="grid gap-2">
+                <Label>Type</Label>
+                <Select value={maintKind} onValueChange={(v) => setMaintKind(v as "routine" | "repair")}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="routine">Routine upkeep</SelectItem>
+                    <SelectItem value="repair">Repair</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Textarea rows={3} value={maintText} onChange={(e) => setMaintText(e.target.value)} placeholder="Swapped 0.4 nozzle, cleaned and lubricated rails…" />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setMaintPrinter(null)} disabled={busy}>Cancel</Button>
+              <Button disabled={busy || !maintText.trim()} onClick={submitMaintenance}>Save entry</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Cost settings */}
+        <Dialog open={costOpen} onOpenChange={setCostOpen}>
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Farm cost settings</DialogTitle>
+              <DialogDescription>
+                Used for every completed print: energy = watts × hours × price, machine = hours × rate.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid grid-cols-2 gap-3 py-2">
+              <div className="grid gap-2">
+                <Label htmlFor="cost-elec">Electricity / kWh</Label>
+                <Input id="cost-elec" type="number" step="0.01" value={electricityPrice} onChange={(e) => setElectricityPrice(e.target.value)} />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="cost-labor">Machine rate / hour</Label>
+                <Input id="cost-labor" type="number" step="0.25" value={laborRate} onChange={(e) => setLaborRate(e.target.value)} />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setCostOpen(false)} disabled={busy}>Cancel</Button>
+              <Button
+                disabled={busy || !electricityPrice || !laborRate}
+                onClick={async () => {
+                  await act(
+                    () => setCostSettings({ electricityPrice: Number(electricityPrice), laborRate: Number(laborRate) }),
+                    "Cost settings saved.",
+                  );
+                  setCostOpen(false);
+                }}
+              >
+                Save
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </AppShell>
   );

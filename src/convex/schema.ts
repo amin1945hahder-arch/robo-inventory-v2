@@ -465,6 +465,127 @@ const schema = defineSchema(
     })
       .index("by_status", ["status"])
       .index("by_created", ["createdAt"]),
+
+    // ===== 3D Print farm ================================================
+    // Printers are club machines with per-machine configuration (nozzle size,
+    // build volume, energy draw, machine-hour rate for cost accounting).
+    printers: defineTable({
+      name: v.string(),
+      // Machine type, e.g. "Bambu Lab P1S", "Ender 3 V3".
+      model: v.optional(v.string()),
+      status: v.union(
+        v.literal("idle"),
+        v.literal("printing"),
+        v.literal("maintenance"),
+        v.literal("offline"),
+      ),
+      // Build volume in cm: width x depth x height.
+      buildVolumeCm: v.optional(
+        v.object({ w: v.number(), d: v.number(), h: v.number() }),
+      ),
+      // Default nozzle diameter in mm (0.4 typical).
+      nozzleMm: v.optional(v.number()),
+      // Average power draw in watts while printing (cost engine input).
+      powerW: v.optional(v.number()),
+      // Cost per machine-hour beyond energy (depreciation + maintenance),
+      // stored as a string to match the app's money/measure conventions.
+      hourRate: v.optional(v.string()),
+      note: v.optional(v.string()),
+      deleted: v.optional(v.boolean()),
+    }).index("by_status", ["status"]),
+
+    // Maintenance / incident log per printer (nozzle swap, bed leveling,
+    // clog, broken part…). Failed print jobs also land here for the record.
+    printerMaintenance: defineTable({
+      printerId: v.id("printers"),
+      // "routine" = planned upkeep; "repair" = something broke.
+      kind: v.union(v.literal("routine"), v.literal("repair")),
+      text: v.string(),
+      cost: v.optional(v.string()), // parts/labor cost, e.g. "45"
+      byUserId: v.id("users"),
+      at: v.number(),
+    }).index("by_printer", ["printerId"]),
+
+    // A filament spool: material, color, remaining weight. `remainingG` is
+    // stored as a string (same convention as group measureStock) and every
+    // job completion deducts from it; low-stock alerts go to the admin console.
+    filaments: defineTable({
+      brand: v.optional(v.string()),
+      material: v.union(
+        v.literal("PLA"),
+        v.literal("PETG"),
+        v.literal("ABS"),
+        v.literal("TPU"),
+        v.literal("ASA"),
+        v.literal("PLA+"),
+        v.literal("Other"),
+      ),
+      colorName: v.string(),
+      colorHex: v.optional(v.string()),
+      // Spool net weight in grams (the plastic only, without the spool core).
+      weightG: v.number(),
+      // Remaining material in grams (string to avoid float drift).
+      remainingG: v.string(),
+      // Price per kg of this material, used by the cost engine.
+      pricePerKg: v.optional(v.string()),
+      // Link to the club inventory group that stocks this material (e.g. the
+      // "PLA filament" weight-tracked group) so stock stays in one ledger.
+      inventoryGroupId: v.optional(v.id("groups")),
+      lowAtG: v.optional(v.number()), // warn below this remaining weight
+      archived: v.optional(v.boolean()),
+      createdAt: v.number(),
+    }).index("by_archived", ["archived"]),
+
+    // A print job: member submits a part, admin slices/schedules it onto a
+    // printer, progress updates flow in, completion computes the real cost.
+    printJobs: defineTable({
+      requesterId: v.id("users"),
+      name: v.string(),
+      details: v.optional(v.string()),
+      // Where the model file lives (club drive / /print-files/<name>).
+      fileUrl: v.optional(v.string()),
+      fileName: v.optional(v.string()),
+      // Estimated (request) and actual (sliced) filament usage in grams.
+      estWeightG: v.optional(v.number()),
+      weightG: v.optional(v.number()),
+      // Estimated (request) and actual (sliced) print duration in minutes.
+      estMinutes: v.optional(v.number()),
+      minutes: v.optional(v.number()),
+      // Which spool the job draws from (set at scheduling).
+      filamentId: v.optional(v.id("filaments")),
+      // Printer assigned when scheduled onto the queue.
+      printerId: v.optional(v.id("printers")),
+      // Queue position among jobs on the same printer (lower = earlier).
+      queuePos: v.optional(v.number()),
+      status: v.union(
+        v.literal("pending"), // waiting for admin review / slicing
+        v.literal("need_slicing"), // member asked for help slicing it
+        v.literal("slicing"), // an admin claimed the slicing task
+        v.literal("queued"), // scheduled on a printer, waiting its turn
+        v.literal("printing"),
+        v.literal("done"),
+        v.literal("failed"),
+        v.literal("canceled"),
+      ),
+      priority: v.union(v.literal("normal"), v.literal("high")),
+      // Slicing help flow: request note + which admin took it.
+      slicingNote: v.optional(v.string()),
+      slicingBy: v.optional(v.id("users")),
+      createdAt: v.number(),
+      startedAt: v.optional(v.number()),
+      finishedAt: v.optional(v.number()),
+      // Final computed cost breakdown (cost engine, all in currency units).
+      costFilament: v.optional(v.number()),
+      costEnergy: v.optional(v.number()),
+      costMachine: v.optional(v.number()),
+      costTotal: v.optional(v.number()),
+      // Who ran / completed the job on the farm.
+      operatedBy: v.optional(v.id("users")),
+      failureNote: v.optional(v.string()),
+    })
+      .index("by_status", ["status"])
+      .index("by_printer", ["printerId"])
+      .index("by_requester", ["requesterId"]),
   },
   {
     schemaValidation: false,

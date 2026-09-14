@@ -20,4 +20,7 @@ crons.interval("telegram-poll-updates", { minutes: 5 }, internal.telegram.pollUp
 // Rent-card relay hygiene: reclaim stuck renders and prune finished jobs.
 crons.interval("rent-card-relay-sweep", { minutes: 5 }, internal.rentCardRelay.sweep, {});
 
+// Print-farm watchdog: flag jobs running 50% past their estimated duration.
+crons.interval("print-overdue-sweep", { minutes: 15 }, internal.printing.sweepOverduePrints, {});
+
 export default crons;

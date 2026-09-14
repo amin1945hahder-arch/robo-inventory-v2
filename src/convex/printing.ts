@@ -1,0 +1,682 @@
+import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
+import { requireAdmin, requireNonStudent, requireUser } from "./lib";
+import { telegramDM, telegramGroup } from "./notify";
+
+// ===== 3D Print farm ========================================================
+// Printers (admin-configured machines), filament spools (material + remaining
+// weight + stock alerts) and print jobs (member requests → slicing help →
+// printer queue → printing → done with a real cost breakdown).
+
+// --- Cost engine ------------------------------------------------------------
+
+// Club-wide cost knobs, stored under the settings key "printing_costs":
+//  - electricityPrice: currency per kWh
+//  - laborRate: currency per machine-hour beyond energy (depreciation + upkeep)
+type CostSettings = {
+  electricityPrice: number;
+  laborRate: number;
+};
+
+async function getCosts(ctx: QueryCtx | MutationCtx): Promise<CostSettings> {
+  const row = await ctx.db
+    .query("settings")
+    .withIndex("by_key", (q) => q.eq("key", "printing_costs"))
+    .first();
+  const fallback: CostSettings = { electricityPrice: 0.3, laborRate: 1 };
+  if (!row?.value) return fallback;
+  try {
+    const parsed = JSON.parse(row.value) as Partial<CostSettings>;
+    return {
+      electricityPrice:
+        typeof parsed.electricityPrice === "number" ? parsed.electricityPrice : fallback.electricityPrice,
+      laborRate: typeof parsed.laborRate === "number" ? parsed.laborRate : fallback.laborRate,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+/** Public read of the cost knobs (any signed-in user — the UI shows them). */
+export const getCostSettings = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireUser(ctx);
+    return getCosts(ctx);
+  },
+});
+
+/** Admin updates the cost knobs. */
+export const setCostSettings = mutation({
+  args: {
+    electricityPrice: v.number(),
+    laborRate: v.number(),
+  },
+  handler: async (ctx, { electricityPrice, laborRate }) => {
+    await requireAdmin(ctx);
+    const row = await ctx.db
+      .query("settings")
+      .withIndex("by_key", (q) => q.eq("key", "printing_costs"))
+      .first();
+    const value = JSON.stringify({ electricityPrice, laborRate });
+    if (row) await ctx.db.patch(row._id, { value });
+    else await ctx.db.insert("settings", { key: "printing_costs", value });
+  },
+});
+
+/**
+ * The full cost of one finished print:
+ *  - filament: grams used × material price per kg ÷ 1000
+ *  - energy:   printer watts × hours ÷ 1000 × electricity price
+ *  - machine:  hours × machine-hour rate (depreciation + maintenance)
+ */
+export function computeJobCost(input: {
+  weightG: number;
+  minutes: number;
+  powerW?: number;
+  hourRate?: number;
+  pricePerKg?: number;
+  costs: CostSettings;
+}): { filament: number; energy: number; machine: number; total: number } {
+  const hours = Math.max(0, input.minutes) / 60;
+  const filament = ((input.pricePerKg ?? 0) * input.weightG) / 1000;
+  const kwh = ((input.powerW ?? 0) * hours) / 1000;
+  const energy = kwh * input.costs.electricityPrice;
+  const machine = hours * (input.hourRate ?? input.costs.laborRate);
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  return {
+    filament: round2(filament),
+    energy: round2(energy),
+    machine: round2(machine),
+    total: round2(filament + energy + machine),
+  };
+}
+
+/** Round a "1.25"-style string stock amount minus `deltaG` grams, unit-aware. */
+function deductStockString(stock: string | undefined, unit: string | undefined, deltaG: number): string {
+  const current = Number(stock ?? 0);
+  const inUnits = unit === "kg" ? deltaG / 1000 : unit === "g" ? deltaG : 0;
+  const next = Math.max(0, current - inUnits);
+  return String(Math.round(next * 1000) / 1000);
+}
+
+// --- Printers ---------------------------------------------------------------
+
+const printerFields = {
+  name: v.string(),
+  model: v.optional(v.string()),
+  buildVolumeCm: v.optional(v.object({ w: v.number(), d: v.number(), h: v.number() })),
+  nozzleMm: v.optional(v.number()),
+  powerW: v.optional(v.number()),
+  hourRate: v.optional(v.string()),
+  note: v.optional(v.string()),
+};
+
+/** All printers, alive first (idle/printing), then maintenance/offline. */
+export const listPrinters = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireUser(ctx);
+    const rows = await ctx.db.query("printers").collect();
+    const order = { printing: 0, idle: 1, maintenance: 2, offline: 3 } as const;
+    return rows
+      .filter((p) => !p.deleted)
+      .sort((a, b) => order[a.status] - order[b.status] || a.name.localeCompare(b.name));
+  },
+});
+
+/** Admin creates or updates a printer. */
+export const savePrinter = mutation({
+  args: printerFields,
+  handler: async (ctx, data) => {
+    await requireAdmin(ctx);
+    const { ...fields } = data;
+    await ctx.db.insert("printers", { ...fields, status: "idle" });
+  },
+});
+
+export const updatePrinter = mutation({
+  args: { id: v.id("printers"), ...printerFields },
+  handler: async (ctx, { id, ...fields }) => {
+    await requireAdmin(ctx);
+    await ctx.db.patch(id, fields);
+  },
+});
+
+/** Admin deletes a printer (soft). Blocked while a job is on it. */
+export const deletePrinter = mutation({
+  args: { id: v.id("printers") },
+  handler: async (ctx, { id }) => {
+    await requireAdmin(ctx);
+    const busy = await ctx.db
+      .query("printJobs")
+      .withIndex("by_printer", (q) => q.eq("printerId", id))
+      .filter((q) => q.or(q.eq(q.field("status"), "printing"), q.eq(q.field("status"), "queued")))
+      .first();
+    if (busy) throw new Error("This printer still has queued or active jobs");
+    await ctx.db.patch(id, { deleted: true, status: "offline" });
+  },
+});
+
+/** Admin flips printer status manually (maintenance / back online). */
+export const setPrinterStatus = mutation({
+  args: {
+    id: v.id("printers"),
+    status: v.union(
+      v.literal("idle"),
+      v.literal("printing"),
+      v.literal("maintenance"),
+      v.literal("offline"),
+    ),
+  },
+  handler: async (ctx, { id, status }) => {
+    await requireAdmin(ctx);
+    await ctx.db.patch(id, { status });
+  },
+});
+
+/** Admin logs routine upkeep or a repair against a printer. */
+export const addMaintenance = mutation({
+  args: {
+    printerId: v.id("printers"),
+    kind: v.union(v.literal("routine"), v.literal("repair")),
+    text: v.string(),
+    cost: v.optional(v.string()),
+    toStatus: v.optional(
+      v.union(
+        v.literal("idle"),
+        v.literal("printing"),
+        v.literal("maintenance"),
+        v.literal("offline"),
+      ),
+    ),
+  },
+  handler: async (ctx, { printerId, kind, text, cost, toStatus }) => {
+    const admin = await requireAdmin(ctx);
+    await ctx.db.insert("printerMaintenance", {
+      printerId,
+      kind,
+      text,
+      cost,
+      byUserId: admin._id,
+      at: Date.now(),
+    });
+    if (toStatus) await ctx.db.patch(printerId, { status: toStatus });
+  },
+});
+
+/** Maintenance history of one printer, newest first. */
+export const listMaintenance = query({
+  args: { printerId: v.id("printers") },
+  handler: async (ctx, { printerId }) => {
+    await requireUser(ctx);
+    const rows = await ctx.db
+      .query("printerMaintenance")
+      .withIndex("by_printer", (q) => q.eq("printerId", printerId))
+      .collect();
+    const users = await Promise.all(rows.map((r) => ctx.db.get(r.byUserId)));
+    return rows
+      .map((r, i) => ({
+        _id: r._id,
+        kind: r.kind,
+        text: r.text,
+        cost: r.cost,
+        at: r.at,
+        byName: users[i]?.name ?? "—",
+      }))
+      .sort((a, b) => b.at - a.at);
+  },
+});
+
+// --- Filament spools ----------------------------------------------------------
+
+export const listFilaments = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireUser(ctx);
+    const rows = await ctx.db.query("filaments").collect();
+    return rows.filter((f) => !f.archived).sort((a, b) => a.colorName.localeCompare(b.colorName));
+  },
+});
+
+/** Admin/member-with-permission adds a spool to the farm shelf. */
+export const addFilament = mutation({
+  args: {
+    brand: v.optional(v.string()),
+    material: v.union(
+      v.literal("PLA"),
+      v.literal("PETG"),
+      v.literal("ABS"),
+      v.literal("TPU"),
+      v.literal("ASA"),
+      v.literal("PLA+"),
+      v.literal("Other"),
+    ),
+    colorName: v.string(),
+    colorHex: v.optional(v.string()),
+    weightG: v.number(),
+    remainingG: v.optional(v.string()),
+    pricePerKg: v.optional(v.string()),
+    inventoryGroupId: v.optional(v.id("groups")),
+    lowAtG: v.optional(v.number()),
+  },
+  handler: async (ctx, data) => {
+    await requireNonStudent(ctx);
+    await ctx.db.insert("filaments", {
+      ...data,
+      remainingG: data.remainingG ?? String(data.weightG),
+      createdAt: Date.now(),
+    });
+  },
+});
+
+/** Edit a spool (price, low-stock threshold, remaining weight corrections). */
+export const updateFilament = mutation({
+  args: {
+    id: v.id("filaments"),
+    colorName: v.optional(v.string()),
+    colorHex: v.optional(v.string()),
+    pricePerKg: v.optional(v.string()),
+    lowAtG: v.optional(v.number()),
+    remainingG: v.optional(v.string()),
+    inventoryGroupId: v.optional(v.id("groups")),
+  },
+  handler: async (ctx, { id, ...patch }) => {
+    await requireNonStudent(ctx);
+    await ctx.db.patch(id, patch);
+  },
+});
+
+/** Spool is empty/discarded — archived, never hard-deleted (jobs reference it). */
+export const archiveFilament = mutation({
+  args: { id: v.id("filaments") },
+  handler: async (ctx, { id }) => {
+    await requireNonStudent(ctx);
+    await ctx.db.patch(id, { archived: true });
+  },
+});
+
+async function notifyAdmins(ctx: MutationCtx, type: string, text: string, link?: string) {
+  await ctx.db.insert("notifications", { forRole: "admin", type, text, link, read: false });
+  const admins = await ctx.db
+    .query("users")
+    .filter((q) => q.eq(q.field("role"), "admin"))
+    .collect();
+  for (const admin of admins) {
+    await telegramDM(ctx, admin, text);
+  }
+}
+
+// --- Print jobs ---------------------------------------------------------------
+
+/** Member-facing list: their own jobs; admins see everything. */
+export const listJobs = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await requireUser(ctx);
+    const rows = await ctx.db.query("printJobs").collect();
+    const mine = user.role === "admin" ? rows : rows.filter((j) => j.requesterId === user._id);
+    const weight = { printing: 0, queued: 1, slicing: 2, need_slicing: 3, pending: 4, done: 5, failed: 6, canceled: 7 } as const;
+    const users = new Map<Id<"users">, string>();
+    const names = await Promise.all(
+      [...new Set(mine.map((j) => j.requesterId))].map(async (id) => {
+        const u = await ctx.db.get(id);
+        return [id, u?.name ?? "—"] as const;
+      }),
+    );
+    for (const [id, name] of names) users.set(id, name);
+    return mine
+      .sort((a, b) => weight[a.status] - weight[b.status] || a.createdAt - b.createdAt)
+      .map((j) => ({ ...j, requesterName: users.get(j.requesterId) ?? "—" }));
+  },
+});
+
+/** Farm stats for the dashboard: counts by status + live printer count. */
+export const farmStats = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireUser(ctx);
+    const jobs = await ctx.db.query("printJobs").collect();
+    const printers = (await ctx.db.query("printers").collect()).filter((p) => !p.deleted);
+    const filaments = (await ctx.db.query("filaments").collect()).filter((f) => !f.archived);
+    const byStatus = (s: string) => jobs.filter((j) => j.status === s).length;
+    const lowFilaments = filaments.filter(
+      (f) => f.lowAtG !== undefined && Number(f.remainingG) <= f.lowAtG,
+    ).length;
+    return {
+      printers: printers.length,
+      printing: printers.filter((p) => p.status === "printing").length,
+      maintenance: printers.filter((p) => p.status === "maintenance").length,
+      queue: byStatus("queued") + byStatus("pending") + byStatus("need_slicing") + byStatus("slicing"),
+      active: byStatus("printing"),
+      done: byStatus("done"),
+      failed: byStatus("failed"),
+      spools: filaments.length,
+      lowFilaments,
+    };
+  },
+});
+
+/** Member submits a new print request. */
+export const createJob = mutation({
+  args: {
+    name: v.string(),
+    details: v.optional(v.string()),
+    fileName: v.optional(v.string()),
+    fileUrl: v.optional(v.string()),
+    estWeightG: v.optional(v.number()),
+    estMinutes: v.optional(v.number()),
+    // Member asks for slicing help right away (no file/unsure how to slice).
+    needSlicing: v.optional(v.boolean()),
+    slicingNote: v.optional(v.string()),
+    priority: v.optional(v.union(v.literal("normal"), v.literal("high"))),
+  },
+  handler: async (ctx, args) => {
+    const user = await requireNonStudent(ctx);
+    const jobId = await ctx.db.insert("printJobs", {
+      requesterId: user._id,
+      name: args.name,
+      details: args.details,
+      fileName: args.fileName,
+      fileUrl: args.fileUrl,
+      estWeightG: args.estWeightG,
+      estMinutes: args.estMinutes,
+      status: args.needSlicing ? "need_slicing" : "pending",
+      slicingNote: args.slicingNote,
+      priority: args.priority ?? "normal",
+      createdAt: Date.now(),
+    });
+    await notifyAdmins(
+      ctx,
+      "print_job",
+      `🖨️ ${user.name ?? "A member"} requested a print: "${args.name}"${args.needSlicing ? " (needs slicing help)" : ""}`,
+      `/printing3d`,
+    );
+    await telegramGroup(
+      ctx,
+      `🖨️ New print request: ${args.name} — from ${user.name ?? "member"}${args.needSlicing ? " · needs slicing help" : ""}`,
+    );
+    return jobId;
+  },
+});
+
+/** Member flags their pending job: "please slice it for me" + note. */
+export const requestSlicingHelp = mutation({
+  args: { jobId: v.id("printJobs"), note: v.optional(v.string()) },
+  handler: async (ctx, { jobId, note }) => {
+    const user = await requireNonStudent(ctx);
+    const job = await ctx.db.get(jobId);
+    if (!job) throw new Error("Job not found");
+    if (job.requesterId !== user._id && user.role !== "admin")
+      throw new Error("Only the requester can ask for help on this job");
+    if (!["pending", "need_slicing"].includes(job.status))
+      throw new Error("This job is already being prepared");
+    await ctx.db.patch(jobId, { status: "need_slicing", slicingNote: note });
+    await notifyAdmins(
+      ctx,
+      "print_job",
+      `🧩 Slicing help requested for "${job.name}"${note ? `: ${note}` : ""}`,
+      `/printing3d`,
+    );
+  },
+});
+
+/** Admin claims the slicing task. */
+export const claimSlicing = mutation({
+  args: { jobId: v.id("printJobs") },
+  handler: async (ctx, { jobId }) => {
+    const admin = await requireAdmin(ctx);
+    const job = await ctx.db.get(jobId);
+    if (!job) throw new Error("Job not found");
+    await ctx.db.patch(jobId, { status: "slicing", slicingBy: admin._id });
+    const requester = await ctx.db.get(job.requesterId);
+    await telegramDM(
+      ctx,
+      requester ?? {},
+      `🧩 ${admin.name ?? "An admin"} took your print "${job.name}" for slicing — you'll be notified when it's scheduled.`,
+      admin,
+    );
+  },
+});
+
+/** Admin pushes the sliced job onto a printer's queue (spool + estimates). */
+export const scheduleJob = mutation({
+  args: {
+    jobId: v.id("printJobs"),
+    printerId: v.id("printers"),
+    filamentId: v.id("filaments"),
+    weightG: v.number(),
+    minutes: v.number(),
+  },
+  handler: async (ctx, { jobId, printerId, filamentId, weightG, minutes }) => {
+    const admin = await requireAdmin(ctx);
+    const job = await ctx.db.get(jobId);
+    if (!job) throw new Error("Job not found");
+    const filament = await ctx.db.get(filamentId);
+    if (!filament || filament.archived) throw new Error("That spool is no longer available");
+    if (Number(filament.remainingG) < weightG)
+      throw new Error(`Spool has only ${filament.remainingG} g left`);
+    // Queue position: after all jobs already queued on this printer.
+    const queued = await ctx.db
+      .query("printJobs")
+      .withIndex("by_printer", (q) => q.eq("printerId", printerId))
+      .filter((q) => q.eq(q.field("status"), "queued"))
+      .collect();
+    const queuePos = queued.reduce((max, j) => Math.max(max, j.queuePos ?? 0), 0) + 1;
+    await ctx.db.patch(jobId, {
+      status: "queued",
+      printerId,
+      filamentId,
+      weightG,
+      minutes,
+      queuePos,
+      slicingBy: job.slicingBy ?? admin._id,
+    });
+    const requester = await ctx.db.get(job.requesterId);
+    const printer = await ctx.db.get(printerId);
+    await telegramDM(
+      ctx,
+      requester ?? {},
+      `✅ Your print "${job.name}" is scheduled on ${printer?.name ?? "a printer"} — ${weightG} g, ~${Math.round(minutes)} min. Position in queue: ${queuePos}.`,
+    );
+  },
+});
+
+/** Admin starts the next queued job on a printer (or a specific one). */
+export const startPrint = mutation({
+  args: { jobId: v.id("printJobs") },
+  handler: async (ctx, { jobId }) => {
+    const admin = await requireAdmin(ctx);
+    const job = await ctx.db.get(jobId);
+    if (!job || !job.printerId) throw new Error("Job is not scheduled on a printer");
+    if (job.status !== "queued") throw new Error("Only queued jobs can start");
+    const printer = await ctx.db.get(job.printerId);
+    if (printer?.status === "printing")
+      throw new Error(`${printer.name} is already printing another job`);
+    await ctx.db.patch(jobId, { status: "printing", startedAt: Date.now(), operatedBy: admin._id });
+    await ctx.db.patch(job.printerId, { status: "printing" });
+    // Everyone queued behind moves up.
+    const behind = await ctx.db
+      .query("printJobs")
+      .withIndex("by_printer", (q) => q.eq("printerId", job.printerId))
+      .filter((q) => q.eq(q.field("status"), "queued"))
+      .collect();
+    for (const j of behind) {
+      if ((j.queuePos ?? 0) > (job.queuePos ?? 0))
+        await ctx.db.patch(j._id, { queuePos: (j.queuePos ?? 1) - 1 });
+    }
+    const requester = await ctx.db.get(job.requesterId);
+    await telegramDM(
+      ctx,
+      requester ?? {},
+      `🖨️ Your print "${job.name}" just started on ${printer?.name ?? "the printer"}.`,
+    );
+  },
+});
+
+/**
+ * Admin completes a print: deduct filament, compute the real cost, close the
+ * job, free the printer and notify the requester + club group.
+ */
+export const completePrint = mutation({
+  args: {
+    jobId: v.id("printJobs"),
+    weightG: v.number(),
+    minutes: v.number(),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, { jobId, weightG, minutes, note }) => {
+    const admin = await requireAdmin(ctx);
+    const job = await ctx.db.get(jobId);
+    if (!job) throw new Error("Job not found");
+    if (job.status !== "printing") throw new Error("Only a printing job can be completed");
+    const printer = job.printerId ? await ctx.db.get(job.printerId) : null;
+    const filament = job.filamentId ? await ctx.db.get(job.filamentId) : null;
+    const costs = await getCosts(ctx);
+    const cost = computeJobCost({
+      weightG,
+      minutes,
+      powerW: printer?.powerW ?? undefined,
+      hourRate: printer?.hourRate ? Number(printer.hourRate) : undefined,
+      pricePerKg: filament?.pricePerKg ? Number(filament.pricePerKg) : undefined,
+      costs,
+    });
+    await ctx.db.patch(jobId, {
+      status: "done",
+      finishedAt: Date.now(),
+      weightG,
+      minutes,
+      costFilament: cost.filament,
+      costEnergy: cost.energy,
+      costMachine: cost.machine,
+      costTotal: cost.total,
+      failureNote: note,
+      operatedBy: admin._id,
+    });
+    if (printer) await ctx.db.patch(printer._id, { status: "idle" });
+    if (filament) {
+      const remaining = deductStockString(filament.remainingG, "g", weightG);
+      await ctx.db.patch(filament._id, { remainingG: remaining });
+      // Mirror the deduction into the club inventory ledger, when linked.
+      if (filament.inventoryGroupId) {
+        const group = await ctx.db.get(filament.inventoryGroupId);
+        if (group?.measureStock !== undefined) {
+          await ctx.db.patch(group._id, {
+            measureStock: deductStockString(group.measureStock, group.measureUnit, weightG),
+          });
+        }
+      }
+      const lowAt = filament.lowAtG;
+      if (lowAt !== undefined && Number(remaining) <= lowAt) {
+        await notifyAdmins(
+          ctx,
+          "filament_low",
+          `⚠️ Filament low: ${filament.colorName} ${filament.material} — ${remaining} g left (threshold ${lowAt} g).`,
+          `/printing3d`,
+        );
+      }
+    }
+    const requester = await ctx.db.get(job.requesterId);
+    await telegramDM(
+      ctx,
+      requester ?? {},
+      `✅ "${job.name}" is done! Come pick it up. Material ${weightG} g · ${Math.round(minutes)} min · cost ${cost.total}.`,
+    );
+    await telegramGroup(
+      ctx,
+      `🖨️ Print finished: ${job.name} by ${requester?.name ?? "member"} — ${weightG} g in ${Math.round(minutes)} min (cost ${cost.total}).`,
+    );
+  },
+});
+
+/** Failed print: log it, free the printer and record a repair entry. */
+export const failPrint = mutation({
+  args: { jobId: v.id("printJobs"), reason: v.string() },
+  handler: async (ctx, { jobId, reason }) => {
+    const admin = await requireAdmin(ctx);
+    const job = await ctx.db.get(jobId);
+    if (!job) throw new Error("Job not found");
+    if (!["printing", "queued"].includes(job.status))
+      throw new Error("Only an active or queued job can be marked failed");
+    await ctx.db.patch(jobId, {
+      status: "failed",
+      finishedAt: Date.now(),
+      failureNote: reason,
+      operatedBy: admin._id,
+    });
+    if (job.printerId) {
+      await ctx.db.patch(job.printerId, { status: "maintenance" });
+      await ctx.db.insert("printerMaintenance", {
+        printerId: job.printerId,
+        kind: "repair",
+        text: `Failed print "${job.name}": ${reason}`,
+        byUserId: admin._id,
+        at: Date.now(),
+      });
+    }
+    const requester = await ctx.db.get(job.requesterId);
+    await telegramDM(
+      ctx,
+      requester ?? {},
+      `❌ Your print "${job.name}" failed (${reason}). We'll requeue it once the printer is fixed — or talk to the team.`,
+    );
+  },
+});
+
+/** Requester cancels while pending/slicing; admin can cancel anything queued. */
+export const cancelJob = mutation({
+  args: { jobId: v.id("printJobs"), reason: v.optional(v.string()) },
+  handler: async (ctx, { jobId, reason }) => {
+    const user = await requireNonStudent(ctx);
+    const job = await ctx.db.get(jobId);
+    if (!job) throw new Error("Job not found");
+    const isAdmin = user.role === "admin";
+    if (job.requesterId !== user._id && !isAdmin) throw new Error("Not your job");
+    if (!isAdmin && !["pending", "need_slicing", "slicing"].includes(job.status))
+      throw new Error("Ask an admin to cancel a job that is already queued");
+    if (job.status === "queued" && job.printerId) {
+      const behind = await ctx.db
+        .query("printJobs")
+        .withIndex("by_printer", (q) => q.eq("printerId", job.printerId))
+        .filter((q) => q.eq(q.field("status"), "queued"))
+        .collect();
+      for (const j of behind) {
+        if ((j.queuePos ?? 0) > (job.queuePos ?? 0))
+          await ctx.db.patch(j._id, { queuePos: (j.queuePos ?? 1) - 1 });
+      }
+    }
+    await ctx.db.patch(jobId, {
+      status: "canceled",
+      finishedAt: Date.now(),
+      failureNote: reason,
+    });
+  },
+});
+
+// --- Overdue sweeper (cron) ----------------------------------------------------
+
+/** Cron: DM admins when a job has been "printing" 50% past its estimate. */
+export const sweepOverduePrints = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const printing = await ctx.db
+      .query("printJobs")
+      .withIndex("by_status", (q) => q.eq("status", "printing"))
+      .collect();
+    for (const job of printing) {
+      const estimate = (job.minutes ?? 0) * 1.5 * 60_000;
+      if (!estimate || !job.startedAt) continue;
+      if (now - job.startedAt > estimate) {
+        await notifyAdmins(
+          ctx,
+          "print_overdue",
+          `⏰ "${job.name}" is overdue on the printer (${Math.round((now - job.startedAt) / 60000)} min elapsed vs ~${Math.round(job.minutes ?? 0)} planned) — check it.`,
+          `/printing3d`,
+        );
+      }
+    }
+  },
+});
