@@ -15,9 +15,9 @@ crons.interval("pickup-reminders", { minutes: 15 }, internal.parts.pickupReminde
 // Bot auto-linking: every minute, read the club bot's pending Telegram
 // updates and pair a member's chat id once they message the bot (after
 // setting their @username in the profile).
-crons.interval("telegram-poll-updates", { minutes: 1 }, internal.telegram.pollUpdates, {});
+crons.interval("telegram-poll-updates", { minutes: 5 }, internal.telegram.pollUpdates, {});
 
 // Rent-card relay hygiene: reclaim stuck renders and prune finished jobs.
-crons.interval("rent-card-relay-sweep", { minutes: 2 }, internal.rentCardRelay.sweep, {});
+crons.interval("rent-card-relay-sweep", { minutes: 5 }, internal.rentCardRelay.sweep, {});
 
 export default crons;
