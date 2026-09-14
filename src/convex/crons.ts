@@ -12,4 +12,7 @@ crons.interval("sweep-chat-relay", { minutes: 5 }, internal.chat.sweep, {});
 // nudge ~24h before and again ~1h before (each fires once).
 crons.interval("pickup-reminders", { minutes: 15 }, internal.parts.pickupReminders, {});
 
+// Rent-card relay hygiene: reclaim stuck renders and prune finished jobs.
+crons.interval("rent-card-relay-sweep", { minutes: 2 }, internal.rentCardRelay.sweep, {});
+
 export default crons;

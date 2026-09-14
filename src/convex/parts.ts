@@ -335,10 +335,11 @@ async function notifyAdmin(ctx: any, text: string, link?: string) {
 }
 
 /**
- * Push the printable rent card (PDF) for a rental to the Telegram club group.
+ * Queue the printable rent card (PDF) for the Telegram club group.
  * ONE message: the PDF document + every detail on its own caption line.
- * For package units pass `extraUnits` so the card lists the whole bundle.
- * Fire-and-forget: a render/send failure never blocks the mutation.
+ * The PDF is rendered by the RentCardRelay client using the EXACT same card
+ * component as the manual "Send PDF to group" button (perfect Arabic).
+ * Fire-and-forget: queueing never blocks the mutation.
  */
 async function scheduleRentCard(
   ctx: any,
@@ -351,23 +352,26 @@ async function scheduleRentCard(
   projectName?: string,
   extraUnits?: { tag: string; groupName: string }[],
 ) {
-  await ctx.scheduler.runAfter(0, internal.rentCardTelegram.sendRentCardToGroup, {
+  await ctx.db.insert("rentCardJobs", {
     card: {
-      rentalId: rental._id,
+      rentalId: rental?._id,
       groupName: group?.name ?? "Part",
       tag: part?.tag ?? "?",
       holderName: student?.name ?? student?.email ?? "Member",
       studentId: student?.studentId,
       statusLabel,
-      requestedAt: rental.requestedAt,
-      decidedAt: rental.decidedAt,
-      pickedUpAt: rental.pickedUpAt,
-      returnedAt: rental.returnedAt,
-      conditionReport: rental.conditionReport,
+      requestedAt: rental?.requestedAt,
+      decidedAt: rental?.decidedAt,
+      pickedUpAt: rental?.pickedUpAt,
+      returnedAt: rental?.returnedAt,
+      conditionReport: rental?.conditionReport,
       projectName,
+      extraUnits,
     },
     caption,
-    extraUnits,
+    status: "queued",
+    attempts: 0,
+    createdAt: Date.now(),
   });
 }
 

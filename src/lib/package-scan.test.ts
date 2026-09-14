@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  buildRentCardCaption,
-  renderRentCardPdf,
-  type RentCardData,
-} from "@/lib/rent-card-pdf";
+import { buildCardCaption, type RentCardData } from "@/lib/rent-card-caption";
 import { groupAllowedByFilter, scanOutcome, upsertLine } from "@/lib/package-scan";
 
 // ---------------------------------------------------------------------------
@@ -23,7 +19,7 @@ const card: RentCardData = {
 
 describe("rent card caption", () => {
   it("renders every data field on its own line, never one long row", () => {
-    const caption = buildRentCardCaption(card, "↩️ Return requested");
+    const caption = buildCardCaption(card, "↩️ Return requested");
     const lines = caption.split("\n");
     expect(lines[0]).toBe("↩️ Return requested");
     expect(lines[1]).toBe("");
@@ -39,10 +35,16 @@ describe("rent card caption", () => {
   });
 
   it("lists every package unit as its own bullet line", () => {
-    const caption = buildRentCardCaption(card, "↩️ Package return requested (2 units)", [
-      "   • Arduino Uno (ARD-UNO-001)",
-      "   • Servo MG996R (SRV-001)",
-    ]);
+    const caption = buildCardCaption(
+      {
+        ...card,
+        extraUnits: [
+          { tag: "ARD-UNO-001", groupName: "Arduino Uno" },
+          { tag: "SRV-001", groupName: "Servo MG996R" },
+        ],
+      },
+      "↩️ Package return requested (2 units)",
+    );
     expect(caption).toContain("   • Arduino Uno (ARD-UNO-001)");
     expect(caption).toContain("   • Servo MG996R (SRV-001)");
     const bulletLines = caption.split("\n").filter((l) => l.trim().startsWith("•"));
@@ -50,55 +52,12 @@ describe("rent card caption", () => {
   });
 
   it("omits empty fields instead of printing placeholders", () => {
-    const caption = buildRentCardCaption(
+    const caption = buildCardCaption(
       { ...card, conditionReport: undefined, studentId: undefined },
       "↩️ Return requested",
     );
     expect(caption).not.toContain("📝");
     expect(caption).not.toContain(" · undefined");
-  });
-});
-
-describe("rent card PDF", () => {
-  it("produces a valid single-page PDF document", () => {
-    const pdf = renderRentCardPdf(card);
-    const text = Buffer.from(pdf).toString("latin1");
-    expect(text.startsWith("%PDF-1.4")).toBe(true);
-    expect(text).toContain("/Type /Catalog");
-    expect(text).toContain("/Count 1");
-    expect(text.trimEnd().endsWith("%%EOF")).toBe(true);
-  });
-
-  it("draws the QR block as vector rects with the caption line under it", () => {
-    const pdf = renderRentCardPdf(card);
-    const text = Buffer.from(pdf).toString("latin1");
-    // QR modules are emitted as filled rectangles; the scan hint sits below.
-    expect(text).toContain(" re f");
-    expect(text).toContain("(scan to open this rental)");
-  });
-
-  it("wraps long condition reports instead of overflowing the page", () => {
-    const pdf = renderRentCardPdf({
-      ...card,
-      conditionReport:
-        "The left driver exploded during the qualification match, gears stripped and housing cracked — needs a full rebuild before it can be shelved again.",
-    });
-    const text = Buffer.from(pdf).toString("latin1");
-    expect(text.startsWith("%PDF-1.4")).toBe(true);
-  });
-
-  it("transliterates Arabic names instead of printing question marks", () => {
-    const pdf = renderRentCardPdf({
-      ...card,
-      holderName: "أمين حيدر",
-      groupName: "أردوينو أونو",
-    });
-    const text = Buffer.from(pdf).toString("latin1");
-    // Arabic letters become their Latin transliteration (amyn hydr …);
-    // no run of question marks may appear in the drawn text.
-    expect(text).toContain("(amyn hydr)");
-    expect(text).toContain("(ardwynw awnw)");
-    expect(text).not.toContain("(?????");
   });
 });
 

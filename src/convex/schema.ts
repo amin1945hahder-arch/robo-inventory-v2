@@ -422,6 +422,47 @@ const schema = defineSchema(
     })
       .index("by_tokenHash", ["tokenHash"])
       .index("by_user", ["userId"]),
+
+    // ===== Rent-card PDF relay queue ========================================
+    // Automated rent-card posts (approve / return / assign / package returns)
+    // are rendered in a signed-in admin's browser — the EXACT same hi-fi card
+    // component used by the manual "Send PDF to group" button — so the group
+    // always receives the identical PDF with perfect Arabic. The mutation that
+    // triggers the card inserts a queued job here; the RentCardRelay client
+    // picks it up, rasterizes the card off-screen, and uploads the PDF bytes,
+    // then a Node action relays it to Telegram.
+    rentCardJobs: defineTable({
+      card: v.object({
+        rentalId: v.optional(v.string()),
+        groupName: v.string(),
+        tag: v.string(),
+        holderName: v.string(),
+        studentId: v.optional(v.string()),
+        statusLabel: v.string(),
+        requestedAt: v.optional(v.number()),
+        decidedAt: v.optional(v.number()),
+        pickedUpAt: v.optional(v.number()),
+        returnedAt: v.optional(v.number()),
+        conditionReport: v.optional(v.string()),
+        projectName: v.optional(v.string()),
+        // Package cards list every unit of the bundle on the card itself.
+        extraUnits: v.optional(
+          v.array(v.object({ tag: v.string(), groupName: v.string() })),
+        ),
+      }),
+      caption: v.string(),
+      status: v.union(
+        v.literal("queued"),
+        v.literal("sending"),
+        v.literal("sent"),
+        v.literal("skipped"),
+      ),
+      attempts: v.number(),
+      createdAt: v.number(),
+      updatedAt: v.optional(v.number()),
+    })
+      .index("by_status", ["status"])
+      .index("by_created", ["createdAt"]),
   },
   {
     schemaValidation: false,

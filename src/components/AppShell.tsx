@@ -7,6 +7,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { QrScanDialog } from "@/components/QrScanDialog";
 import { PermissionsPrompt } from "@/components/PermissionsPrompt";
+import { RentCardRelay } from "@/components/RentCardRelay";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -326,6 +327,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
 
       <QrScanDialog open={scanOpen} onOpenChange={setScanOpen} onResult={handleScan} />
+      {/* Renders queued rent-card PDFs (identical to the manual card) for the
+          automated Telegram posts — approve / return / assign / packages. */}
+      <RentCardRelay />
       {/* One-time camera permission prompt on first load */}
       <PermissionsPrompt />
     </div>
