@@ -12,6 +12,8 @@ export function buildCardCaption(card: RentCardData, headline: string): string {
   lines.push(`🏷 Item: ${card.groupName} (${card.tag})`);
   for (const u of card.extraUnits ?? []) lines.push(`   • ${u.groupName} (${u.tag})`);
   lines.push(`👤 Student: ${card.holderName}${card.studentId ? ` · ${card.studentId}` : ""}`);
+  if (card.amount !== undefined)
+    lines.push(`⚖️ Amount: ${card.amount} ${card.amountUnit ?? ""}`.trimEnd());
   lines.push(`📌 Status: ${card.statusLabel}`);
   if (card.projectName) lines.push(`🤖 Project: ${card.projectName}`);
   if (card.requestedAt)

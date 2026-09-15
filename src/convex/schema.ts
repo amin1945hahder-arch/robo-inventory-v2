@@ -233,6 +233,9 @@ const schema = defineSchema(
       ),
       requestedAt: v.number(),
       decidedAt: v.optional(v.number()),
+      // Scheduled pick-up for approved packages — mirrors rentals.pickupAt so
+      // package units follow the same approve → hand-over stage as singles.
+      pickupAt: v.optional(v.number()),
       // Timestamp of the member's most recent package-level return request.
       returnRequestedAt: v.optional(v.number()),
       // When the admin processes the package return (all-or-nothing).

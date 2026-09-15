@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { api } from "./_generated/api";
 import { requireAdmin, requireNonGuest, requireInteractingMember, requireUser, safeImage } from "./lib";
-import { adminPhones, sendWhatsApp } from "./whatsapp";
+import { adminPhones } from "./whatsapp";
 import { telegramDM, telegramGroup, notifyTelegram } from "./notify";
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
@@ -365,6 +365,8 @@ async function scheduleRentCard(
       pickedUpAt: rental?.pickedUpAt,
       returnedAt: rental?.returnedAt,
       conditionReport: rental?.conditionReport,
+      amount: rental?.amount,
+      amountUnit: group?.measureUnit,
       projectName,
       extraUnits,
     },
@@ -434,12 +436,13 @@ export const requestRental = mutation({
       rentalId,
       note,
     );
-    // WhatsApp to every admin (no-op until TWILIO_* keys are set)
+    // WhatsApp to every admin (no-op until TWILIO_* keys are set). Sends run
+    // in a scheduled action — fetch is not allowed inside mutations.
     for (const phone of await adminPhones(ctx)) {
-      await sendWhatsApp(
-        phone,
-        `${studentLabel} requested to rent ${group?.name ?? "a part"} (${part.tag}) — review it in the Requests console.`,
-      );
+      await ctx.scheduler.runAfter(0, internal.whatsapp.sendWhatsAppAction, {
+        to: phone,
+        body: `${studentLabel} requested to rent ${group?.name ?? "a part"} (${part.tag}) — review it in the Requests console.`,
+      });
     }
     // Telegram: post to the club group, tagging the admins who must act
     // (no-op until a bot token is configured in Settings or env).
@@ -653,12 +656,12 @@ export const decideRental = mutation({
       });
     }
     if (student?.phone) {
-      await sendWhatsApp(
-        student.phone,
-        approve
+      await ctx.scheduler.runAfter(0, internal.whatsapp.sendWhatsAppAction, {
+        to: student.phone,
+        body: approve
           ? `✅ Your request was approved — ${group?.name ?? "a part"} (${part.tag}). You can pick it up from the lab.`
           : `❌ Your request for ${group?.name ?? "a part"} (${part.tag}) was denied.`,
-      );
+      });
     }
     if (student?.telegramChatId || student?.telegramUsername) {
       // DM the member directly; the message already names the deciding admin.
@@ -706,10 +709,25 @@ export const adminRentalAction = mutation({
     const now = Date.now();
 
     if (action === "approve") {
-      // Approval reserves the unit for the member; the physical handover is a
-      // separate admin step ("Taken"/"Picked up"), which decrements inventory.
+      // Approval reserves the unit (or bulk amount) for the member; the
+      // physical handover is a separate admin step ("Taken"/"Picked up"),
+      // which decrements inventory.
       if (rental.status !== "pending") throw new Error("This request was already handled");
+      const isBulk = group?.measure === "weight" || group?.measure === "length";
+      if (isBulk) {
+        const amt = rental.amount;
+        if (amt === undefined || !Number.isFinite(amt) || amt <= 0) {
+          throw new Error("Bulk request has no amount — deny it and ask the member to request again");
+        }
+        const stock = Number(group.measureStock ?? 0);
+        if (amt > stock + 1e-9) {
+          throw new Error(
+            `Only ${stock} ${group.measureUnit ?? ""} in stock — the request is for ${amt}`,
+          );
+        }
+      }
       await ctx.db.patch(rentalId, { status: "approved", decidedAt: now, pickupAt });
+      const amountLabel = rental.amount !== undefined ? ` (${rental.amount} ${group?.measureUnit ?? ""})` : "";
       const pickupLabel = pickupAt
         ? new Date(pickupAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })
         : "as soon as the lab is open";
@@ -722,10 +740,10 @@ export const adminRentalAction = mutation({
         });
       }
       if (student?.phone) {
-        await sendWhatsApp(
-          student.phone,
-          `✅ Your request was approved — ${group?.name ?? "a part"} (${part.tag}). Pick it up ${pickupLabel}.`,
-        );
+        await ctx.scheduler.runAfter(0, internal.whatsapp.sendWhatsAppAction, {
+          to: student.phone,
+          body: `✅ Your request was approved — ${group?.name ?? "a part"} (${part.tag})${amountLabel}. Pick it up ${pickupLabel}.`,
+        });
       }
       if (student?.telegramChatId || student?.telegramUsername) {
         await telegramDM(
@@ -765,10 +783,10 @@ export const adminRentalAction = mutation({
         });
       }
       if (student?.phone) {
-        await sendWhatsApp(
-          student.phone,
-          `❌ Your request for ${group?.name ?? "a part"} (${part.tag}) was denied.`,
-        );
+        await ctx.scheduler.runAfter(0, internal.whatsapp.sendWhatsAppAction, {
+          to: student.phone,
+          body: `❌ Your request for ${group?.name ?? "a part"} (${part.tag}) was denied.`,
+        });
       }
       if (student?.telegramChatId || student?.telegramUsername) {
         await telegramDM(
@@ -789,19 +807,38 @@ export const adminRentalAction = mutation({
       if (rental.status !== "approved") {
         throw new Error("Only approved (not yet picked up) rentals can be marked taken");
       }
-      await ctx.db.patch(rentalId, { status: "active", pickedUpAt: now });
-      await ctx.db.patch(part._id, { status: "rented", currentHolderId: rental.userId });
+      const isBulk = group?.measure === "weight" || group?.measure === "length";
+      if (isBulk) {
+        // Bulk (weight/length) rental: deduct the approved amount from the
+        // group's stock exactly once, at hand-over. The BULK placeholder part
+        // never becomes "rented" and the amount stays on the rental row.
+        const amt = rental.amount;
+        if (amt === undefined || !Number.isFinite(amt) || amt <= 0) {
+          throw new Error("This bulk rental has no amount set — deny it and ask the member to request again");
+        }
+        const stock = Number(group.measureStock ?? 0);
+        if (amt > stock + 1e-9) {
+          throw new Error(
+            `Only ${stock} ${group.measureUnit ?? ""} left in stock — cannot hand over ${amt}`,
+          );
+        }
+        await ctx.db.patch(rentalId, { status: "active", pickedUpAt: now });
+        await ctx.db.patch(group!._id, { measureStock: String(stock - amt) });
+      } else {
+        await ctx.db.patch(rentalId, { status: "active", pickedUpAt: now });
+        await ctx.db.patch(part._id, { status: "rented", currentHolderId: rental.userId });
+      }
       if (student?.telegramChatId || student?.telegramUsername) {
         await telegramDM(
           ctx,
           { name: student.name ?? student.email, telegramUsername: student.telegramUsername, telegramChatId: student.telegramChatId },
-          `📦 Taken: ${group?.name ?? "a part"} (${part.tag}) was handed to you. Return it to the lab when done.`,
+          `📦 Taken: ${group?.name ?? "a part"} (${part.tag})${rental.amount !== undefined ? ` (${rental.amount} ${group?.measureUnit ?? ""})` : ""} was handed to you. Return it to the lab when done.`,
           { name: admin.name ?? admin.email },
         );
       }
       await telegramGroup(
         ctx,
-        `📦 ${admin.name ?? admin.email} marked ${group?.name ?? "a part"} (${part.tag}) as TAKEN by ${student?.name ?? student?.email ?? "a member"} — inventory updated.`,
+        `📦 ${admin.name ?? admin.email} marked ${group?.name ?? "a part"} (${part.tag})${rental.amount !== undefined ? ` (${rental.amount} ${group?.measureUnit ?? ""})` : ""} as TAKEN by ${student?.name ?? student?.email ?? "a member"} — ${rental.amount !== undefined ? "stock deducted" : "inventory updated"}.`,
       );
     } else if (action === "mark_returned") {
       if (rental.status !== "active") throw new Error("Rental is not active");
@@ -1317,6 +1354,9 @@ export const listPackages = query({
         lines,
         // Package is "open" while any unit still needs admin handling.
         openUnits: pkgRentals.filter((r) => r.status === "active" || r.status === "pending").length,
+        // Split the "open" units by pickup stage: awaiting hand-over vs handed out.
+        approvedUnits: pkgRentals.filter((r) => r.status === "approved").length,
+        activeUnits: pkgRentals.filter((r) => r.status === "active").length,
         returnedUnits: pkgRentals.filter((r) => r.status === "returned" || r.status === "on_project").length,
         totalUnits: pkgRentals.length,
       });
@@ -1555,8 +1595,8 @@ export const cancelPackage = mutation({
 
 /** Admin approves or denies a pending package (all-or-nothing). */
 export const decidePackage = mutation({
-  args: { packageId: v.id("rentalPackages"), approve: v.boolean() },
-  handler: async (ctx, { packageId, approve }) => {
+  args: { packageId: v.id("rentalPackages"), approve: v.boolean(), pickupAt: v.optional(v.number()) },
+  handler: async (ctx, { packageId, approve, pickupAt }) => {
     const admin = await requireAdmin(ctx);
     const pkg = await ctx.db.get(packageId);
     if (!pkg) throw new Error("Package not found");
@@ -1570,31 +1610,34 @@ export const decidePackage = mutation({
     const memberRef = { name: member?.name ?? member?.email, telegramUsername: member?.telegramUsername, telegramChatId: member?.telegramChatId };
     const now = Date.now();
 
-    await ctx.db.patch(packageId, {
-      status: approve ? "approved" : "canceled",
-      decidedAt: now,
-      returnRequestedAt: undefined,
-    });
-    for (const r of pkgRentals) {
-      const part = await ctx.db.get(r.partId);
-      const group = part ? await ctx.db.get(part.groupId) : null;
-      if (approve) {
-        await ctx.db.patch(r._id, { status: "active", decidedAt: now, pickedUpAt: now });
-        if (part) await ctx.db.patch(part._id, { status: "rented", currentHolderId: pkg.userId });
-      } else {
+    if (approve) {
+      await ctx.db.patch(packageId, { status: "approved", decidedAt: now, pickupAt });
+      for (const r of pkgRentals) {
+        // Units stay reserved: rental -> "approved" (awaiting pick-up), the
+        // part keeps its open request; inventory decrements only at the
+        // physical hand-over (mark_taken) — same stages as single rentals.
+        await ctx.db.patch(r._id, { status: "approved", decidedAt: now, pickupAt });
+      }
+    } else {
+      await ctx.db.patch(packageId, { status: "canceled", decidedAt: now });
+      for (const r of pkgRentals) {
+        const part = await ctx.db.get(r.partId);
         await ctx.db.patch(r._id, { status: "denied", decidedAt: now });
         if (part && part.status === "pending") await ctx.db.patch(part._id, { status: "available" });
       }
     }
 
     const summaryText = await summarize(ctx, pkg.lines);
+    const pickupLabel = pickupAt
+      ? new Date(pickupAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })
+      : "as soon as the lab is open";
 
     if (member?.telegramChatId || member?.telegramUsername) {
       await telegramDM(
         ctx,
         memberRef,
         approve
-          ? `✅ Package approved: ${summaryText}. Pick everything up from the lab.`
+          ? `✅ Package approved: ${summaryText}.\n📅 Pick-up time: ${pickupLabel} — units are handed over at the lab.`
           : `❌ Package denied: ${summaryText}.`,
         { name: admin.name ?? admin.email },
       );
@@ -1602,7 +1645,7 @@ export const decidePackage = mutation({
     await telegramGroup(
       ctx,
       approve
-        ? `✅ ${admin.name ?? admin.email} approved ${member?.name ?? member?.email ?? "a member"}'s package rental (${summaryText}).`
+        ? `✅ ${admin.name ?? admin.email} approved ${member?.name ?? member?.email ?? "a member"}'s package rental (${summaryText}).\n📅 Scheduled pick-up: ${pickupLabel} — waiting for handover.`
         : `❌ ${admin.name ?? admin.email} denied ${member?.name ?? member?.email ?? "a member"}'s package rental (${summaryText}).`,
     );
     if (member?.email) {

@@ -75,7 +75,7 @@ export default function MyRentals() {
               <section className="flex flex-col gap-3">
                 <h2 className="text-sm font-semibold">Package requests</h2>
                 <ul className="flex flex-col gap-3">
-                  {(packages ?? []).map(({ package: pkg, lines, openUnits, totalUnits, returnedUnits }) => {
+                  {(packages ?? []).map(({ package: pkg, lines, openUnits, totalUnits, returnedUnits, approvedUnits, activeUnits }) => {
                     const isPending = pkg.status === "pending";
                     const returnFlagged =
                       pkg.returnRequestedAt !== undefined &&
@@ -92,12 +92,22 @@ export default function MyRentals() {
                               Requested {new Date(pkg.requestedAt).toLocaleDateString()} ·{" "}
                               {totalUnits} unit(s)
                               {pkg.status === "approved"
-                                ? ` · ${openUnits} still out, ${returnedUnits} processed`
+                                ? ` · ${activeUnits} still out${approvedUnits > 0 ? `, ${approvedUnits} awaiting pick-up` : ""}, ${returnedUnits} processed`
                                 : ""}
                               {pkg.note ? ` · ${pkg.note}` : ""}
                             </p>
                           </div>
-                          <StatusBadge status={pkg.status === "approved" ? "active" : pkg.status === "canceled" ? "canceled" : "pending"} />
+                          <StatusBadge
+                            status={
+                              pkg.status === "canceled"
+                                ? "canceled"
+                                : pkg.status === "pending"
+                                  ? "pending"
+                                  : activeUnits > 0
+                                    ? "active"
+                                    : "approved"
+                            }
+                          />
                           {isPending && (
                             <>
                               <Button
@@ -129,7 +139,7 @@ export default function MyRentals() {
                               </Button>
                             </>
                           )}
-                          {pkg.status === "approved" && openUnits > 0 && (
+                          {pkg.status === "approved" && activeUnits > 0 && (
                             <Button
                               size="sm"
                               variant="outline"

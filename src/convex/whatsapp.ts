@@ -1,3 +1,5 @@
+import { v } from "convex/values";
+import { internalAction } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 
 /**
@@ -77,3 +79,19 @@ export async function adminPhones(ctx: MutationCtx): Promise<string[]> {
     .filter((u) => u.role === "admin" && u.phone)
     .map((u) => u.phone!);
 }
+/**
+ * Schedulable wrapper — Convex only allows `fetch` inside actions, so
+ * mutations must NEVER call sendWhatsApp directly. Schedule this instead:
+ *   await ctx.scheduler.runAfter(0, internal.whatsapp.sendWhatsAppAction, { to, body });
+ * Failures are swallowed: WhatsApp is best-effort alongside email/Telegram.
+ */
+export const sendWhatsAppAction = internalAction({
+  args: { to: v.string(), body: v.string() },
+  handler: async (_ctx, { to, body }) => {
+    try {
+      return await sendWhatsApp(to, body);
+    } catch {
+      return { sent: false, reason: "error" };
+    }
+  },
+});

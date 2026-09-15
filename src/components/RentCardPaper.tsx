@@ -15,6 +15,9 @@ export type RentCardData = {
   pickedUpAt?: number;
   returnedAt?: number;
   conditionReport?: string;
+  /** Bulk (weight/length) rentals carry the amount + unit, e.g. 0.25 kg. */
+  amount?: number;
+  amountUnit?: string;
   projectName?: string;
   /** Package rentals list every unit of the bundle on the card itself. */
   extraUnits?: { tag: string; groupName: string }[];

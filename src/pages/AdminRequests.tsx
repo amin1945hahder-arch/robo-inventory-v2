@@ -79,6 +79,7 @@ export default function AdminRequests() {
   const [busyId, setBusyId] = useState<string | null>(null);
   // Approve flow: pick the pick-up date/time (or reuse a scheduled slot).
   const [approveFor, setApproveFor] = useState<Row | null>(null);
+  const [approvePkgFor, setApprovePkgFor] = useState<{ key: string; unitCount: number } | null>(null);
   const [pickupLocal, setPickupLocal] = useState("");
   const [approveBusy, setApproveBusy] = useState(false);
   const [returnFor, setReturnFor] = useState<Row | null>(null);
@@ -180,15 +181,29 @@ export default function AdminRequests() {
     }
   };
 
-  const decidePackageAction = async (packageId: string, approve: boolean) => {
-    setBusyId(packageId);
+  const decidePackageAction = async (approve: boolean) => {
+    if (!approvePkgFor) return;
+    setApproveBusy(true);
     try {
-      await decidePkg({ packageId: packageId as any, approve });
-      toast.success(approve ? "Package approved — member notified" : "Package denied — units released");
+      const pickupAt = pickupLocal ? new Date(pickupLocal).getTime() : undefined;
+      await decidePkg({
+        packageId: approvePkgFor.key as any,
+        approve,
+        pickupAt: Number.isFinite(pickupAt as number) ? pickupAt : undefined,
+      });
+      toast.success(
+        approve
+          ? pickupLocal
+            ? "Package approved — pick-up scheduled, member and group notified"
+            : "Package approved — member notified"
+          : "Package denied — units released",
+      );
+      setApprovePkgFor(null);
+      setPickupLocal("");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
     } finally {
-      setBusyId(null);
+      setApproveBusy(false);
     }
   };
 
@@ -398,16 +413,22 @@ export default function AdminRequests() {
                       <div className="flex gap-2">
                         <Button
                           size="sm"
-                          disabled={busyId === row.key}
-                          onClick={() => decidePackageAction(row.key, true)}
+                          disabled={approveBusy}
+                          onClick={() => {
+                            setApprovePkgFor({ key: row.key, unitCount: row.units.length });
+                            setPickupLocal("");
+                          }}
                         >
                           <Check className="size-4" /> Approve all
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={busyId === row.key}
-                          onClick={() => decidePackageAction(row.key, false)}
+                          disabled={approveBusy}
+                          onClick={() => {
+                            setApprovePkgFor({ key: row.key, unitCount: row.units.length });
+                            setPickupLocal("");
+                          }}
                         >
                           <X className="size-4" /> Deny
                         </Button>
@@ -473,16 +494,22 @@ export default function AdminRequests() {
                         <div className="flex gap-2">
                           <Button
                             size="sm"
-                            disabled={busyId === pkg._id}
-                            onClick={() => decidePackageAction(pkg._id, true)}
+                            disabled={approveBusy}
+                            onClick={() => {
+                              setApprovePkgFor({ key: pkg._id, unitCount: totalUnits });
+                              setPickupLocal("");
+                            }}
                           >
                             <Check className="size-4" /> Approve all
                           </Button>
                           <Button
                             size="sm"
                             variant="outline"
-                            disabled={busyId === pkg._id}
-                            onClick={() => decidePackageAction(pkg._id, false)}
+                            disabled={approveBusy}
+                            onClick={() => {
+                              setApprovePkgFor({ key: pkg._id, unitCount: totalUnits });
+                              setPickupLocal("");
+                            }}
                           >
                             <X className="size-4" /> Deny
                           </Button>
@@ -1121,6 +1148,44 @@ export default function AdminRequests() {
             <Button variant="outline" onClick={() => setApproveFor(null)}>Cancel</Button>
             <Button onClick={submitApprove} disabled={approveBusy}>
               <Check className="size-4" /> {approveBusy ? "Approving…" : "Approve"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ===== Approve / deny a package: schedule the pick-up ===== */}
+      <Dialog open={Boolean(approvePkgFor)} onOpenChange={(v) => !v && setApprovePkgFor(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Package · schedule pick-up</DialogTitle>
+            <DialogDescription>
+              {approvePkgFor && (
+                <>All {approvePkgFor.unitCount} unit(s) stay reserved until the member picks them up — hand each over with “Mark picked up”, then process returns unit by unit.</>
+              )}{" "}
+              They'll be notified with the date, and reminded 24h and 1h before on Telegram.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <div className="grid gap-2">
+              <Label htmlFor="pkg-pickup-at">Pick-up date &amp; time</Label>
+              <Input
+                id="pkg-pickup-at"
+                type="datetime-local"
+                value={pickupLocal}
+                onChange={(e) => setPickupLocal(e.target.value)}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Leaving it empty means "come whenever the lab is open" — no reminders will be sent.
+            </p>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setApprovePkgFor(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => decidePackageAction(false)} disabled={approveBusy}>
+              <X className="size-4" /> Deny
+            </Button>
+            <Button onClick={() => decidePackageAction(true)} disabled={approveBusy}>
+              <Check className="size-4" /> {approveBusy ? "Approving…" : "Approve all"}
             </Button>
           </DialogFooter>
         </DialogContent>
