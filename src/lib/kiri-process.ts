@@ -1,8 +1,8 @@
 /**
- * Pure helpers for the Slicer Studio → Kiri:Moto bridge.
+ * Pure helpers for the Slicer Studio → Kiri:Moto bridge (self-hosted v4.7.3).
  *
- * The embedded Kiri:Moto instance (grid.space) is the single source of truth
- * for slicing settings. The app:
+ * The embedded Kiri:Moto instance is the single source of truth for every
+ * slicing setting. The app:
  *   1. reads the slicer's process + device over the frame message API
  *      ({get:"process"} → {process}, {get:"device"} → {device})
  *   2. turns them into a human-readable snapshot (grouped spec cards)
@@ -235,4 +235,83 @@ export function snapshotToNote(snapshot: SlicerSnapshot, maxLines = 48): string 
     lines.push(`${group.title}: ${filled.map((r) => `${r.label.toLowerCase()} ${r.value}`).join(", ")}`);
   }
   return lines.slice(0, maxLines).join("\n");
+}
+
+// ===== Slice flow state machine =============================================
+//
+// In Kiri 4.7.3 slicing a model runs {function:"slice"} → `slice.done`, then
+// the toolpath preview needs {function:"prepare"} → `prepare.done`. Both
+// callbacks report through ONE postMessage channel, and a crashed worker can
+// stall the chain forever, so the UI needs explicit, testable rules for
+// driving and abandoning the two-step flow.
+
+export type FlowStep = "idle" | "slicing" | "sliced" | "preparing" | "prepared" | "failed";
+
+/**
+ * What a bridge event means for the slice flow.
+ * `null` = event does not affect the flow.
+ */
+export function flowTransition(
+  step: FlowStep,
+  event: { kind: "slice_done" | "prepare_done" | "slice_error" | "reset" | "other"; hasModel?: boolean },
+): { next: FlowStep; sendPrepare: boolean } {
+  switch (event.kind) {
+    case "reset":
+      return { next: "idle", sendPrepare: false };
+    case "slice_done":
+      // Only honor slice.done when we are actually waiting for it — stale or
+      // duplicate events (double click, late worker reply) must not restart
+      // the flow or clobber a later state.
+      if (step !== "slicing") return { next: step, sendPrepare: false };
+      return { next: "sliced", sendPrepare: true };
+    case "prepare_done":
+      return { next: "prepared", sendPrepare: false };
+    case "slice_error":
+      return { next: "failed", sendPrepare: false };
+    default:
+      return { next: step, sendPrepare: false };
+  }
+}
+
+/** The flow is done enough to allow G-code capture + export. */
+export function flowAllowsExport(step: FlowStep): boolean {
+  return step === "sliced" || step === "prepared";
+}
+
+/**
+ * Deadline (ms since flow start) after which the UI should give up waiting
+ * for a reply and re-enable the controls instead of spinning forever.
+ * 0 = no deadline for this step.
+ */
+export function flowTimeoutMs(step: FlowStep): number {
+  switch (step) {
+    case "slicing":
+      return 10 * 60_000; // big models legitimately take minutes
+    case "preparing":
+      return 90_000;
+    default:
+      return 0;
+  }
+}
+
+/** Milliseconds to wait after requesting a `{get}` reply before surfacing "no data". */
+export const GET_REPLY_GRACE_MS = 500;
+
+/** Which flow step a bridge message advances (or null when unrelated). */
+export function classifyEvent(data: Record<string, unknown>): {
+  kind: "slice_done" | "prepare_done" | "slice_error" | "reset" | "other";
+} {
+  if (typeof data.event !== "string") return { kind: "other" };
+  switch (data.event) {
+    case "slice.done":
+      return { kind: "slice_done" };
+    case "prepare.done":
+      return { kind: "prepare_done" };
+    case "slice.error":
+    case "export.error":
+    case "error":
+      return { kind: "slice_error" };
+    default:
+      return { kind: "other" };
+  }
 }
