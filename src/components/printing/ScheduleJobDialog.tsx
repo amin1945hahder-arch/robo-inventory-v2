@@ -80,7 +80,8 @@ export function ScheduleJobDialog({
         <DialogHeader>
           <DialogTitle>Schedule “{job?.name}”</DialogTitle>
           <DialogDescription>
-            Enter the numbers from your slicer (gCode) — they drive the queue and the cost math.
+            Enter the numbers from the slicer (G-code) — they drive the queue and the
+            overdue watchdog. Filament is deducted when the print starts, not before.
           </DialogDescription>
         </DialogHeader>
 

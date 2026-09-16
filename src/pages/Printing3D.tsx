@@ -390,10 +390,10 @@ export default function Printing3D() {
                             )}
                           </div>
                           <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                            {j.requesterName} · {j.fileName ?? "no file"}
+                            {j.requesterName} · {j.fileName ?? (j.slicingNote?.startsWith("{") ? "sliced in Slicer Studio" : "no file")}
                             {j.estWeightG !== undefined && ` · ~${j.estWeightG} g`}
-                            {j.estMinutes !== undefined && ` · ~${Math.round(j.estMinutes / 60)} h`}
-                            {j.slicingNote && ` · “${j.slicingNote}”`}
+                            {j.estMinutes !== undefined && ` · ~${Math.round(j.estMinutes / 60)} min`}
+                            {j.details && ` · ${j.details.split("\n")[0]}`}
                           </p>
                         </div>
                         <div className="flex shrink-0 flex-wrap items-center gap-1.5">
@@ -469,11 +469,7 @@ export default function Printing3D() {
                 The slicer needs at least one registered printer for machine profiles — ask an admin to add one.
               </p>
             ) : (
-              <SlicerStudio
-                printers={printers}
-                filaments={filaments}
-                jobContext={null}
-              />
+              <SlicerStudio printers={printers} filaments={filaments} />
             )}
           </TabsContent>
 

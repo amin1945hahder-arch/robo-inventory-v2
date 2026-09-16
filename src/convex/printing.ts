@@ -11,85 +11,6 @@ import { telegramDM, telegramGroup } from "./notify";
 // printer queue → printing → done).
 
 // --- Kiri:Moto device profiles -------------------------------------------------
-// The embedded slicer (Slicer Studio) is driven over Kiri:Moto's frame message
-// API. Each farm printer becomes a Kiri "device" so members slice against the
-// real machine: build volume, nozzle diameter and filament diameter.
-
-/** The slicer works in mm; the printer form stores build volume in cm. */
-function cmToMm(n: number): number {
-  return Math.round(n * 10);
-}
-
-/** Machine profile (Kiri:FDM device) generated from a farm printer record. */
-export function kiriDeviceFor(printer: {
-  name: string;
-  buildVolumeCm?: { w: number; d: number; h: number };
-  nozzleMm?: number;
-}) {
-  const bw = printer.buildVolumeCm ? cmToMm(printer.buildVolumeCm.w) : 220;
-  const bd = printer.buildVolumeCm ? cmToMm(printer.buildVolumeCm.d) : 220;
-  const bh = printer.buildVolumeCm ? cmToMm(printer.buildVolumeCm.h) : 250;
-  return {
-    deviceName: `${printer.name} (club)`,
-    mode: "FDM",
-    internal: 0,
-    bbx: { min: { x: 0, y: 0, z: 0 }, max: { x: bw, y: bd, z: bh } },
-    originCenter: false,
-    zHome: 0,
-    autoBedLevel: true,
-    output: {
-      extLines: 3,
-      extOff: 0,
-      gcodePause: "",
-    },
-    tools: [
-      {
-        id: 0,
-        nozzleD: printer.nozzleMm ?? 0.4,
-        filamentD: 1.75,
-        extrudeMult: 1,
-        temp: 205,
-        tempBed: 60,
-      },
-    ],
-  };
-}
-
-/** Default FDM process profile pushed into the slicer (sane club defaults). */
-export const KIRI_DEFAULT_PROCESS = {
-  processName: "club-default",
-  mode: "FDM",
-  sliceHeight: 0.2,
-  sliceShells: 2,
-  sliceFillAngle: 45,
-  sliceFillSparse: 0.25,
-  sliceFillSize: 2.5,
-  sliceTopLayers: 4,
-  sliceSolidLayers: 3,
-  sliceBottomLayers: 3,
-  outputTemp: 205,
-  outputBedTemp: 60,
-  outputFeedrate: 3000,
-  outputFinishrate: 2000,
-  outputSeekrate: 3500,
-  outputFanLayer: 1,
-  firstLayerNozzleTemp: 205,
-  firstLayerBedTemp: 60,
-  firstLayerRate: 1500,
-  raftEnable: false,
-  supportEnable: false,
-  supportDensity: 0.15,
-  supportOffset: 0.8,
-  supportGap: 1,
-  supportSpan: 5,
-  supportAngle: 50,
-  supportSize: 6,
-  brimCount: 3,
-  brimOffset: 3,
-  skirtCount: 3,
-  skirtOffset: 6,
-};
-
 /** Round a "1.25"-style string stock amount minus `deltaG` grams, unit-aware. */
 function deductStockString(stock: string | undefined, unit: string | undefined, deltaG: number): string {
   const current = Number(stock ?? 0);
@@ -98,6 +19,10 @@ function deductStockString(stock: string | undefined, unit: string | undefined, 
   return String(Math.round(next * 1000) / 1000);
 }
 
+// --- Printers ---------------------------------------------------------------
+// The embedded slicer (Slicer Studio) is driven over Kiri:Moto's frame message
+// API: the client pushes the printer profile (bed size, nozzle) directly and
+// reads settings back via src/lib/kiri-process.ts.
 // --- Printers ---------------------------------------------------------------
 
 const printerFields = {
@@ -319,6 +244,55 @@ export const listJobs = query({
     return mine
       .sort((a, b) => weight[a.status] - weight[b.status] || a.createdAt - b.createdAt)
       .map((j) => ({ ...j, requesterName: users.get(j.requesterId) ?? "—" }));
+  },
+});
+
+/**
+ * Member submits a sliced part from Slicer Studio: the parsed stats and the
+ * slicer's settings snapshot ride along for the admin to review. G-code is
+ * NOT stored — it lives only in the member's browser and is downloaded
+ * locally. Filament is NOT deducted at submission/approval — only at hand-over
+ * (start of the actual print), per club policy.
+ */
+export const submitSlicedJob = mutation({
+  args: {
+    name: v.string(),
+    note: v.optional(v.string()),
+    grams: v.optional(v.number()),
+    minutes: v.optional(v.number()),
+    deviceName: v.optional(v.string()),
+    snapshot: v.optional(v.object({
+      groups: v.array(
+        v.object({
+          id: v.string(),
+          title: v.string(),
+          rows: v.array(v.object({ label: v.string(), value: v.string() })),
+        }),
+      ),
+    })),
+  },
+  handler: async (ctx, args) => {
+    const user = await requireNonStudent(ctx);
+    const jobId = await ctx.db.insert("printJobs", {
+      requesterId: user._id,
+      name: args.name,
+      details: args.note,
+      estWeightG: args.grams,
+      estMinutes: args.minutes,
+      status: "pending",
+      priority: "normal",
+      createdAt: Date.now(),
+      slicingNote: args.snapshot
+        ? JSON.stringify({ deviceName: args.deviceName, groups: args.snapshot.groups })
+        : args.deviceName,
+    });
+    await notifyAdmins(
+      ctx,
+      "print_job",
+      `🖨️ ${user.name ?? "A member"} submitted a sliced print for approval: "${args.name}"${args.grams ? ` (~${args.grams} g)` : ""}.`,
+      `/printing3d`,
+    );
+    return jobId;
   },
 });
 
