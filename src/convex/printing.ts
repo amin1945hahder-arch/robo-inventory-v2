@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import type { MutationCtx, QueryCtx } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { requireAdmin, requireNonStudent, requireUser } from "./lib";
 import { telegramDM, telegramGroup } from "./notify";
@@ -8,91 +8,87 @@ import { telegramDM, telegramGroup } from "./notify";
 // ===== 3D Print farm ========================================================
 // Printers (admin-configured machines), filament spools (material + remaining
 // weight + stock alerts) and print jobs (member requests → slicing help →
-// printer queue → printing → done with a real cost breakdown).
+// printer queue → printing → done).
 
-// --- Cost engine ------------------------------------------------------------
+// --- Kiri:Moto device profiles -------------------------------------------------
+// The embedded slicer (Slicer Studio) is driven over Kiri:Moto's frame message
+// API. Each farm printer becomes a Kiri "device" so members slice against the
+// real machine: build volume, nozzle diameter and filament diameter.
 
-// Club-wide cost knobs, stored under the settings key "printing_costs":
-//  - electricityPrice: currency per kWh
-//  - laborRate: currency per machine-hour beyond energy (depreciation + upkeep)
-type CostSettings = {
-  electricityPrice: number;
-  laborRate: number;
-};
-
-async function getCosts(ctx: QueryCtx | MutationCtx): Promise<CostSettings> {
-  const row = await ctx.db
-    .query("settings")
-    .withIndex("by_key", (q) => q.eq("key", "printing_costs"))
-    .first();
-  const fallback: CostSettings = { electricityPrice: 0.3, laborRate: 1 };
-  if (!row?.value) return fallback;
-  try {
-    const parsed = JSON.parse(row.value) as Partial<CostSettings>;
-    return {
-      electricityPrice:
-        typeof parsed.electricityPrice === "number" ? parsed.electricityPrice : fallback.electricityPrice,
-      laborRate: typeof parsed.laborRate === "number" ? parsed.laborRate : fallback.laborRate,
-    };
-  } catch {
-    return fallback;
-  }
+/** The slicer works in mm; the printer form stores build volume in cm. */
+function cmToMm(n: number): number {
+  return Math.round(n * 10);
 }
 
-/** Public read of the cost knobs (any signed-in user — the UI shows them). */
-export const getCostSettings = query({
-  args: {},
-  handler: async (ctx) => {
-    await requireUser(ctx);
-    return getCosts(ctx);
-  },
-});
-
-/** Admin updates the cost knobs. */
-export const setCostSettings = mutation({
-  args: {
-    electricityPrice: v.number(),
-    laborRate: v.number(),
-  },
-  handler: async (ctx, { electricityPrice, laborRate }) => {
-    await requireAdmin(ctx);
-    const row = await ctx.db
-      .query("settings")
-      .withIndex("by_key", (q) => q.eq("key", "printing_costs"))
-      .first();
-    const value = JSON.stringify({ electricityPrice, laborRate });
-    if (row) await ctx.db.patch(row._id, { value });
-    else await ctx.db.insert("settings", { key: "printing_costs", value });
-  },
-});
-
-/**
- * The full cost of one finished print:
- *  - filament: grams used × material price per kg ÷ 1000
- *  - energy:   printer watts × hours ÷ 1000 × electricity price
- *  - machine:  hours × machine-hour rate (depreciation + maintenance)
- */
-export function computeJobCost(input: {
-  weightG: number;
-  minutes: number;
-  powerW?: number;
-  hourRate?: number;
-  pricePerKg?: number;
-  costs: CostSettings;
-}): { filament: number; energy: number; machine: number; total: number } {
-  const hours = Math.max(0, input.minutes) / 60;
-  const filament = ((input.pricePerKg ?? 0) * input.weightG) / 1000;
-  const kwh = ((input.powerW ?? 0) * hours) / 1000;
-  const energy = kwh * input.costs.electricityPrice;
-  const machine = hours * (input.hourRate ?? input.costs.laborRate);
-  const round2 = (n: number) => Math.round(n * 100) / 100;
+/** Machine profile (Kiri:FDM device) generated from a farm printer record. */
+export function kiriDeviceFor(printer: {
+  name: string;
+  buildVolumeCm?: { w: number; d: number; h: number };
+  nozzleMm?: number;
+}) {
+  const bw = printer.buildVolumeCm ? cmToMm(printer.buildVolumeCm.w) : 220;
+  const bd = printer.buildVolumeCm ? cmToMm(printer.buildVolumeCm.d) : 220;
+  const bh = printer.buildVolumeCm ? cmToMm(printer.buildVolumeCm.h) : 250;
   return {
-    filament: round2(filament),
-    energy: round2(energy),
-    machine: round2(machine),
-    total: round2(filament + energy + machine),
+    deviceName: `${printer.name} (club)`,
+    mode: "FDM",
+    internal: 0,
+    bbx: { min: { x: 0, y: 0, z: 0 }, max: { x: bw, y: bd, z: bh } },
+    originCenter: false,
+    zHome: 0,
+    autoBedLevel: true,
+    output: {
+      extLines: 3,
+      extOff: 0,
+      gcodePause: "",
+    },
+    tools: [
+      {
+        id: 0,
+        nozzleD: printer.nozzleMm ?? 0.4,
+        filamentD: 1.75,
+        extrudeMult: 1,
+        temp: 205,
+        tempBed: 60,
+      },
+    ],
   };
 }
+
+/** Default FDM process profile pushed into the slicer (sane club defaults). */
+export const KIRI_DEFAULT_PROCESS = {
+  processName: "club-default",
+  mode: "FDM",
+  sliceHeight: 0.2,
+  sliceShells: 2,
+  sliceFillAngle: 45,
+  sliceFillSparse: 0.25,
+  sliceFillSize: 2.5,
+  sliceTopLayers: 4,
+  sliceSolidLayers: 3,
+  sliceBottomLayers: 3,
+  outputTemp: 205,
+  outputBedTemp: 60,
+  outputFeedrate: 3000,
+  outputFinishrate: 2000,
+  outputSeekrate: 3500,
+  outputFanLayer: 1,
+  firstLayerNozzleTemp: 205,
+  firstLayerBedTemp: 60,
+  firstLayerRate: 1500,
+  raftEnable: false,
+  supportEnable: false,
+  supportDensity: 0.15,
+  supportOffset: 0.8,
+  supportGap: 1,
+  supportSpan: 5,
+  supportAngle: 50,
+  supportSize: 6,
+  brimCount: 3,
+  brimOffset: 3,
+  skirtCount: 3,
+  skirtOffset: 6,
+};
 
 /** Round a "1.25"-style string stock amount minus `deltaG` grams, unit-aware. */
 function deductStockString(stock: string | undefined, unit: string | undefined, deltaG: number): string {
@@ -109,8 +105,6 @@ const printerFields = {
   model: v.optional(v.string()),
   buildVolumeCm: v.optional(v.object({ w: v.number(), d: v.number(), h: v.number() })),
   nozzleMm: v.optional(v.number()),
-  powerW: v.optional(v.number()),
-  hourRate: v.optional(v.string()),
   note: v.optional(v.string()),
 };
 
@@ -183,7 +177,6 @@ export const addMaintenance = mutation({
     printerId: v.id("printers"),
     kind: v.union(v.literal("routine"), v.literal("repair")),
     text: v.string(),
-    cost: v.optional(v.string()),
     toStatus: v.optional(
       v.union(
         v.literal("idle"),
@@ -193,13 +186,12 @@ export const addMaintenance = mutation({
       ),
     ),
   },
-  handler: async (ctx, { printerId, kind, text, cost, toStatus }) => {
+  handler: async (ctx, { printerId, kind, text, toStatus }) => {
     const admin = await requireAdmin(ctx);
     await ctx.db.insert("printerMaintenance", {
       printerId,
       kind,
       text,
-      cost,
       byUserId: admin._id,
       at: Date.now(),
     });
@@ -222,7 +214,6 @@ export const listMaintenance = query({
         _id: r._id,
         kind: r.kind,
         text: r.text,
-        cost: r.cost,
         at: r.at,
         byName: users[i]?.name ?? "—",
       }))
@@ -258,7 +249,6 @@ export const addFilament = mutation({
     colorHex: v.optional(v.string()),
     weightG: v.number(),
     remainingG: v.optional(v.string()),
-    pricePerKg: v.optional(v.string()),
     inventoryGroupId: v.optional(v.id("groups")),
     lowAtG: v.optional(v.number()),
   },
@@ -278,7 +268,6 @@ export const updateFilament = mutation({
     id: v.id("filaments"),
     colorName: v.optional(v.string()),
     colorHex: v.optional(v.string()),
-    pricePerKg: v.optional(v.string()),
     lowAtG: v.optional(v.number()),
     remainingG: v.optional(v.string()),
     inventoryGroupId: v.optional(v.id("groups")),
@@ -534,24 +523,11 @@ export const completePrint = mutation({
     if (job.status !== "printing") throw new Error("Only a printing job can be completed");
     const printer = job.printerId ? await ctx.db.get(job.printerId) : null;
     const filament = job.filamentId ? await ctx.db.get(job.filamentId) : null;
-    const costs = await getCosts(ctx);
-    const cost = computeJobCost({
-      weightG,
-      minutes,
-      powerW: printer?.powerW ?? undefined,
-      hourRate: printer?.hourRate ? Number(printer.hourRate) : undefined,
-      pricePerKg: filament?.pricePerKg ? Number(filament.pricePerKg) : undefined,
-      costs,
-    });
     await ctx.db.patch(jobId, {
       status: "done",
       finishedAt: Date.now(),
       weightG,
       minutes,
-      costFilament: cost.filament,
-      costEnergy: cost.energy,
-      costMachine: cost.machine,
-      costTotal: cost.total,
       failureNote: note,
       operatedBy: admin._id,
     });
@@ -582,11 +558,11 @@ export const completePrint = mutation({
     await telegramDM(
       ctx,
       requester ?? {},
-      `✅ "${job.name}" is done! Come pick it up. Material ${weightG} g · ${Math.round(minutes)} min · cost ${cost.total}.`,
+      `✅ "${job.name}" is done! Come pick it up. Material used: ${weightG} g · print time ${Math.round(minutes)} min.`,
     );
     await telegramGroup(
       ctx,
-      `🖨️ Print finished: ${job.name} by ${requester?.name ?? "member"} — ${weightG} g in ${Math.round(minutes)} min (cost ${cost.total}).`,
+      `🖨️ Print finished: ${job.name} by ${requester?.name ?? "member"} — ${weightG} g in ${Math.round(minutes)} min on ${printer?.name ?? "the farm"}.`,
     );
   },
 });

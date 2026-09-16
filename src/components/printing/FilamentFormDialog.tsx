@@ -25,7 +25,7 @@ import type { Doc } from "@/convex/_generated/dataModel";
 
 const MATERIALS = ["PLA", "PLA+", "PETG", "ABS", "ASA", "TPU", "Other"] as const;
 
-/** Register a filament spool, or edit stock/price/alerts on an existing one. */
+/** Register a filament spool, or edit stock/alerts on an existing one. */
 export function FilamentFormDialog({
   open,
   onOpenChange,
@@ -45,7 +45,6 @@ export function FilamentFormDialog({
   const [colorHex, setColorHex] = useState("#22d3ee");
   const [weightG, setWeightG] = useState("1000");
   const [remainingG, setRemainingG] = useState("");
-  const [pricePerKg, setPricePerKg] = useState("");
   const [lowAtG, setLowAtG] = useState("150");
   const [inventoryGroupId, setInventoryGroupId] = useState("");
   const [busy, setBusy] = useState(false);
@@ -59,7 +58,6 @@ export function FilamentFormDialog({
       setColorHex(spool.colorHex ?? "#22d3ee");
       setWeightG(String(spool.weightG));
       setRemainingG(spool.remainingG);
-      setPricePerKg(spool.pricePerKg ?? "");
       setLowAtG(spool.lowAtG !== undefined ? String(spool.lowAtG) : "");
       setInventoryGroupId(spool.inventoryGroupId ?? "");
     } else {
@@ -69,7 +67,6 @@ export function FilamentFormDialog({
       setColorHex("#22d3ee");
       setWeightG("1000");
       setRemainingG("");
-      setPricePerKg("");
       setLowAtG("150");
       setInventoryGroupId("");
     }
@@ -84,7 +81,6 @@ export function FilamentFormDialog({
           id: spool._id,
           colorName: colorName.trim(),
           colorHex: colorHex || undefined,
-          pricePerKg: pricePerKg || undefined,
           lowAtG: lowAtG ? Number(lowAtG) : undefined,
           remainingG: remainingG || undefined,
           inventoryGroupId: (inventoryGroupId || undefined) as never,
@@ -96,7 +92,6 @@ export function FilamentFormDialog({
           colorName: colorName.trim(),
           colorHex: colorHex || undefined,
           weightG: Number(weightG) || 1000,
-          pricePerKg: pricePerKg || undefined,
           lowAtG: lowAtG ? Number(lowAtG) : undefined,
           inventoryGroupId: (inventoryGroupId || undefined) as never,
         });
@@ -181,29 +176,23 @@ export function FilamentFormDialog({
               <Input id="fl-weight" value={weightG} onChange={(e) => setWeightG(e.target.value)} type="number" />
             </div>
           )}
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="grid gap-2">
-              <Label htmlFor="fl-price">Price / kg</Label>
-              <Input id="fl-price" value={pricePerKg} onChange={(e) => setPricePerKg(e.target.value)} type="number" step="0.5" placeholder="55" />
-            </div>
-            <div className="grid gap-2">
-              <Label>Inventory link (optional)</Label>
-              <Select value={inventoryGroupId || "none"} onValueChange={(v) => setInventoryGroupId(v === "none" ? "" : v)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="None" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">None</SelectItem>
-                  {groups
-                    .filter((g) => !g.deleted && g.measure && g.measure !== "count")
-                    .map((g) => (
-                      <SelectItem key={g._id} value={g._id}>
-                        {g.name} {g.measureStock ? `— ${g.measureStock} ${g.measureUnit ?? ""}` : ""}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            </div>
+          <div className="grid gap-2">
+            <Label>Inventory link (optional)</Label>
+            <Select value={inventoryGroupId || "none"} onValueChange={(v) => setInventoryGroupId(v === "none" ? "" : v)}>
+              <SelectTrigger>
+                <SelectValue placeholder="None" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                {groups
+                  .filter((g) => !g.deleted && g.measure && g.measure !== "count")
+                  .map((g) => (
+                    <SelectItem key={g._id} value={g._id}>
+                      {g.name} {g.measureStock ? `— ${g.measureStock} ${g.measureUnit ?? ""}` : ""}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 

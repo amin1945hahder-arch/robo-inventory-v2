@@ -35,8 +35,6 @@ export function PrinterFormDialog({
   const [d, setD] = useState("");
   const [h, setH] = useState("");
   const [nozzle, setNozzle] = useState("0.4");
-  const [powerW, setPowerW] = useState("120");
-  const [hourRate, setHourRate] = useState("1");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -49,8 +47,6 @@ export function PrinterFormDialog({
       setD(printer.buildVolumeCm ? String(printer.buildVolumeCm.d) : "");
       setH(printer.buildVolumeCm ? String(printer.buildVolumeCm.h) : "");
       setNozzle(printer.nozzleMm !== undefined ? String(printer.nozzleMm) : "0.4");
-      setPowerW(printer.powerW !== undefined ? String(printer.powerW) : "120");
-      setHourRate(printer.hourRate ?? "1");
       setNote(printer.note ?? "");
     } else {
       setName("");
@@ -59,8 +55,6 @@ export function PrinterFormDialog({
       setD("");
       setH("");
       setNozzle("0.4");
-      setPowerW("120");
-      setHourRate("1");
       setNote("");
     }
   }, [open, printer]);
@@ -75,8 +69,6 @@ export function PrinterFormDialog({
         buildVolumeCm:
           w && d && h ? { w: Number(w), d: Number(d), h: Number(h) } : undefined,
         nozzleMm: nozzle ? Number(nozzle) : undefined,
-        powerW: powerW ? Number(powerW) : undefined,
-        hourRate: hourRate || undefined,
         note: note.trim() || undefined,
       };
       if (printer) await updatePrinter({ id: printer._id, ...fields });
@@ -96,8 +88,8 @@ export function PrinterFormDialog({
         <DialogHeader>
           <DialogTitle>{printer ? `Configure ${printer.name}` : "Register printer"}</DialogTitle>
           <DialogDescription>
-            Machine details drive the cost engine: power draw sets energy cost, the hourly rate
-            covers depreciation and maintenance.
+            Machine configuration — build volume and nozzle are pushed into the embedded
+            slicer so members slice against the real machine.
           </DialogDescription>
         </DialogHeader>
 
@@ -130,28 +122,20 @@ export function PrinterFormDialog({
               <Input value={h} onChange={(e) => setH(e.target.value)} type="number" placeholder="H 25.6" />
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-2">
               <Label htmlFor="pr-nozzle">Nozzle (mm)</Label>
               <Input id="pr-nozzle" value={nozzle} onChange={(e) => setNozzle(e.target.value)} type="number" step="0.1" />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="pr-power">Power (W)</Label>
-              <Input id="pr-power" value={powerW} onChange={(e) => setPowerW(e.target.value)} type="number" />
+              <Label htmlFor="pr-note">Notes</Label>
+              <Input
+                id="pr-note"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="AMS unit, textured PEI plate…"
+              />
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="pr-rate">Rate / hour</Label>
-              <Input id="pr-rate" value={hourRate} onChange={(e) => setHourRate(e.target.value)} type="number" step="0.25" />
-            </div>
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="pr-note">Notes</Label>
-            <Input
-              id="pr-note"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="AMS unit, textured PEI plate…"
-            />
           </div>
         </div>
 

@@ -44,13 +44,12 @@ import { toast } from "sonner";
 import {
   Activity,
   Boxes,
-  CircleDollarSign,
   Clock,
   Cog,
   Cpu,
   EllipsisVertical,
-  Gauge,
   HardDrive,
+  Layers,
   LifeBuoy,
   Loader2,
   Package,
@@ -58,8 +57,8 @@ import {
   Printer,
   TriangleAlert,
   Wrench,
-  Zap,
 } from "lucide-react";
+import { SlicerStudio } from "@/components/printing/SlicerStudio";
 import { NewJobDialog } from "@/components/printing/NewJobDialog";
 import { ScheduleJobDialog } from "@/components/printing/ScheduleJobDialog";
 import { PrinterFormDialog } from "@/components/printing/PrinterFormDialog";
@@ -124,7 +123,6 @@ export default function Printing3D() {
   const filaments = useQuery(api.printing.listFilaments) ?? [];
   const jobs = useQuery(api.printing.listJobs) ?? [];
   const stats = useQuery(api.printing.farmStats);
-  const costs = useQuery(api.printing.getCostSettings);
 
   const startPrint = useMutation(api.printing.startPrint);
   const completePrint = useMutation(api.printing.completePrint);
@@ -134,7 +132,6 @@ export default function Printing3D() {
   const setPrinterStatus = useMutation(api.printing.setPrinterStatus);
   const deletePrinter = useMutation(api.printing.deletePrinter);
   const archiveFilament = useMutation(api.printing.archiveFilament);
-  const setCostSettings = useMutation(api.printing.setCostSettings);
   const addMaintenance = useMutation(api.printing.addMaintenance);
 
   const [newJobOpen, setNewJobOpen] = useState(false);
@@ -151,9 +148,6 @@ export default function Printing3D() {
   const [completeMinutes, setCompleteMinutes] = useState("");
   const [failJob, setFailJob] = useState<Doc<"printJobs"> | null>(null);
   const [failReason, setFailReason] = useState("");
-  const [costOpen, setCostOpen] = useState(false);
-  const [electricityPrice, setElectricityPrice] = useState("");
-  const [laborRate, setLaborRate] = useState("");
   const [busy, setBusy] = useState(false);
 
   const activeJobs = jobs.filter((j) => j.status === "printing");
@@ -172,12 +166,6 @@ export default function Printing3D() {
     } finally {
       setBusy(false);
     }
-  };
-
-  const openCostDialog = () => {
-    setElectricityPrice(costs ? String(costs.electricityPrice) : "");
-    setLaborRate(costs ? String(costs.laborRate) : "");
-    setCostOpen(true);
   };
 
   const submitMaintenance = async () => {
@@ -204,15 +192,10 @@ export default function Printing3D() {
               <Printer className="size-6 text-primary" /> 3D Print Farm
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Printers, the job queue, filament stock and real cost tracking — all in one console.
+              Printers, the job queue, filament stock and the built-in slicer — all in one console.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {isAdmin && (
-              <Button variant="outline" size="sm" onClick={openCostDialog}>
-                <CircleDollarSign className="size-4" /> Cost settings
-              </Button>
-            )}
             <Button size="sm" onClick={() => setNewJobOpen(true)}>
               <Plus className="size-4" /> New print request
             </Button>
@@ -229,9 +212,6 @@ export default function Printing3D() {
             <StatTile icon={TriangleAlert} label="Failed" value={stats.failed} danger={stats.failed > 0} />
             <StatTile icon={Boxes} label="Spools" value={stats.spools} hint="on the shelf" />
             <StatTile icon={TriangleAlert} label="Low filament" value={stats.lowFilaments} danger={stats.lowFilaments > 0} hint="below threshold" />
-            {costs && (
-              <StatTile icon={Zap} label="Energy price" value={`${costs.electricityPrice}/kWh`} hint={`machine rate ${costs.laborRate}/h`} />
-            )}
           </section>
         )}
 
@@ -240,6 +220,9 @@ export default function Printing3D() {
             <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
             <TabsTrigger value="jobs">
               Jobs {queueJobs.length > 0 && <Badge variant="secondary" className="ml-1.5 px-1.5">{queueJobs.length}</Badge>}
+            </TabsTrigger>
+            <TabsTrigger value="slicer">
+              Slicer <Layers className="ml-1.5 size-3.5" />
             </TabsTrigger>
             <TabsTrigger value="filament">
               Filament {stats && stats.lowFilaments > 0 && <span className="ml-1.5 text-amber-400">⚠</span>}
@@ -319,16 +302,6 @@ export default function Printing3D() {
                           <Badge variant="secondary" className="text-[11px]">
                             {upcoming.length} queued
                           </Badge>
-                        )}
-                        {p.powerW !== undefined && (
-                          <span className="inline-flex items-center gap-1">
-                            <Zap className="size-3" /> {p.powerW} W
-                          </span>
-                        )}
-                        {p.hourRate && (
-                          <span className="inline-flex items-center gap-1">
-                            <Gauge className="size-3" /> {p.hourRate}/h
-                          </span>
                         )}
                       </div>
                       {isAdmin && (
@@ -476,12 +449,10 @@ export default function Printing3D() {
                           {j.failureNote && ` · ${j.failureNote}`}
                         </p>
                       </div>
-                      {j.status === "done" && j.costTotal !== undefined && (
+                      {j.status === "done" && j.minutes !== undefined && (
                         <div className="shrink-0 text-right">
-                          <p className="text-sm font-semibold">{j.costTotal}</p>
-                          <p className="text-[11px] text-muted-foreground">
-                            fil {j.costFilament} · en {j.costEnergy} · mach {j.costMachine}
-                          </p>
+                          <p className="text-sm font-semibold">{Math.round(j.minutes)} min</p>
+                          <p className="text-[11px] text-muted-foreground">{j.weightG ?? "?"} g of filament</p>
                         </div>
                       )}
                     </CardContent>
@@ -489,6 +460,21 @@ export default function Printing3D() {
                 );
               })}
             </section>
+          </TabsContent>
+
+          {/* ===== Slicer tab ===== */}
+          <TabsContent value="slicer" className="flex flex-col gap-4">
+            {printers.length === 0 ? (
+              <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+                The slicer needs at least one registered printer for machine profiles — ask an admin to add one.
+              </p>
+            ) : (
+              <SlicerStudio
+                printers={printers}
+                filaments={filaments}
+                jobContext={null}
+              />
+            )}
           </TabsContent>
 
           {/* ===== Filament tab ===== */}
@@ -520,9 +506,7 @@ export default function Printing3D() {
                           <CardTitle className="truncate text-base">
                             {f.material} · {f.colorName}
                           </CardTitle>
-                          <CardDescription className="truncate">
-                            {f.brand ?? "Generic"} {f.pricePerKg && `· ${f.pricePerKg}/kg`}
-                          </CardDescription>
+                          <CardDescription className="truncate">{f.brand ?? "Generic"}</CardDescription>
                         </div>
                         {low && <Badge className="shrink-0 bg-amber-500/15 text-amber-400 text-[11px]">Low</Badge>}
                       </div>
@@ -566,7 +550,7 @@ export default function Printing3D() {
             <TabsContent value="printers" className="flex flex-col gap-4">
               <div className="flex items-center justify-between">
                 <p className="text-sm text-muted-foreground">
-                  Register machines and keep their config — power and hourly rate feed the cost engine.
+                  Register machines and keep their config — build volume and nozzle feed the embedded slicer.
                 </p>
                 <Button size="sm" onClick={() => { setPrinterForm(null); setPrinterFormOpen(true); }}>
                   <Plus className="size-4" /> Add printer
@@ -617,8 +601,6 @@ export default function Printing3D() {
                         <Badge variant="outline" className="w-fit">{meta.label}</Badge>
                         {p.buildVolumeCm && <span>Build volume {p.buildVolumeCm.w}×{p.buildVolumeCm.d}×{p.buildVolumeCm.h} cm</span>}
                         <span className="inline-flex items-center gap-1"><Cpu className="size-3" /> {p.nozzleMm ?? "?"} mm nozzle</span>
-                        <span className="inline-flex items-center gap-1"><Zap className="size-3" /> {p.powerW ?? "?"} W draw</span>
-                        <span className="inline-flex items-center gap-1"><Gauge className="size-3" /> {p.hourRate ?? costs?.laborRate ?? "1"} / machine-hour</span>
                         {p.note && <span className="mt-1 italic">{p.note}</span>}
                       </CardContent>
                     </Card>
@@ -641,19 +623,21 @@ export default function Printing3D() {
             <DialogHeader>
               <DialogTitle>Finish “{completeJob?.name}”</DialogTitle>
               <DialogDescription>
-                Confirm the real numbers — filament is deducted and the cost breakdown is computed.
+                Confirm the real numbers — the spool's remaining grams are deducted.
               </DialogDescription>
-            </DialogHeader>
-            <div className="grid grid-cols-2 gap-3 py-2">
-              <div className="grid gap-2">
-                <Label htmlFor="fin-weight">Filament used (g)</Label>
-                <Input id="fin-weight" type="number" value={completeWeight} onChange={(e) => setCompleteWeight(e.target.value)} />
+            </DialogHeader>              <div className="grid grid-cols-2 gap-3 py-2">
+                <div className="grid gap-2">
+                  <Label htmlFor="fin-weight">Filament used (g)</Label>
+                  <Input id="fin-weight" type="number" value={completeWeight} onChange={(e) => setCompleteWeight(e.target.value)} />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="fin-min">Duration (min)</Label>
+                  <Input id="fin-min" type="number" value={completeMinutes} onChange={(e) => setCompleteMinutes(e.target.value)} />
+                </div>
               </div>
-              <div className="grid gap-2">
-                <Label htmlFor="fin-min">Duration (min)</Label>
-                <Input id="fin-min" type="number" value={completeMinutes} onChange={(e) => setCompleteMinutes(e.target.value)} />
-              </div>
-            </div>
+              <p className="text-xs text-muted-foreground">
+                Filament is deducted from the spool automatically when you finish.
+              </p>
             <DialogFooter>
               <Button variant="outline" onClick={() => setCompleteJob(null)} disabled={busy}>Cancel</Button>
               <Button
@@ -667,7 +651,7 @@ export default function Printing3D() {
                         weightG: Number(completeWeight),
                         minutes: Number(completeMinutes),
                       }),
-                    "Print finished — spool and costs updated.",
+                    "Print finished — spool updated.",
                   );
                   setCompleteJob(null);
                 }}
@@ -740,42 +724,6 @@ export default function Printing3D() {
           </DialogContent>
         </Dialog>
 
-        {/* Cost settings */}
-        <Dialog open={costOpen} onOpenChange={setCostOpen}>
-          <DialogContent className="sm:max-w-sm">
-            <DialogHeader>
-              <DialogTitle>Farm cost settings</DialogTitle>
-              <DialogDescription>
-                Used for every completed print: energy = watts × hours × price, machine = hours × rate.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="grid grid-cols-2 gap-3 py-2">
-              <div className="grid gap-2">
-                <Label htmlFor="cost-elec">Electricity / kWh</Label>
-                <Input id="cost-elec" type="number" step="0.01" value={electricityPrice} onChange={(e) => setElectricityPrice(e.target.value)} />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="cost-labor">Machine rate / hour</Label>
-                <Input id="cost-labor" type="number" step="0.25" value={laborRate} onChange={(e) => setLaborRate(e.target.value)} />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setCostOpen(false)} disabled={busy}>Cancel</Button>
-              <Button
-                disabled={busy || !electricityPrice || !laborRate}
-                onClick={async () => {
-                  await act(
-                    () => setCostSettings({ electricityPrice: Number(electricityPrice), laborRate: Number(laborRate) }),
-                    "Cost settings saved.",
-                  );
-                  setCostOpen(false);
-                }}
-              >
-                Save
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </div>
     </AppShell>
   );

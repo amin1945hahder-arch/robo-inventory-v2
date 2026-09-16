@@ -488,11 +488,6 @@ const schema = defineSchema(
       ),
       // Default nozzle diameter in mm (0.4 typical).
       nozzleMm: v.optional(v.number()),
-      // Average power draw in watts while printing (cost engine input).
-      powerW: v.optional(v.number()),
-      // Cost per machine-hour beyond energy (depreciation + maintenance),
-      // stored as a string to match the app's money/measure conventions.
-      hourRate: v.optional(v.string()),
       note: v.optional(v.string()),
       deleted: v.optional(v.boolean()),
     }).index("by_status", ["status"]),
@@ -504,7 +499,6 @@ const schema = defineSchema(
       // "routine" = planned upkeep; "repair" = something broke.
       kind: v.union(v.literal("routine"), v.literal("repair")),
       text: v.string(),
-      cost: v.optional(v.string()), // parts/labor cost, e.g. "45"
       byUserId: v.id("users"),
       at: v.number(),
     }).index("by_printer", ["printerId"]),
@@ -529,8 +523,6 @@ const schema = defineSchema(
       weightG: v.number(),
       // Remaining material in grams (string to avoid float drift).
       remainingG: v.string(),
-      // Price per kg of this material, used by the cost engine.
-      pricePerKg: v.optional(v.string()),
       // Link to the club inventory group that stocks this material (e.g. the
       // "PLA filament" weight-tracked group) so stock stays in one ledger.
       inventoryGroupId: v.optional(v.id("groups")),
@@ -577,11 +569,6 @@ const schema = defineSchema(
       createdAt: v.number(),
       startedAt: v.optional(v.number()),
       finishedAt: v.optional(v.number()),
-      // Final computed cost breakdown (cost engine, all in currency units).
-      costFilament: v.optional(v.number()),
-      costEnergy: v.optional(v.number()),
-      costMachine: v.optional(v.number()),
-      costTotal: v.optional(v.number()),
       // Who ran / completed the job on the farm.
       operatedBy: v.optional(v.id("users")),
       failureNote: v.optional(v.string()),
