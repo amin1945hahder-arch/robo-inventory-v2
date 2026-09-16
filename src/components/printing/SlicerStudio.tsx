@@ -18,17 +18,18 @@ import {
   ClipboardList,
   Cog,
   Download,
-  ExternalLink,
   FileUp,
   Layers,
   Loader2,
   Printer,
   Send,
+  ShieldCheck,
   Trash2,
 } from "lucide-react";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { hasPrinterPrivilege } from "@/lib/printer-role";
 import {
   parseGcodeStats,
   snapshotFromKiri,
@@ -36,38 +37,60 @@ import {
   type GcodeStats,
   type SlicerSnapshot,
 } from "@/lib/kiri-process";
+import {
+  classifyKiriReply,
+  exportJobTransition,
+  exportTimeoutMs,
+  GET_REPLY_GRACE_MS,
+  GET_RETRY_DELAY_MS,
+  GET_RETRY_MAX,
+  kiriMsg,
+  MODEL_LOAD_EVENTS,
+  READY_EVENTS,
+  type ExportJob,
+} from "@/lib/slicer-protocol";
 
 /**
- * Slicer Studio — embeds Kiri:Moto (grid.space) full-bleed with a slim action
- * rail on the left. The slicer's own UI stays the source of truth for every
- * setting; the bridge only:
+ * Slicer Studio — embeds the self-hosted Kiri:Moto (same origin /slicer/) with
+ * a slim action rail on the left. The slicer's own UI stays the source of
+ * truth for every setting; the bridge only:
  *   • pushes the club printer profile ("Set printer")
  *   • applies material temps ("Set material")
  *   • reads everything back ("Get data") into a grouped spec readout
- *   • after a slice, pulls the G-code via Kiri's export callback — the file
- *     is held in browser memory only (downloadable), never sent to the DB.
+ *   • after slice+prepare, pulls the G-code via the export.done EVENT — the
+ *     file is held in browser memory only (downloadable), never sent to the DB.
  *     Submitting the job sends stats + settings snapshot for admin approval.
  */
 
-const KIRI_ORIGIN = "https://grid.space";
-const KIRI_URL = `${KIRI_ORIGIN}/kiri/`;
+const KIRI_URL = "/slicer/";
 
 export function SlicerStudio({
   printers,
   filaments,
+  userRole,
+  userPrinterRole,
 }: {
   printers: Doc<"printers">[];
   filaments: Doc<"filaments">[];
+  userRole?: string;
+  userPrinterRole?: boolean;
 }) {
+  const canPrint = hasPrinterPrivilege({ role: userRole, printerRole: userPrinterRole });
   const frameRef = useRef<HTMLIFrameElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const pendingGet = useRef<{ process?: Record<string, unknown>; device?: Record<string, unknown> }>({});
+  // Pending {get} replies + the timeout id of the active collection window.
+  const gotProcess = useRef<Record<string, unknown> | null>(null);
+  const gotDevice = useRef<Record<string, unknown> | null>(null);
+  const getTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const getAttempts = useRef(0);
+  const frameWin = useRef<Window | null>(null);
+  const sentModel = useRef(false);
+
   const [ready, setReady] = useState(false);
   const [busyLabel, setBusyLabel] = useState<string | null>(null);
-  const [slicing, setSlicing] = useState(false);
-  const [sliced, setSliced] = useState(false);
+  const [slicePhase, setSlicePhase] = useState<"idle" | "slicing" | "sliced">("idle");
   const [snapshot, setSnapshot] = useState<SlicerSnapshot | null>(null);
-  const [gcode, setGcode] = useState<string | null>(null);
+  const [exportJob, setExportJob] = useState<ExportJob>({ phase: "idle" });
   const [stats, setStats] = useState<GcodeStats | null>(null);
   const [deviceLabel, setDeviceLabel] = useState<string | null>(null);
   const [jobName, setJobName] = useState("");
@@ -80,72 +103,174 @@ export function SlicerStudio({
 
   const submitSlicedJob = useMutation(api.printing.submitSlicedJob);
 
+  const sliced = slicePhase === "sliced";
+  const gcode = exportJob.gcode ?? null;
+
   const send = useCallback((msg: Record<string, unknown>) => {
-    frameRef.current?.contentWindow?.postMessage(msg, KIRI_ORIGIN);
+    // Same-origin embed: the default target origin ("/") is exactly right.
+    frameWin.current?.postMessage(msg, "/");
   }, []);
 
   const addLog = useCallback((line: string) => {
     setLog((l) => [`${new Date().toLocaleTimeString()} · ${line}`, ...l].slice(0, 30));
   }, []);
 
-  // ---- inbound bridge ------------------------------------------------------
+  // ---- collect {get} replies ------------------------------------------------
+
+  const collectGetData = useCallback(() => {
+    if (!gotProcess.current && !gotDevice.current) {
+      if (getAttempts.current < GET_RETRY_MAX) {
+        getAttempts.current += 1;
+        addLog(`get retry ${getAttempts.current}/${GET_RETRY_MAX}`);
+        send(kiriMsg.getProcess());
+        send(kiriMsg.getDevice());
+        getTimer.current = setTimeout(collectGetData, GET_RETRY_DELAY_MS);
+      } else {
+        toast.error("No settings came back from the slicer — is it fully loaded?");
+        addLog("get: no data");
+      }
+      return;
+    }
+    setSnapshot(snapshotFromKiri(gotProcess.current ?? undefined, gotDevice.current ?? undefined));
+    if (gotDevice.current) {
+      const dn = (gotDevice.current as Record<string, unknown>).deviceName;
+      if (typeof dn === "string" && dn) setDeviceLabel(dn);
+    }
+    toast.success("Settings captured from the slicer.");
+    addLog("get: ok");
+  }, [addLog, send]);
+
+  const getData = () => {
+    if (!ready) {
+      toast.error("The slicer is still loading — try again in a moment.");
+      return;
+    }
+    gotProcess.current = null;
+    gotDevice.current = null;
+    getAttempts.current = 0;
+    if (getTimer.current) clearTimeout(getTimer.current);
+    send(kiriMsg.getProcess());
+    send(kiriMsg.getDevice());
+    getTimer.current = setTimeout(collectGetData, GET_REPLY_GRACE_MS);
+  };
+
+  useEffect(
+    () => () => {
+      if (getTimer.current) clearTimeout(getTimer.current);
+    },
+    [],
+  );
+
+  // ---- inbound bridge --------------------------------------------------------
+
+  // export watchdog: if export.done never arrives, stop the spinner.
+  useEffect(() => {
+    const ms = exportTimeoutMs(exportJob.phase);
+    if (exportJob.phase !== "requested" || ms <= 0) return;
+    const t = setTimeout(() => {
+      setExportJob((j) => (j.phase === "requested" ? { phase: "failed" } : j));
+      setBusyLabel(null);
+      addLog("export timed out");
+      toast.error("G-code export timed out — slice the model and try again.");
+    }, ms);
+    return () => clearTimeout(t);
+  }, [exportJob.phase, addLog]);
+
   useEffect(() => {
     const onMessage = (ev: MessageEvent) => {
-      if (ev.origin !== KIRI_ORIGIN) return;
-      const data = ev.data as Record<string, unknown> | null;
-      if (!data || typeof data !== "object") return;
+      // Same-origin only — Kiri's replies target the default origin.
+      if (ev.source !== frameWin.current) return;
+      const reply = classifyKiriReply(ev.data);
+      if (reply.kind === "unknown") return;
 
-      // replies to {get:"process"|"device"} arrive as bare {process:…}/{device:…}
-      if (data.process && !data.event) {
-        pendingGet.current.process = data.process as Record<string, unknown>;
+      if (reply.kind === "process") {
+        gotProcess.current = reply.process;
+        return;
       }
-      if (data.device && !data.event) {
-        pendingGet.current.device = data.device as Record<string, unknown>;
-        const dn = (data.device as Record<string, unknown>).deviceName;
-        if (typeof dn === "string") setDeviceLabel(dn);
+      if (reply.kind === "device") {
+        gotDevice.current = reply.device;
+        const dn = (reply.device as Record<string, unknown>).deviceName;
+        if (typeof dn === "string" && dn) setDeviceLabel(dn);
+        return;
       }
-      if (data.mode && !data.event) setReady(true);
+      if (reply.kind === "mode") {
+        // First sign of life from the slicer.
+        setReady(true);
+        return;
+      }
+      if (reply.kind !== "event") return;
+      const name = reply.event;
+      addLog(name);
 
-      if (typeof data.event === "string") {
-        const name = data.event;
-        addLog(name);
-        if (name === "load-done" || name === "init-done") {
-          setReady(true);
-          setBusyLabel(null);
-        }
-        if (name === "loaded" || name === "parsed") {
-          setBusyLabel(null);
-          toast.success("Model loaded into the slicer.");
-        }
-        if (name === "slice.done" || name === "sliced") {
-          setSlicing(false);
-          setSliced(true);
-          setBusyLabel(null);
-          toast.success("Slicing finished — press “Get G-code” to capture it.");
-        }
-        if (name === "export.done") {
-          setBusyLabel(null);
-          const payload = data.data;
-          if (typeof payload === "string" && payload.length > 0) {
-            setGcode(payload);
-            setStats(parseGcodeStats(payload));
-            toast.success("G-code captured — stored locally in your browser.");
-          } else {
-            toast.error("The slicer returned no G-code. Slice the model first.");
-          }
-        }
+      if (READY_EVENTS.has(name)) {
+        setReady(true);
+        setBusyLabel((b) => (b === "Loading Kiri:Moto…" ? null : b));
+      }
+      if (MODEL_LOAD_EVENTS.has(name)) {
+        sentModel.current = true;
+        setBusyLabel(null);
+        toast.success("Model loaded into the slicer.");
+      }
+      if (name === "slice.done") {
+        // Kiri finished slicing. Drive prepare automatically (toolpath preview)
+        // so export has the data it needs.
+        setSlicePhase((p) => (p === "slicing" ? "sliced" : p));
+        setBusyLabel(null);
+        toast.success("Slicing finished — press “Get G-code” to capture it.");
+        send(kiriMsg.prepare());
+        addLog("prepare requested");
+      }
+      if (name === "prepare.done") {
+        setBusyLabel(null);
+      }
+      if (name === "export.done") {
+        setExportJob((j) => exportJobTransition(j, { type: "export.done", payload: reply.data }));
+        setBusyLabel(null);
+      }
+      if (name === "slice.error" || name === "prepare.error" || name === "export.error" || name === "error") {
+        setSlicePhase((p) => (p === "slicing" ? "idle" : p));
+        setExportJob((j) => exportJobTransition(j, { type: "error" }));
+        setBusyLabel(null);
+        toast.error(`The slicer reported: ${name}`);
       }
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [addLog]);
+  }, [addLog, send]);
 
-  const frameLoaded = () => {
-    // Kiri posts init-done / load-done; this timer is only a fallback.
-    setTimeout(() => setReady(true), 3000);
+  // Reflect export results in UI state (single place, no race with the bridge).
+  useEffect(() => {
+    if (exportJob.phase === "done" && exportJob.gcode) {
+      setStats(parseGcodeStats(exportJob.gcode));
+      toast.success("G-code captured — stored locally in your browser.");
+    }
+    if (exportJob.phase === "failed") {
+      toast.error("The slicer returned no G-code. Slice the model first.");
+    }
+  }, [exportJob]);
+
+  const frameLoaded = (e: React.SyntheticEvent<HTMLIFrameElement>) => {
+    frameWin.current = e.currentTarget.contentWindow;
+    // Kiri won't always emit init-done before we attach; poll {get:"mode"} as a
+    // handshake. Each reply hits the "mode" branch above and flips ready.
+    let tries = 0;
+    const tick = () => {
+      if (frameRef.current?.contentWindow === frameWin.current && !readyRef.current && tries < 40) {
+        tries += 1;
+        send(kiriMsg.getMode());
+        setTimeout(tick, 500);
+      }
+    };
+    setTimeout(tick, 800);
   };
 
-  // ---- rail actions --------------------------------------------------------
+  const readyRef = useRef(ready);
+  useEffect(() => {
+    readyRef.current = ready;
+  }, [ready]);
+
+  // ---- rail actions ----------------------------------------------------------
+
   const setPrinterInKiri = () => {
     const printer = printers.find((p) => p._id === printerId);
     if (!printer) {
@@ -155,8 +280,8 @@ export function SlicerStudio({
     const bw = printer.buildVolumeCm ? Math.round(printer.buildVolumeCm.w * 10) : 220;
     const bd = printer.buildVolumeCm ? Math.round(printer.buildVolumeCm.d * 10) : 220;
     const bh = printer.buildVolumeCm ? Math.round(printer.buildVolumeCm.h * 10) : 250;
-    send({
-      device: {
+    send(
+      kiriMsg.setDevice({
         deviceName: `${printer.name} (club)`,
         bedWidth: bw,
         bedDepth: bd,
@@ -165,8 +290,8 @@ export function SlicerStudio({
         bedBelt: 0,
         extruders: [{ extFilament: 1.75, extNozzle: printer.nozzleMm ?? 0.4, extOffsetX: 0, extOffsetY: 0 }],
         gcodeTime: 1,
-      },
-    });
+      }),
+    );
     toast.success(`Machine profile “${printer.name}” set in the slicer.`);
     addLog(`device → ${printer.name}`);
   };
@@ -187,29 +312,16 @@ export function SlicerStudio({
       Other: { temp: 210, bed: 60 },
     };
     const t = temps[filament.material] ?? temps.Other;
-    send({ process: { outputTemp: t.temp, outputBedTemp: t.bed, firstLayerNozzleTemp: t.temp, firstLayerBedTemp: t.bed } });
+    send(
+      kiriMsg.setProcess({
+        outputTemp: t.temp,
+        outputBedTemp: t.bed,
+        firstLayerNozzleTemp: t.temp,
+        firstLayerBedTemp: t.bed,
+      }),
+    );
     toast.success(`Material set to ${filament.material} · ${filament.colorName} (${t.temp}°C).`);
     addLog(`material → ${filament.material}`);
-  };
-
-  const getData = () => {
-    if (!ready) {
-      toast.error("The slicer is still loading — try again in a moment.");
-      return;
-    }
-    pendingGet.current = {};
-    send({ get: "process" });
-    send({ get: "device" });
-    // Kiri replies asynchronously; small grace period before building the view.
-    setTimeout(() => {
-      const { process, device } = pendingGet.current;
-      if (!process && !device) {
-        toast.error("No settings came back from the slicer — is it fully loaded?");
-        return;
-      }
-      setSnapshot(snapshotFromKiri(process, device));
-      toast.success("Settings captured from the slicer.");
-    }, 350);
   };
 
   const pickFile = () => fileRef.current?.click();
@@ -223,9 +335,18 @@ export function SlicerStudio({
     if (!jobName.trim()) setJobName(file.name.replace(/\.[^.]+$/, ""));
     const reader = new FileReader();
     reader.onload = () => {
-      const type = /\.stl$/i.test(file.name) ? "stl" : /\.3mf$/i.test(file.name) ? "3mf" : /\.gcode$/i.test(file.name) ? "gcode" : "svg";
-      send({ parse: reader.result, type });
+      const type = /\.stl$/i.test(file.name)
+        ? "stl"
+        : /\.3mf$/i.test(file.name)
+          ? "3mf"
+          : /\.gcode$/i.test(file.name)
+            ? "gcode"
+            : "svg";
+      setSlicePhase("idle");
+      setExportJob({ phase: "idle" });
+      setStats(null);
       setBusyLabel("Loading model…");
+      send(kiriMsg.parse(reader.result, type));
     };
     if (/\.(stl|3mf|gcode)$/i.test(file.name)) reader.readAsArrayBuffer(file);
     else reader.readAsText(file);
@@ -236,13 +357,17 @@ export function SlicerStudio({
       toast.error("The slicer is still loading.");
       return;
     }
-    setSlicing(true);
-    setSliced(false);
-    setGcode(null);
+    if (!sentModel.current) {
+      toast.error("Load a model first — the slicer has nothing to slice.");
+      return;
+    }
+    setSlicePhase("slicing");
+    setExportJob({ phase: "idle" });
     setStats(null);
-    send({ function: "slice", callback: true });
-    setTimeout(() => send({ function: "prepare", callback: true }), 400);
-    addLog("slice + prepare requested");
+    // Kiri's own slice flow handles prepare internally when preview runs;
+    // slice.done (below) drives prepare for the bridge path.
+    send(kiriMsg.slice());
+    addLog("slice requested");
   };
 
   const getGcode = () => {
@@ -250,8 +375,10 @@ export function SlicerStudio({
       toast.error("Slice the model first — the G-code exists only after slicing.");
       return;
     }
+    if (exportJob.phase === "requested") return;
     setBusyLabel("Exporting G-code…");
-    send({ function: "export", callback: true });
+    setExportJob((j) => exportJobTransition(j, { type: "request" }));
+    send(kiriMsg.export());
   };
 
   const downloadGcode = () => {
@@ -265,11 +392,12 @@ export function SlicerStudio({
   };
 
   const doClear = () => {
-    send({ clear: true });
-    setSliced(false);
-    setSlicing(false);
-    setGcode(null);
+    send(kiriMsg.clear());
+    sentModel.current = false;
+    setSlicePhase("idle");
+    setExportJob({ phase: "idle" });
     setStats(null);
+    setBusyLabel(null);
   };
 
   const openSubmit = () => {
@@ -318,7 +446,8 @@ export function SlicerStudio({
     }
   };
 
-  // ---- UI ------------------------------------------------------------------
+  // ---- UI --------------------------------------------------------------------
+
   const railButton = "h-9 w-full justify-start gap-2 text-xs font-medium";
 
   return (
@@ -336,13 +465,21 @@ export function SlicerStudio({
               <CheckCircle2 className="size-3" /> sliced
             </Badge>
           )}
-          <a href={KIRI_URL} target="_blank" rel="noreferrer">
+          <a href="https://grid.space/kiri/" target="_blank" rel="noreferrer">
             <Button size="sm" variant="ghost" className="h-7 text-xs">
-              <ExternalLink className="size-3.5" /> Open full
+              Kiri docs <ExternalLinkIcon />
             </Button>
           </a>
         </div>
       </div>
+
+      {!canPrint && (
+        <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-400">
+          <ShieldCheck className="size-4 shrink-0" />
+          You can explore the slicer, but submitting prints needs the “printer”
+          privilege — request it from your profile page.
+        </div>
+      )}
 
       <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[220px_1fr]">
         {/* Action rail */}
@@ -390,8 +527,8 @@ export function SlicerStudio({
           <Button size="sm" className={railButton} onClick={pickFile} disabled={!ready}>
             <FileUp className="size-3.5" /> Load model
           </Button>
-          <Button size="sm" variant="outline" className={railButton} onClick={doSlice} disabled={!ready || slicing}>
-            {slicing ? <Loader2 className="size-3.5 animate-spin" /> : <Cog className="size-3.5" />}
+          <Button size="sm" variant="outline" className={railButton} onClick={doSlice} disabled={!ready || slicePhase === "slicing"}>
+            {slicePhase === "slicing" ? <Loader2 className="size-3.5 animate-spin" /> : <Cog className="size-3.5" />}
             Slice in Kiri
           </Button>
           <Button
@@ -399,7 +536,7 @@ export function SlicerStudio({
             variant="outline"
             className={railButton}
             onClick={getGcode}
-            disabled={!sliced || busyLabel === "Exporting G-code…"}
+            disabled={!sliced || exportJob.phase === "requested" || busyLabel === "Exporting G-code…"}
           >
             <Download className="size-3.5" /> Get G-code
           </Button>
@@ -433,7 +570,7 @@ export function SlicerStudio({
                 <Button size="sm" variant="outline" className="h-6 flex-1 px-2 text-[10px]" onClick={downloadGcode}>
                   Save file
                 </Button>
-                <Button size="sm" className="h-6 flex-1 px-2 text-[10px]" onClick={openSubmit}>
+                <Button size="sm" className="h-6 flex-1 px-2 text-[10px]" onClick={openSubmit} disabled={!canPrint}>
                   Send for approval
                 </Button>
               </div>
@@ -540,7 +677,7 @@ export function SlicerStudio({
             <Button variant="outline" onClick={() => setSubmitOpen(false)} disabled={submitting}>
               Cancel
             </Button>
-            <Button onClick={submitForApproval} disabled={submitting || !jobName.trim()}>
+            <Button onClick={submitForApproval} disabled={submitting || !jobName.trim() || !canPrint}>
               {submitting && <Loader2 className="size-4 animate-spin" />}
               <Send className="size-4" /> Send for approval
             </Button>
@@ -549,4 +686,8 @@ export function SlicerStudio({
       </Dialog>
     </div>
   );
+}
+
+function ExternalLinkIcon() {
+  return <span aria-hidden className="text-[10px]">↗</span>;
 }

@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ageFromIso, compressImageFile } from "@/lib/utils";
 import { toast } from "sonner";
-import { Camera, Github, IdCard, Loader2, LogOut, Send, ShieldCheck } from "lucide-react";
+import { Camera, Github, IdCard, Loader2, LogOut, Printer, Send, ShieldCheck } from "lucide-react";
 import { PersonBadgeDialog } from "@/components/PersonBadgeDialog";
 
 // A member can request any of the club positions — the list is admin-editable
@@ -39,6 +39,8 @@ export default function Profile() {
   const updateMyImage = useMutation(api.users.updateMyImage);
   const hasPendingRequest = useQuery(api.notifications.myPendingProfileRequest, {});
   const hasPendingRank = useQuery(api.users.myPendingRankRequest, {});
+  const hasPendingPrinter = useQuery(api.users.myPendingPrinterRequest, {});
+  const requestPrinter = useMutation(api.users.requestPrinterRole);
 
   const [name, setName] = useState(user?.name ?? "");
   const [studentId, setStudentId] = useState(user?.studentId ?? "");
@@ -52,6 +54,7 @@ export default function Profile() {
   // rank request state
   const [wantedRoles, setWantedRoles] = useState<string[]>([]);
   const [rankMsg, setRankMsg] = useState("");
+  const [printerMsg, setPrinterMsg] = useState("");
 
   // telegram username + chat id self-service
   const [tgName, setTgName] = useState(user?.telegramUsername ?? "");
@@ -80,6 +83,8 @@ export default function Profile() {
 
   const pendingMine = hasPendingRequest === true;
   const rankMine = hasPendingRank === true;
+  const printerMine = hasPendingPrinter === true;
+  const isPrinter = user?.role === "admin" || user?.printerRole === true;
 
   const toggleWanted = (r: string) => {
     setWantedRoles((prev) =>
@@ -169,6 +174,19 @@ export default function Profile() {
       toast.success("Rank request sent to the admin");
       setWantedRoles([]);
       setRankMsg("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitPrinterRequest = async () => {
+    setBusy(true);
+    try {
+      await requestPrinter({ message: printerMsg.trim() || undefined });
+      toast.success("Printer access requested — an admin will review it");
+      setPrinterMsg("");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
     } finally {
@@ -423,6 +441,44 @@ export default function Profile() {
               ? "Approval unlocks rentals, requests and packages."
               : "Profile edits are reviewed by the lab admin before they are applied."}
           </p>
+        </section>
+
+        {/* Printer privilege (stacks on any role; admins hold it implicitly) */}
+        <section className="flex flex-col gap-4 rounded-lg border p-5">
+          <div>
+            <h2 className="flex items-center gap-2 text-sm font-semibold">
+              <Printer className="size-4 text-cyan-400" /> Printer access
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              The printer privilege unlocks Slicer Studio submissions and print
+              scheduling. It stacks on any role — admins hold it implicitly.
+            </p>
+          </div>
+          {isPrinter ? (
+            <div className="flex items-center gap-2 text-sm text-emerald-400">
+              <Printer className="size-4" /> you have printer access
+            </div>
+          ) : printerMine ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <StatusBadge status="pending" /> your printer request is awaiting admin approval
+            </div>
+          ) : (
+            <>
+              <Textarea
+                value={printerMsg}
+                onChange={(e) => setPrinterMsg(e.target.value)}
+                placeholder="Why do you need printer access? (slicing experience, current project…)"
+                rows={2}
+              />
+              <Button
+                onClick={submitPrinterRequest}
+                disabled={busy}
+                className="self-start"
+              >
+                <Send className="size-4" /> Request printer access
+              </Button>
+            </>
+          )}
         </section>
 
         {/* Rank / position upgrade request */}

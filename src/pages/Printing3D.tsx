@@ -469,7 +469,12 @@ export default function Printing3D() {
                 The slicer needs at least one registered printer for machine profiles — ask an admin to add one.
               </p>
             ) : (
-              <SlicerStudio printers={printers} filaments={filaments} />
+              <SlicerStudio
+                printers={printers}
+                filaments={filaments}
+                userRole={user?.role}
+                userPrinterRole={user?.printerRole}
+              />
             )}
           </TabsContent>
 

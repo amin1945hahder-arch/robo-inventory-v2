@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { internalMutation, mutation, query } from "./_generated/server";
-import { requireAdmin, requireNonStudent, requireUser } from "./lib";
+import { hasPrinterPrivilege, requireAdmin, requireNonStudent, requirePrinter, requireUser } from "./lib";
 import { telegramDM, telegramGroup } from "./notify";
 
 // ===== 3D Print farm ========================================================
@@ -272,7 +272,7 @@ export const submitSlicedJob = mutation({
     })),
   },
   handler: async (ctx, args) => {
-    const user = await requireNonStudent(ctx);
+    const user = await requirePrinter(ctx);
     const jobId = await ctx.db.insert("printJobs", {
       requesterId: user._id,
       name: args.name,
@@ -337,7 +337,7 @@ export const createJob = mutation({
     priority: v.optional(v.union(v.literal("normal"), v.literal("high"))),
   },
   handler: async (ctx, args) => {
-    const user = await requireNonStudent(ctx);
+    const user = await requirePrinter(ctx);
     const jobId = await ctx.db.insert("printJobs", {
       requesterId: user._id,
       name: args.name,
@@ -369,7 +369,7 @@ export const createJob = mutation({
 export const requestSlicingHelp = mutation({
   args: { jobId: v.id("printJobs"), note: v.optional(v.string()) },
   handler: async (ctx, { jobId, note }) => {
-    const user = await requireNonStudent(ctx);
+    const user = await requirePrinter(ctx);
     const job = await ctx.db.get(jobId);
     if (!job) throw new Error("Job not found");
     if (job.requesterId !== user._id && user.role !== "admin")
@@ -583,6 +583,10 @@ export const cancelJob = mutation({
     const job = await ctx.db.get(jobId);
     if (!job) throw new Error("Job not found");
     const isAdmin = user.role === "admin";
+    // The requester may always cancel their own pending job; touching someone
+    // else's (or anything queued) needs the printer privilege.
+    if (job.requesterId !== user._id && !hasPrinterPrivilege(user))
+      throw new Error("Printer access required");
     if (job.requesterId !== user._id && !isAdmin) throw new Error("Not your job");
     if (!isAdmin && !["pending", "need_slicing", "slicing"].includes(job.status))
       throw new Error("Ask an admin to cancel a job that is already queued");

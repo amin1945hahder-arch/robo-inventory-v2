@@ -59,6 +59,10 @@ const schema = defineSchema(
       // change flow and applied on admin approval).
       dateOfBirth: v.optional(v.string()),
       githubUrl: v.optional(v.string()),
+
+      // "printer" is a privilege, NOT a role: it stacks on top of any role
+      // (member + printer, student + printer). Admins have it implicitly.
+      printerRole: v.optional(v.boolean()),
     })
       .index("email", ["email"]) // index for the email. do not remove or modify
       .index("by_telegram_username", ["telegramUsername"]),
@@ -341,6 +345,16 @@ const schema = defineSchema(
       userId: v.id("users"),
       kind: v.optional(v.union(v.literal("rank"), v.literal("member"))),
       requestedRoles: v.array(v.string()),
+      message: v.optional(v.string()),
+      status: v.union(v.literal("pending"), v.literal("approved"), v.literal("denied")),
+      requestedAt: v.number(),
+      decidedAt: v.optional(v.number()),
+    }).index("by_status", ["status"]),
+
+    // Member-submitted "printer" privilege requests (admin grants via the
+    // Requests console or People page; admins implicitly have the privilege).
+    printerRequests: defineTable({
+      userId: v.id("users"),
       message: v.optional(v.string()),
       status: v.union(v.literal("pending"), v.literal("approved"), v.literal("denied")),
       requestedAt: v.number(),

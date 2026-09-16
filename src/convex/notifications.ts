@@ -187,6 +187,7 @@ export const listPeople = query({
           telegramUsername: u.telegramUsername,
           membershipStatus: u.membershipStatus,
           profileApproved: u.profileApproved,
+          printerRole: u.printerRole,
         },
         activeRentals: rentals.filter((r) => r.userId === u._id && (r.status === "active" || r.status === "on_project")).length,
         pending: rentals.filter((r) => r.userId === u._id && r.status === "pending").length,

@@ -1,9 +1,15 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { internalQuery, mutation, query, QueryCtx } from "./_generated/server";
-import { requireAdmin, requireNonGuest, requireUser, safeImage } from "./lib";
+import {
+  hasPrinterPrivilege,
+  requireAdmin,
+  requireNonGuest,
+  requireUser,
+  safeImage,
+} from "./lib";
 import { emailInAdminList } from "./adminConfig";
-import { notifyTelegram } from "./notify";
+import { notifyTelegram, telegramDM } from "./notify";
 
 /**
  * Get the current signed in user. Returns null if the user is not signed in.
@@ -382,6 +388,7 @@ export const getPersonCard = query({
         telegramUsername: person.telegramUsername,
         membershipStatus: person.membershipStatus,
         profileApproved: person.profileApproved,
+        printerRole: person.printerRole,
       },
       canSeeHistory,
       isSelf: me._id === userId,
@@ -492,6 +499,162 @@ export const myPendingRankRequest = query({
     const user = await requireUser(ctx);
     const rows = await ctx.db
       .query("rankRequests")
+      .withIndex("by_status", (q) => q.eq("status", "pending"))
+      .collect();
+    return rows.some((r) => r.userId === user._id);
+  },
+});
+
+// ===== Printer privilege (stacks on any role; admins hold it implicitly) =====
+
+// Member asks the admin for the "printer" privilege (print farm access).
+export const requestPrinterRole = mutation({
+  args: { message: v.optional(v.string()) },
+  handler: async (ctx, { message }) => {
+    const user = await requireNonGuest(ctx);
+    if (hasPrinterPrivilege(user)) {
+      throw new Error("You already have printer access");
+    }
+    const mine = await ctx.db
+      .query("printerRequests")
+      .withIndex("by_status", (q) => q.eq("status", "pending"))
+      .collect();
+    if (mine.some((r) => r.userId === user._id)) {
+      throw new Error("You already have a pending printer request");
+    }
+    await ctx.db.insert("printerRequests", {
+      userId: user._id,
+      message: message?.trim() || undefined,
+      status: "pending",
+      requestedAt: Date.now(),
+    });
+    await ctx.db.insert("notifications", {
+      forRole: "admin",
+      type: "printer_request",
+      text: `${user.name ?? user.email ?? "A member"} requested printer access`,
+      link: "/admin/requests",
+    });
+  },
+});
+
+// Admin view of printer-privilege requests with the requester joined in.
+export const listPrinterRequests = query({
+  args: {
+    status: v.optional(
+      v.union(v.literal("pending"), v.literal("approved"), v.literal("denied")),
+    ),
+  },
+  handler: async (ctx, { status }) => {
+    await requireAdmin(ctx);
+    const rows = status
+      ? await ctx.db
+          .query("printerRequests")
+          .withIndex("by_status", (q) => q.eq("status", status))
+          .collect()
+      : await ctx.db.query("printerRequests").collect();
+    const out = [];
+    for (const r of rows.sort((a, b) => b.requestedAt - a.requestedAt)) {
+      const user = await ctx.db.get(r.userId);
+      out.push({
+        request: r,
+        user: user
+          ? {
+              name: user.name,
+              email: user.email,
+              image: safeImage(user.image),
+              role: user.role,
+              printerRole: user.printerRole,
+            }
+          : null,
+      });
+    }
+    return out;
+  },
+});
+
+// Admin grants or revokes the printer privilege directly (People page toggle).
+// Revocation is allowed only while the person has no queued/active prints.
+export const setPrinterRole = mutation({
+  args: { userId: v.id("users"), granted: v.boolean() },
+  handler: async (ctx, { userId, granted }) => {
+    const admin = await requireAdmin(ctx);
+    const person = await ctx.db.get(userId);
+    if (!person) throw new Error("Person not found");
+    if (!granted) {
+      const busy = await ctx.db
+        .query("printJobs")
+        .withIndex("by_requester", (q) => q.eq("requesterId", userId))
+        .collect();
+      if (busy.some((j) => ["queued", "printing"].includes(j.status))) {
+        throw new Error(
+          "This person still has queued or active prints — finish them first",
+        );
+      }
+    }
+    await ctx.db.patch(userId, { printerRole: granted || undefined });
+    // Auto-resolve their pending request (if any) to keep the console clean.
+    const mine = await ctx.db
+      .query("printerRequests")
+      .withIndex("by_status", (q) => q.eq("status", "pending"))
+      .collect();
+    for (const r of mine.filter((r) => r.userId === userId)) {
+      await ctx.db.patch(r._id, {
+        status: granted ? "approved" : "denied",
+        decidedAt: Date.now(),
+      });
+    }
+    if (userId !== admin._id) {
+      await telegramDM(
+        ctx,
+        {
+          name: person.name ?? person.email,
+          telegramChatId: person.telegramChatId,
+          telegramUsername: person.telegramUsername,
+        },
+        granted
+          ? `🖨️ ${admin.name ?? admin.email} granted you printer access — the Slicer Studio and print scheduling are unlocked.`
+          : `🖨️ ${admin.name ?? admin.email} revoked your printer access.`,
+        { name: admin.name ?? admin.email },
+      );
+    }
+  },
+});
+
+// Admin approves/denies a member's printer-privilege request.
+export const decidePrinterRequest = mutation({
+  args: { id: v.id("printerRequests"), approve: v.boolean() },
+  handler: async (ctx, { id, approve }) => {
+    const admin = await requireAdmin(ctx);
+    const req = await ctx.db.get(id);
+    if (!req || req.status !== "pending")
+      throw new Error("Request not found or already handled");
+    if (approve) {
+      await ctx.db.patch(req.userId, { printerRole: true });
+    }
+    await ctx.db.patch(id, {
+      status: approve ? "approved" : "denied",
+      decidedAt: Date.now(),
+    });
+    const user = await ctx.db.get(req.userId);
+    if (user?.telegramChatId || user?.telegramUsername) {
+      await notifyTelegram(
+        ctx,
+        approve
+          ? `🖨️ ${user.name ?? user.email} — your printer access was granted. Slicer Studio unlocked!`
+          : `ℹ️ ${user.name ?? user.email} — your printer access request was not approved this time.`,
+        user.telegramChatId,
+      );
+    }
+  },
+});
+
+// The signed-in member's own pending printer request (if any).
+export const myPendingPrinterRequest = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await requireUser(ctx);
+    const rows = await ctx.db
+      .query("printerRequests")
       .withIndex("by_status", (q) => q.eq("status", "pending"))
       .collect();
     return rows.some((r) => r.userId === user._id);

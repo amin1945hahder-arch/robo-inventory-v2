@@ -7,7 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { ageFromIso } from "@/lib/utils";
+import { printerPrivilegeLabel } from "@/lib/printer-role";
+import { Printer } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -57,6 +60,7 @@ type Person = {
     telegramUsername?: string;
     membershipStatus?: string;
     profileApproved?: boolean;
+    printerRole?: boolean;
   };
   activeRentals: number;
   pending: number;
@@ -164,11 +168,17 @@ function PersonRow({
             user.major ||
             user.telegramChatId ||
             age !== null ||
-            user.githubUrl) && (
+            user.githubUrl ||
+            user.printerRole) && (
             <div className="mt-1 flex flex-wrap items-center gap-1">
               {(user.clubRoles ?? []).map((r) => (
                 <ClubRoleChip key={r} role={r} />
               ))}
+              {user.printerRole && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-cyan-500/40 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-medium text-cyan-400">
+                  <Printer className="size-2.5" /> printer
+                </span>
+              )}
               {user.academicState && (
                 <span className="rounded-full bg-muted/60 px-2 py-0.5 text-[11px] text-muted-foreground">
                   {user.academicState}
@@ -260,6 +270,7 @@ export default function AdminPeople() {
     return [...(peopleRaw ?? [])].sort(cmp);
   }, [peopleRaw, sortKey]);
   const updateProfile = useMutation(api.users.updatePersonProfile);
+  const setPrinterRole = useMutation(api.users.setPrinterRole);
   const setMembership = useMutation(api.users.setMembershipStatus);
   const deletePerson = useMutation(api.users.deletePerson);
   const dmMember = useMutation(api.parts.adminDmMember);
@@ -275,6 +286,7 @@ export default function AdminPeople() {
 
   // edit form state
   const [editRole, setEditRole] = useState<"admin" | "member" | "student">("member");
+  const [editPrinter, setEditPrinter] = useState(false);
   const [editRoles, setEditRoles] = useState<string[]>([]);
   const [editAcademic, setEditAcademic] = useState("");
   const [editMajor, setEditMajor] = useState("");
@@ -287,6 +299,7 @@ export default function AdminPeople() {
     setEditRole(
       p.user.role === "admin" ? "admin" : p.user.role === "student" ? "student" : "member",
     );
+    setEditPrinter(p.user.printerRole === true);
     setEditRoles(p.user.clubRoles ?? []);
     setEditAcademic(p.user.academicState ?? "");
     setEditMajor(p.user.major ?? "");
@@ -299,6 +312,18 @@ export default function AdminPeople() {
     setEditRoles((prev) =>
       prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r],
     );
+  };
+
+  // Printer privilege grant/revoke is a dedicated mutation (it validates busy
+  // jobs and auto-resolves pending requests) — fired on toggle, not on save.
+  const togglePrinter = async (p: Person) => {
+    const next = !p.user.printerRole;
+    try {
+      await setPrinterRole({ userId: p.user._id as any, granted: next });
+      toast.success(next ? "Printer access granted" : "Printer access revoked");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    }
   };
 
   const submit = async () => {
@@ -574,6 +599,33 @@ export default function AdminPeople() {
                     they keep Chat, Courses and Profile access.
                   </p>
                 )}
+              </div>
+
+              <div className="grid gap-2">
+                <Label>Printer privilege</Label>
+                <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="text-sm">Slicer Studio + print scheduling</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {printerPrivilegeLabel(editing.user)} · admins hold it implicitly
+                    </p>
+                  </div>
+                  {editing.user.role === "admin" ? (
+                    <Badge variant="secondary" className="text-[11px]">implicit</Badge>
+                  ) : (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={editPrinter ? "default" : "outline"}
+                      onClick={() => {
+                        setEditPrinter((v) => !v);
+                        void togglePrinter(editing);
+                      }}
+                    >
+                      <Printer className="size-3.5" /> {editPrinter ? "Revoke" : "Grant"}
+                    </Button>
+                  )}
+                </div>
               </div>
 
               <div className="grid gap-2">

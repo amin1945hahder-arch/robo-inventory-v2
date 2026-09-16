@@ -27,7 +27,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Award, Boxes, Check, PackagePlus, RotateCcw, ScanLine, X } from "lucide-react";
+import { Award, Boxes, Check, PackagePlus, Printer, RotateCcw, ScanLine, X } from "lucide-react";
 
 type Row = {
   rental: any;
@@ -55,6 +55,8 @@ export default function AdminRequests() {
   const decideProfile = useMutation(api.notifications.decideProfileRequest);
   const rankReqs = useQuery(api.users.listRankRequests, { status: "pending" });
   const decideRank = useMutation(api.users.decideRankRequest);
+  const printerReqs = useQuery(api.users.listPrinterRequests, { status: "pending" });
+  const decidePrinter = useMutation(api.users.decidePrinterRequest);
   // Unread admin notifications: listed below the tabs, marked read when this
   // page opens (and per-row on click) so the sidebar/header bubbles decrease
   // properly instead of only clearing when every row is actioned.
@@ -320,6 +322,9 @@ export default function AdminRequests() {
             <TabsTrigger value="history">History</TabsTrigger>
             <TabsTrigger value="ranks">
               Ranks {rankReqs?.length ? `(${rankReqs.length})` : ""}
+            </TabsTrigger>
+            <TabsTrigger value="printers">
+              Printer {printerReqs?.length ? `(${printerReqs.length})` : ""}
             </TabsTrigger>
             <TabsTrigger value="profiles">
               Profiles
@@ -760,6 +765,67 @@ export default function AdminRequests() {
                         setBusyId(request._id);
                         try {
                           await decideRank({ id: request._id, approve: false });
+                          toast.success("Request denied");
+                        } catch (e) {
+                          toast.error(e instanceof Error ? e.message : "Failed");
+                        } finally {
+                          setBusyId(null);
+                        }
+                      }}
+                    >
+                      <X className="size-4" />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </TabsContent>
+
+          <TabsContent value="printers" className="mt-4">
+            {printerReqs === undefined ? (
+              <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
+            ) : printerReqs.length === 0 ? (
+              <p className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
+                No printer-access requests — members can send them from their profile page.
+              </p>
+            ) : (
+              <ul className="divide-y rounded-lg border">
+                {printerReqs.map(({ request, user }) => (
+                  <li key={request._id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                    <Printer className="size-4 shrink-0 text-cyan-400" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">
+                        {user?.name ?? user?.email ?? "(removed)"}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        requests printer access{request.message ? ` — “${request.message}”` : ""}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      disabled={busyId === request._id}
+                      onClick={async () => {
+                        setBusyId(request._id);
+                        try {
+                          await decidePrinter({ id: request._id, approve: true });
+                          toast.success("Printer access granted");
+                        } catch (e) {
+                          toast.error(e instanceof Error ? e.message : "Failed");
+                        } finally {
+                          setBusyId(null);
+                        }
+                      }}
+                    >
+                      <Check className="size-4" /> Grant
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busyId === request._id}
+                      onClick={async () => {
+                        setBusyId(request._id);
+                        try {
+                          await decidePrinter({ id: request._id, approve: false });
                           toast.success("Request denied");
                         } catch (e) {
                           toast.error(e instanceof Error ? e.message : "Failed");

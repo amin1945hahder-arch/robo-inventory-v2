@@ -83,6 +83,36 @@ export async function requireNonStudent(ctx: QueryCtx) {
 }
 
 /**
+ * "printer" privilege gate for the print farm. The privilege stacks on top of
+ * any role (member + printer, student + printer); admins hold it implicitly.
+ * Anyone can VIEW the farm; submitting sliced jobs, scheduling and running
+ * prints requires the privilege.
+ */
+export async function requirePrinter(ctx: QueryCtx) {
+  const user = await requireNonStudent(ctx);
+  if (!hasPrinterPrivilege(user)) {
+    throw new Error(
+      "Printer access required — request the printer role from your profile",
+    );
+  }
+  return user;
+}
+
+/** Shared rule: admins implicitly hold the printer privilege. */
+export function hasPrinterPrivilege(
+  user:
+    | {
+        role?: string;
+        printerRole?: boolean;
+      }
+    | null
+    | undefined,
+): boolean {
+  if (!user) return false;
+  return user.role === "admin" || user.printerRole === true;
+}
+
+/**
  * Guard for profile pictures in list/query projections.
  *
  * Avatars are base64 data URLs on user docs. A single oversized legacy image
