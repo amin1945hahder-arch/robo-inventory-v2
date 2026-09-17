@@ -567,17 +567,19 @@ const schema = defineSchema(
       // Queue position among jobs on the same printer (lower = earlier).
       queuePos: v.optional(v.number()),
       status: v.union(
-        v.literal("pending"), // waiting for admin review / slicing
+        v.literal("pending"), // waiting for review by admin or printer role
+        v.literal("approved"), // approved, waiting for scheduling/pickup of the file
+        v.literal("denied"), // reviewer declined the request
         v.literal("need_slicing"), // member asked for help slicing it
-        v.literal("slicing"), // an admin claimed the slicing task
+        v.literal("slicing"), // someone claimed the slicing task
         v.literal("queued"), // scheduled on a printer, waiting its turn
         v.literal("printing"),
-        v.literal("done"),
+        v.literal("done"), // finished AND archived for the record
         v.literal("failed"),
         v.literal("canceled"),
       ),
       priority: v.union(v.literal("normal"), v.literal("high")),
-      // Slicing help flow: request note + which admin took it.
+      // Slicing help flow: request note + who took it.
       slicingNote: v.optional(v.string()),
       slicingBy: v.optional(v.id("users")),
       createdAt: v.number(),
@@ -586,6 +588,12 @@ const schema = defineSchema(
       // Who ran / completed the job on the farm.
       operatedBy: v.optional(v.id("users")),
       failureNote: v.optional(v.string()),
+      // Approval flow: which admin/printer reviewed the request and why.
+      approvedBy: v.optional(v.id("users")),
+      denialNote: v.optional(v.string()),
+      // "done" prints stay visible in the archive strip; admins may
+      // soft-hide them from the history list entirely.
+      archivedAt: v.optional(v.number()),
     })
       .index("by_status", ["status"])
       .index("by_printer", ["printerId"])

@@ -225,14 +225,31 @@ async function notifyAdmins(ctx: MutationCtx, type: string, text: string, link?:
 
 // --- Print jobs ---------------------------------------------------------------
 
-/** Member-facing list: their own jobs; admins see everything. */
+/**
+ * Member-facing list: their own jobs; admins AND anyone holding the printer
+ * privilege see everything (they are the reviewers of the print farm).
+ */
 export const listJobs = query({
   args: {},
   handler: async (ctx) => {
     const user = await requireUser(ctx);
     const rows = await ctx.db.query("printJobs").collect();
-    const mine = user.role === "admin" ? rows : rows.filter((j) => j.requesterId === user._id);
-    const weight = { printing: 0, queued: 1, slicing: 2, need_slicing: 3, pending: 4, done: 5, failed: 6, canceled: 7 } as const;
+    const mine =
+      user.role === "admin" || hasPrinterPrivilege(user)
+        ? rows
+        : rows.filter((j) => j.requesterId === user._id);
+    const weight = {
+      printing: 0,
+      queued: 1,
+      slicing: 2,
+      need_slicing: 3,
+      pending: 4,
+      approved: 5,
+      done: 6,
+      failed: 7,
+      denied: 8,
+      canceled: 9,
+    } as const;
     const users = new Map<Id<"users">, string>();
     const names = await Promise.all(
       [...new Set(mine.map((j) => j.requesterId))].map(async (id) => {
@@ -305,6 +322,8 @@ export const farmStats = query({
     const printers = (await ctx.db.query("printers").collect()).filter((p) => !p.deleted);
     const filaments = (await ctx.db.query("filaments").collect()).filter((f) => !f.archived);
     const byStatus = (s: string) => jobs.filter((j) => j.status === s).length;
+    // "approved" jobs are waiting for slicing/file hand-over, not for review.
+    // denied requests are closed requests — reviewed, not queued.
     const lowFilaments = filaments.filter(
       (f) => f.lowAtG !== undefined && Number(f.remainingG) <= f.lowAtG,
     ).length;
@@ -312,7 +331,7 @@ export const farmStats = query({
       printers: printers.length,
       printing: printers.filter((p) => p.status === "printing").length,
       maintenance: printers.filter((p) => p.status === "maintenance").length,
-      queue: byStatus("queued") + byStatus("pending") + byStatus("need_slicing") + byStatus("slicing"),
+      queue: byStatus("queued") + byStatus("pending") + byStatus("approved") + byStatus("need_slicing") + byStatus("slicing"),
       active: byStatus("printing"),
       done: byStatus("done"),
       failed: byStatus("failed"),
@@ -321,14 +340,33 @@ export const farmStats = query({
     };
   },
 });
+/**
+ * Transient upload URL for print parts. The browser PUTs the browsed file
+ * here, relays the storage id to telegram.relayPrintFile, and the blob is
+ * deleted right after — the database tables never hold the file.
+ */
+export const generateUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requirePrinter(ctx);
+    return await ctx.storage.generateUploadUrl();
+  },
+});
 
-/** Member submits a new print request. */
+/**
+ * Member submits a new print request with a part file BROWSED from their
+ * device. Nothing about the file is stored server-side: the client relays
+ * the bytes to the print-farm Telegram group (printer archive); the request
+ * only records the file's name and size for the review trail.
+ * STL / 3MF parts should instead go through Slicer Studio (the dialog says
+ * so) — this path is primarily for ready-to-print G-code.
+ */
 export const createJob = mutation({
   args: {
     name: v.string(),
     details: v.optional(v.string()),
     fileName: v.optional(v.string()),
-    fileUrl: v.optional(v.string()),
+    fileSizeKb: v.optional(v.number()),
     estWeightG: v.optional(v.number()),
     estMinutes: v.optional(v.number()),
     // Member asks for slicing help right away (no file/unsure how to slice).
@@ -343,7 +381,6 @@ export const createJob = mutation({
       name: args.name,
       details: args.details,
       fileName: args.fileName,
-      fileUrl: args.fileUrl,
       estWeightG: args.estWeightG,
       estMinutes: args.estMinutes,
       status: args.needSlicing ? "need_slicing" : "pending",
@@ -354,14 +391,90 @@ export const createJob = mutation({
     await notifyAdmins(
       ctx,
       "print_job",
-      `🖨️ ${user.name ?? "A member"} requested a print: "${args.name}"${args.needSlicing ? " (needs slicing help)" : ""}`,
+      `🖨️ ${user.name ?? "A member"} requested a print: "${args.name}"${args.fileName ? ` (${args.fileName})` : ""}${args.needSlicing ? " (needs slicing help)" : ""} — awaiting approval.`,
       `/printing3d`,
     );
     await telegramGroup(
       ctx,
-      `🖨️ New print request: ${args.name} — from ${user.name ?? "member"}${args.needSlicing ? " · needs slicing help" : ""}`,
+      `🖨️ New print request: ${args.name} — from ${user.name ?? "member"}${args.fileName ? ` · ${args.fileName}` : ""}${args.needSlicing ? " · needs slicing help" : ""}`,
     );
     return jobId;
+  },
+});
+
+/**
+ * Approve a print request — allowed for admins AND members holding the
+ * printer privilege (per club policy both roles review the farm).
+ * The request moves to "approved" and its author is notified.
+ */
+export const approveJob = mutation({
+  args: {
+    jobId: v.id("printJobs"),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, { jobId, note }) => {
+    const reviewer = await requirePrinter(ctx);
+    const job = await ctx.db.get(jobId);
+    if (!job) throw new Error("Job not found");
+    if (job.status !== "pending" && job.status !== "need_slicing")
+      throw new Error("Only pending requests can be approved");
+    await ctx.db.patch(jobId, {
+      status: "approved",
+      approvedBy: reviewer._id,
+      denialNote: note,
+    });
+    const requester = await ctx.db.get(job.requesterId);
+    await telegramDM(
+      ctx,
+      requester ?? {},
+      `✅ Your print "${job.name}" was approved by ${reviewer.name ?? "the team"}${note ? `: ${note}` : ""}. Next: slice it in Slicer Studio (or hand the file over) and schedule it on a printer.`,
+      reviewer,
+    );
+  },
+});
+
+/** Deny a print request — same reviewer rules as approve. */
+export const denyJob = mutation({
+  args: {
+    jobId: v.id("printJobs"),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, { jobId, note }) => {
+    const reviewer = await requirePrinter(ctx);
+    const job = await ctx.db.get(jobId);
+    if (!job) throw new Error("Job not found");
+    if (job.status !== "pending" && job.status !== "need_slicing")
+      throw new Error("Only pending requests can be denied");
+    await ctx.db.patch(jobId, {
+      status: "denied",
+      finishedAt: Date.now(),
+      approvedBy: reviewer._id,
+      denialNote: note,
+    });
+    const requester = await ctx.db.get(job.requesterId);
+    await telegramDM(
+      ctx,
+      requester ?? {},
+      `❌ Your print "${job.name}" was declined by ${reviewer.name ?? "the team"}${note ? `: ${note}` : ""}. Talk to the team if you want it reconsidered.`,
+      reviewer,
+    );
+  },
+});
+
+/**
+ * Archive a finished print: hides it from the active history list (soft
+ * delete) and closes the paper trail. Reviewer rules as above.
+ */
+export const archiveJob = mutation({
+  args: { jobId: v.id("printJobs") },
+  handler: async (ctx, { jobId }) => {
+    const reviewer = await requirePrinter(ctx);
+    const job = await ctx.db.get(jobId);
+    if (!job) throw new Error("Job not found");
+    if (!["done", "failed", "canceled", "denied"].includes(job.status))
+      throw new Error("Only finished prints can be archived");
+    await ctx.db.patch(jobId, { archivedAt: Date.now() });
+    void reviewer;
   },
 });
 
@@ -386,25 +499,25 @@ export const requestSlicingHelp = mutation({
   },
 });
 
-/** Admin claims the slicing task. */
+/** Anyone with the printer privilege (or an admin) claims the slicing task. */
 export const claimSlicing = mutation({
   args: { jobId: v.id("printJobs") },
   handler: async (ctx, { jobId }) => {
-    const admin = await requireAdmin(ctx);
+    const claimer = await requirePrinter(ctx);
     const job = await ctx.db.get(jobId);
     if (!job) throw new Error("Job not found");
-    await ctx.db.patch(jobId, { status: "slicing", slicingBy: admin._id });
+    await ctx.db.patch(jobId, { status: "slicing", slicingBy: claimer._id });
     const requester = await ctx.db.get(job.requesterId);
     await telegramDM(
       ctx,
       requester ?? {},
-      `🧩 ${admin.name ?? "An admin"} took your print "${job.name}" for slicing — you'll be notified when it's scheduled.`,
-      admin,
+      `🧩 ${claimer.name ?? "A teammate"} took your print "${job.name}" for slicing — you'll be notified when it's scheduled.`,
+      claimer,
     );
   },
 });
 
-/** Admin pushes the sliced job onto a printer's queue (spool + estimates). */
+/** Reviewer (admin or printer role) pushes the job onto a printer's queue. */
 export const scheduleJob = mutation({
   args: {
     jobId: v.id("printJobs"),
@@ -414,9 +527,11 @@ export const scheduleJob = mutation({
     minutes: v.number(),
   },
   handler: async (ctx, { jobId, printerId, filamentId, weightG, minutes }) => {
-    const admin = await requireAdmin(ctx);
+    const operator = await requirePrinter(ctx);
     const job = await ctx.db.get(jobId);
     if (!job) throw new Error("Job not found");
+    if (!["approved", "pending", "need_slicing", "slicing"].includes(job.status))
+      throw new Error("Only approved jobs can be scheduled");
     const filament = await ctx.db.get(filamentId);
     if (!filament || filament.archived) throw new Error("That spool is no longer available");
     if (Number(filament.remainingG) < weightG)
@@ -435,7 +550,7 @@ export const scheduleJob = mutation({
       weightG,
       minutes,
       queuePos,
-      slicingBy: job.slicingBy ?? admin._id,
+      slicingBy: job.slicingBy ?? operator._id,
     });
     const requester = await ctx.db.get(job.requesterId);
     const printer = await ctx.db.get(printerId);
@@ -447,18 +562,18 @@ export const scheduleJob = mutation({
   },
 });
 
-/** Admin starts the next queued job on a printer (or a specific one). */
+/** Reviewer (admin or printer role) starts the next queued job. */
 export const startPrint = mutation({
   args: { jobId: v.id("printJobs") },
   handler: async (ctx, { jobId }) => {
-    const admin = await requireAdmin(ctx);
+    const operator = await requirePrinter(ctx);
     const job = await ctx.db.get(jobId);
     if (!job || !job.printerId) throw new Error("Job is not scheduled on a printer");
     if (job.status !== "queued") throw new Error("Only queued jobs can start");
     const printer = await ctx.db.get(job.printerId);
     if (printer?.status === "printing")
       throw new Error(`${printer.name} is already printing another job`);
-    await ctx.db.patch(jobId, { status: "printing", startedAt: Date.now(), operatedBy: admin._id });
+    await ctx.db.patch(jobId, { status: "printing", startedAt: Date.now(), operatedBy: operator._id });
     await ctx.db.patch(job.printerId, { status: "printing" });
     // Everyone queued behind moves up.
     const behind = await ctx.db
@@ -491,7 +606,7 @@ export const completePrint = mutation({
     note: v.optional(v.string()),
   },
   handler: async (ctx, { jobId, weightG, minutes, note }) => {
-    const admin = await requireAdmin(ctx);
+    const admin = await requirePrinter(ctx);
     const job = await ctx.db.get(jobId);
     if (!job) throw new Error("Job not found");
     if (job.status !== "printing") throw new Error("Only a printing job can be completed");
@@ -545,7 +660,7 @@ export const completePrint = mutation({
 export const failPrint = mutation({
   args: { jobId: v.id("printJobs"), reason: v.string() },
   handler: async (ctx, { jobId, reason }) => {
-    const admin = await requireAdmin(ctx);
+    const admin = await requirePrinter(ctx);
     const job = await ctx.db.get(jobId);
     if (!job) throw new Error("Job not found");
     if (!["printing", "queued"].includes(job.status))

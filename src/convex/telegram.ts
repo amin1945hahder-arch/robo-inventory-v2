@@ -2,6 +2,7 @@
 
 import { v } from "convex/values";
 import { action, internalAction } from "./_generated/server";
+import { getAuthUserId } from "@convex-dev/auth/server";
 import { api, internal } from "./_generated/api";
 
 /**
@@ -138,6 +139,102 @@ export const sendBackupFile = internalAction({
       return { sent: false, reason: `http-${res.status}` };
     }
     return { sent: true };
+  },
+});
+
+/**
+ * Relay a print part (STL or G-code) as a Telegram DOCUMENT into the
+ * print-farm archive group. The file is never stored in the database —
+ * the browser hands us base64, we forward the bytes, done. Used by the
+ * print-request flow so the printer team keeps every part on file.
+ */
+export const sendPrintFile = internalAction({
+  args: {
+    fileName: v.string(),
+    dataBase64: v.string(),
+    caption: v.optional(v.string()),
+  },
+  handler: async (ctx, { fileName, dataBase64, caption }): Promise<{ sent: boolean; reason?: string }> => {
+    const cfg = await ctx.runQuery(internal.settings.getTelegramConfigQuery, {});
+    const token: string = cfg.botToken || process.env.TELEGRAM_BOT_TOKEN || "";
+    if (!token) return { sent: false, reason: "no-bot-token" };
+    // The printer group is the archive home for parts; without one configured
+    // we fall back to the main club group so nothing is ever silently lost.
+    const target: string =
+      cfg.printerGroupChatId || cfg.clubGroupChatId || process.env.TELEGRAM_CHAT_ID || "";
+    if (!target) return { sent: false, reason: "no-printer-group-chat-id" };
+    if (cfg.notificationsOn === false) return { sent: false, reason: "disabled-in-settings" };
+
+    try {
+      const bin = atob(dataBase64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const form = new FormData();
+      form.append("chat_id", target);
+      if (caption) form.append("caption", caption.slice(0, 1024));
+      form.append("document", new Blob([bytes]), fileName);
+      const res = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, {
+        method: "POST",
+        body: form,
+      });
+      if (!res.ok) {
+        console.warn(`[telegram] sendPrintFile failed: ${res.status}`);
+        return { sent: false, reason: `http-${res.status}` };
+      }
+      return { sent: true };
+    } catch (e) {
+      console.warn("[telegram] sendPrintFile error", e);
+      return { sent: false, reason: "send-error" };
+    }
+  },
+});
+
+/**
+ * Client-callable relay for print parts. The browser uploads the browsed file
+ * to Convex TRANSIENT storage, passes the storage id here; the action streams
+ * the bytes into the print-farm Telegram group and ALWAYS deletes the blob in
+ * a finally block — the file never persists server-side and never touches the
+ * database tables. Reviewers: admins and anyone holding the printer privilege.
+ */
+export const relayPrintFile = action({
+  args: {
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+    caption: v.optional(v.string()),
+  },
+  handler: async (ctx, { storageId, fileName, caption }): Promise<{ sent: boolean; reason?: string }> => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) throw new Error("Sign in first");
+    const me = (await ctx.runQuery(internal.chatAuth.me, { userId })) as {
+      role?: string;
+      printerRole?: boolean;
+    } | null;
+    if (!me || (me.role !== "admin" && me.printerRole !== true)) {
+      throw new Error("Printer access required to relay print files");
+    }
+    try {
+      const blob = await ctx.storage.get(storageId);
+      if (!blob) return { sent: false, reason: "file-missing" };
+      const buf = new Uint8Array(await blob.arrayBuffer());
+      let b64 = "";
+      const chunk = 0x8000;
+      for (let i = 0; i < buf.length; i += chunk) {
+        b64 += String.fromCharCode(...buf.subarray(i, i + chunk));
+      }
+      const dataBase64 = btoa(b64);
+      return await ctx.runAction(internal.telegram.sendPrintFile, {
+        fileName,
+        dataBase64,
+        caption,
+      });
+    } finally {
+      // The archive copy lives in Telegram — the transient blob always goes.
+      try {
+        await ctx.storage.delete(storageId);
+      } catch (e) {
+        console.warn("[telegram] print-file blob cleanup failed", e);
+      }
+    }
   },
 });
 

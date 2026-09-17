@@ -20,6 +20,9 @@ import { requireAdmin, requireUser } from "./lib";
 export type TelegramSettings = {
   botToken: string;
   clubGroupChatId: string;
+  // Print-farm archive group: print parts (models/G-code) are posted here by
+  // the bot, never stored in the database. Falls back to the club group.
+  printerGroupChatId: string;
   notificationsOn: boolean;
 };
 
@@ -90,6 +93,7 @@ export const getTelegram = query({
       botToken: cfg.botToken ? "••••" + cfg.botToken.slice(-4) : "",
       hasToken: Boolean(cfg.botToken),
       clubGroupChatId: cfg.clubGroupChatId,
+      printerGroupChatId: cfg.printerGroupChatId ?? "",
       notificationsOn: cfg.notificationsOn,
     };
   },
@@ -100,9 +104,10 @@ export const setTelegram = mutation({
   args: {
     botToken: v.optional(v.string()),
     clubGroupChatId: v.optional(v.string()),
+    printerGroupChatId: v.optional(v.string()),
     notificationsOn: v.optional(v.boolean()),
   },
-  handler: async (ctx, { botToken, clubGroupChatId, notificationsOn }) => {
+  handler: async (ctx, { botToken, clubGroupChatId, printerGroupChatId, notificationsOn }) => {
     await requireAdmin(ctx);
     const row = await ctx.db
       .query("settings")
@@ -113,6 +118,7 @@ export const setTelegram = mutation({
       : {
           botToken: process.env.TELEGRAM_BOT_TOKEN ?? "",
           clubGroupChatId: process.env.TELEGRAM_CHAT_ID ?? "",
+          printerGroupChatId: process.env.TELEGRAM_PRINTER_CHAT_ID ?? "",
           notificationsOn: true,
         };
     const next: TelegramSettings = {
@@ -121,6 +127,10 @@ export const setTelegram = mutation({
         botToken === undefined || botToken.trim() === "" ? current.botToken : botToken.trim(),
       clubGroupChatId:
         clubGroupChatId !== undefined ? clubGroupChatId.trim() : current.clubGroupChatId,
+      printerGroupChatId:
+        printerGroupChatId !== undefined
+          ? printerGroupChatId.trim()
+          : (current.printerGroupChatId ?? ""),
       notificationsOn: notificationsOn ?? current.notificationsOn,
     };
     if (row) {
@@ -142,6 +152,7 @@ export async function getTelegramConfig(ctx: QueryCtx): Promise<TelegramSettings
   return {
     botToken: process.env.TELEGRAM_BOT_TOKEN ?? "",
     clubGroupChatId: process.env.TELEGRAM_CHAT_ID ?? "",
+    printerGroupChatId: process.env.TELEGRAM_PRINTER_CHAT_ID ?? "",
     notificationsOn: true,
   };
 }

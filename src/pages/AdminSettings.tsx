@@ -217,6 +217,7 @@ export default function AdminSettings() {
 
   const [token, setToken] = useState("");
   const [groupId, setGroupId] = useState("");
+  const [printerGroupId, setPrinterGroupId] = useState("");
   const [notificationsOn, setNotificationsOn] = useState(true);
   const [tgBusy, setTgBusy] = useState(false);
   const [testText, setTestText] = useState("");
@@ -236,6 +237,7 @@ export default function AdminSettings() {
     if (tg !== undefined && !synced) {
       setSynced(true);
       setGroupId(tg.clubGroupChatId);
+      setPrinterGroupId(tg.printerGroupChatId ?? "");
       setNotificationsOn(tg.notificationsOn);
     }
   }, [tg, synced]);
@@ -308,6 +310,19 @@ export default function AdminSettings() {
                   placeholder="e.g. -1001234567890 (add the bot to the group, then read getUpdates)"
                 />
               </div>
+              <div className="grid gap-2">
+                <Label htmlFor="tg-printer-group">Printer group chat id</Label>
+                <Input
+                  id="tg-printer-group"
+                  value={printerGroupId}
+                  onChange={(e) => setPrinterGroupId(e.target.value)}
+                  placeholder="e.g. -1009876543210 — the print-farm group where part files are archived"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Add the same bot to a second group for the 3D-printing farm. G-code parts are
+                  relayed there as the archive copy — they are never stored in the app's database.
+                </p>
+              </div>
               <div className="flex items-center justify-between rounded-md border px-3 py-2.5">
                 <div>
                   <p className="text-sm font-medium">Notifications</p>
@@ -326,6 +341,7 @@ export default function AdminSettings() {
                     await saveTg({
                       botToken: token.trim() || undefined,
                       clubGroupChatId: groupId,
+                      printerGroupChatId: printerGroupId,
                       notificationsOn,
                     });
                     setToken("");
