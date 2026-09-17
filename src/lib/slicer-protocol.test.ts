@@ -3,9 +3,14 @@ import {
   classifyKiriReply,
   exportJobTransition,
   exportTimeoutMs,
+  fileBaseName,
   kiriMsg,
   MODEL_LOAD_EVENTS,
+  planModelLoad,
   READY_EVENTS,
+  widgetFileName,
+  WIDGET_POLL_DELAY_MS,
+  WIDGET_POLL_MAX_MS,
 } from "./slicer-protocol";
 
 describe("kiriMsg wire builders", () => {
@@ -26,6 +31,10 @@ describe("kiriMsg wire builders", () => {
     expect(kiriMsg.setProcess({ outputTemp: 205 })).toEqual({ process: { outputTemp: 205 } });
     expect(kiriMsg.parse("data", "stl")).toEqual({ parse: "data", type: "stl" });
     expect(kiriMsg.clear()).toEqual({ clear: true });
+  });
+
+  it("builds the widgets ground-truth poll", () => {
+    expect(kiriMsg.getWidgets()).toEqual({ get: "widgets" });
   });
 });
 
@@ -53,6 +62,22 @@ describe("classifyKiriReply", () => {
       device: { deviceName: "Ender" },
     });
     expect(classifyKiriReply({ mode: "FDM" })).toEqual({ kind: "mode", mode: "FDM" });
+  });
+
+  it("classifies the {get:widgets} reply shape from the 4.7.3 bundle", () => {
+    // Exact shape emitted by Kiri's frame handler:
+    // { widgets: tl.all().map(Q => ({id: Q.id, meta: Q.meta, track: Q.track})) }
+    const reply = classifyKiriReply({
+      widgets: [{ id: "w1", meta: { file: "bracket.stl" }, track: 1 }],
+    });
+    expect(reply.kind).toBe("widgets");
+    if (reply.kind === "widgets") {
+      expect(widgetFileName(reply.widgets)).toBe("bracket.stl");
+    }
+    // Empty bed → classified as widgets with an empty list, no file name.
+    const empty = classifyKiriReply({ widgets: [] });
+    expect(empty.kind).toBe("widgets");
+    if (empty.kind === "widgets") expect(widgetFileName(empty.widgets)).toBeNull();
   });
 
   it("ignores non-kiri noise (app route pings, primitives)", () => {
@@ -120,5 +145,87 @@ describe("exportTimeoutMs", () => {
     expect(exportTimeoutMs("idle")).toBe(0);
     expect(exportTimeoutMs("done")).toBe(0);
     expect(exportTimeoutMs("failed")).toBe(0);
+  });
+});
+
+describe("widgetFileName", () => {
+  it("returns the first widget file name", () => {
+    expect(widgetFileName([{ id: 1, meta: { file: "a.stl" } }])).toBe("a.stl");
+    expect(widgetFileName([{ id: 1 }, { meta: { file: "b.obj" } }])).toBe("b.obj");
+  });
+
+  it("handles anonymous widgets, junk, and missing input", () => {
+    expect(widgetFileName([{ id: 1, meta: {} }])).toBeNull();
+    expect(widgetFileName([{ meta: { file: "   " } }])).toBeNull();
+    expect(widgetFileName([{ meta: { file: 42 } }])).toBeNull();
+    expect(widgetFileName([])).toBeNull();
+    expect(widgetFileName(undefined)).toBeNull();
+    expect(widgetFileName(null)).toBeNull();
+  });
+
+  it("trims surrounding whitespace", () => {
+    expect(widgetFileName([{ meta: { file: "  part v2.stl  " } }])).toBe("part v2.stl");
+  });
+});
+
+describe("fileBaseName", () => {
+  it("strips the extension", () => {
+    expect(fileBaseName("bracket_v2.stl")).toBe("bracket_v2");
+    expect(fileBaseName("no-extension")).toBe("no-extension");
+  });
+
+  it("takes only the final path segment", () => {
+    expect(fileBaseName("/models/robot/arm.stl")).toBe("arm");
+    expect(fileBaseName("C:\\\\models\\\\arm.stl")).toBe("arm");
+  });
+});
+
+describe("planModelLoad", () => {
+  it("routes every STL/3MF through Kiri's own file-input path", () => {
+    // The frame {parse:} branch is broken for binary STLs in 4.7.3 — never
+    // route binary geometry through it, even when frame support exists.
+    expect(planModelLoad({ name: "bracket.stl", isText: false, hasFrameSupport: true })).toEqual({
+      kind: "file-input",
+      fileName: "bracket.stl",
+    });
+    expect(planModelLoad({ name: "part.3mf", isText: false, hasFrameSupport: true })).toEqual({
+      kind: "file-input",
+      fileName: "part.3mf",
+    });
+  });
+
+  it("routes text gcode through the frame parse path when supported", () => {
+    expect(planModelLoad({ name: "benchy.gcode", isText: true, hasFrameSupport: true })).toEqual({
+      kind: "frame-parse",
+      fileName: "benchy.gcode",
+      type: "gcode",
+    });
+    // No frame support → fall back to the file input.
+    expect(planModelLoad({ name: "benchy.gcode", isText: true, hasFrameSupport: false })).toEqual({
+      kind: "file-input",
+      fileName: "benchy.gcode",
+    });
+  });
+
+  it("routes unknown formats to the file input", () => {
+    expect(planModelLoad({ name: "model.step", isText: false, hasFrameSupport: true })).toEqual({
+      kind: "file-input",
+      fileName: "model.step",
+    });
+  });
+});
+
+describe("widget poll constants", () => {
+  it("poll fast but never longer than 12s", () => {
+    expect(WIDGET_POLL_DELAY_MS).toBeGreaterThanOrEqual(200);
+    expect(WIDGET_POLL_DELAY_MS).toBeLessThanOrEqual(1000);
+    expect(WIDGET_POLL_MAX_MS).toBeGreaterThanOrEqual(5000);
+    expect(WIDGET_POLL_MAX_MS).toBeLessThanOrEqual(30_000);
+    expect(WIDGET_POLL_MAX_MS % WIDGET_POLL_DELAY_MS).toBe(0);
+  });
+
+  it("model load events never overlap with readiness events", () => {
+    for (const ev of MODEL_LOAD_EVENTS) expect(READY_EVENTS.has(ev)).toBe(false);
+    expect(MODEL_LOAD_EVENTS.has("slice.done")).toBe(false);
   });
 });

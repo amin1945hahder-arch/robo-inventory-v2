@@ -208,7 +208,7 @@ export function widgetFileName(widgets: KiriWidgetInfo[] | undefined | null): st
  * "bracket_v2.stl" → "bracket_v2"; also cleans URL-ish names.
  */
 export function fileBaseName(name: string): string {
-  return name.replace(/\\.[^.]+$/, "").replace(/\\/g, "/").split("/").pop() || name;
+  return name.replace(/\.[^.]+$/, "").replace(/\\/g, "/").split("/").pop() || name;
 }
 
 export type LoadAttempt =

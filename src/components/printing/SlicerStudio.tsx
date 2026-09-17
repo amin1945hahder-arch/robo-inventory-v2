@@ -94,6 +94,17 @@ export function SlicerStudio({
   const widgetsPoll = useRef<ReturnType<typeof setInterval> | null>(null);
   const widgetsDeadline = useRef<ReturnType<typeof setTimeout> | null>(null);
   const seenWidgetFile = useRef<string | null>(null);
+  const partNameRef = useRef<string | null>(null);
+  const jobNameRef = useRef<string>("");
+  const loadWatchRef = useRef<{ fileName: string } | null>(null);
+
+  useEffect(
+    () => () => {
+      if (widgetsPoll.current) clearInterval(widgetsPoll.current);
+      if (widgetsDeadline.current) clearTimeout(widgetsDeadline.current);
+    },
+    [],
+  );
 
   const [ready, setReady] = useState(false);
   const [busyLabel, setBusyLabel] = useState<string | null>(null);  const [slicePhase, setSlicePhase] = useState<"idle" | "slicing" | "sliced">("idle");
@@ -115,6 +126,13 @@ export function SlicerStudio({
   const sliced = slicePhase === "sliced";
   const gcode = exportJob.gcode ?? null;
 
+  useEffect(() => {
+    partNameRef.current = partName;
+  }, [partName]);
+  useEffect(() => {
+    jobNameRef.current = jobName;
+  }, [jobName]);
+
   const send = useCallback((msg: Record<string, unknown>) => {
     // Same-origin embed: the default target origin ("/") is exactly right.
     frameWin.current?.postMessage(msg, "/");
@@ -123,6 +141,57 @@ export function SlicerStudio({
   const addLog = useCallback((line: string) => {
     setLog((l) => [`${new Date().toLocaleTimeString()} · ${line}`, ...l].slice(0, 30));
   }, []);
+
+  /**
+   * Poll {get:"widgets"} until the bed holds a widget (or the deadline
+   * passes). Kiri's own import path emits no postMessage completion event,
+   * so polling the ground truth is the ONLY reliable load verification —
+   * works for our button AND for files imported from Kiri's own menus.
+   */
+  const clearLoadWatch = useCallback(() => {
+    if (widgetsPoll.current) clearInterval(widgetsPoll.current);
+    widgetsPoll.current = null;
+    loadWatchRef.current = null;
+  }, []);
+
+  const startLoadWatch = useCallback(
+    (fileName: string) => {
+      clearLoadWatch();
+      loadWatchRef.current = { fileName };
+      const started = Date.now();
+      widgetsPoll.current = setInterval(() => {
+        send(kiriMsg.getWidgets());
+        if (Date.now() - started > WIDGET_POLL_MAX_MS) {
+          clearLoadWatch();
+          setBusyLabel(null);
+          addLog(`load watch timeout: ${fileName}`);
+          toast.error(`The slicer never confirmed loading “${fileName}” — check the slicer view.`);
+        }
+      }, WIDGET_POLL_DELAY_MS);
+      send(kiriMsg.getWidgets());
+    },
+    [addLog, clearLoadWatch, send],
+  );
+
+  /** Load verified (or refuted) — end the watch and the busy spinner. */
+  const finishLoadWatch = useCallback(
+    (ok: boolean) => {
+      const watch = loadWatchRef.current;
+      clearLoadWatch();
+      setBusyLabel(null);
+      if (ok && watch) {
+        setSlicePhase("idle");
+        setExportJob({ phase: "idle" });
+        setStats(null);
+        addLog(`model on bed: ${watch.fileName}`);
+        toast.success(`“${watch.fileName}” is loaded in the slicer.`);
+      } else if (!ok && watch) {
+        addLog(`load failed: ${watch.fileName}`);
+      }
+    },
+    [addLog, clearLoadWatch],
+  );
+
 
   // ---- collect {get} replies ------------------------------------------------
 
@@ -199,7 +268,7 @@ export function SlicerStudio({
           setPartName((prev) => (prev === name ? prev : name));
           if (!jobNameRef.current) setJobName(fileBaseName(name));
           // Any widgets on the bed → model load verified.
-          finishLoadWatch(true);
+          if (loadWatchRef.current) finishLoadWatch(true);
         }
         return;
       }
@@ -231,10 +300,9 @@ export function SlicerStudio({
       }
       if (MODEL_LOAD_EVENTS.has(name)) {
         // Events only fire for the frame parse/load path; Kiri's own import
-        // emits none — widget polling is the universal verification.
-        finishLoadWatch(true);
-        setBusyLabel(null);
-        toast.success("Model loaded into the slicer.");
+        // emits none — widget polling is the universal verification. The
+        // widgets reply arrives a beat later and finishes the watch.
+        send(kiriMsg.getWidgets());
       }
       if (name === "parse.error" || name === "load.error") {
         finishLoadWatch(false);
@@ -266,7 +334,7 @@ export function SlicerStudio({
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [addLog, send]);
+  }, [addLog, finishLoadWatch, jobNameRef, send]);
 
   // Reflect export results in UI state (single place, no race with the bridge).
   useEffect(() => {
@@ -375,30 +443,44 @@ export function SlicerStudio({
 
   const pickFile = () => fileRef.current?.click();
 
+  /**
+   * Load a part the way Kiri itself does. Its frame `{parse:}` branch is
+   * broken for binary STLs (Float32Array re-wrap throws; a callback is passed
+   * where the unit-scale belongs), but Kiri's own import path
+   * (`platform.load_files` via its hidden #load-file input) parses every
+   * format correctly with unit scaling + auto-layout. We drive that input
+   * with a DataTransfer; the widgets poll then verifies the model landed.
+   */
   const onFile = (file: File | undefined) => {
     if (!file) return;
-    if (!/\.(stl|3mf|gcode|svg)$/i.test(file.name)) {
-      toast.error("Kiri:Moto accepts STL, 3MF, GCODE and SVG files.");
+    if (!/\.(stl|obj|3mf|gcode|svg|dxf)$/i.test(file.name)) {
+      toast.error("Kiri:Moto accepts STL, OBJ, 3MF, GCODE, SVG and DXF files.");
       return;
     }
     if (!jobName.trim()) setJobName(file.name.replace(/\.[^.]+$/, ""));
-    const reader = new FileReader();
-    reader.onload = () => {
-      const type = /\.stl$/i.test(file.name)
-        ? "stl"
-        : /\.3mf$/i.test(file.name)
-          ? "3mf"
-          : /\.gcode$/i.test(file.name)
-            ? "gcode"
-            : "svg";
-      setSlicePhase("idle");
-      setExportJob({ phase: "idle" });
-      setStats(null);
-      setBusyLabel("Loading model…");
-      send(kiriMsg.parse(reader.result, type));
-    };
-    if (/\.(stl|3mf|gcode)$/i.test(file.name)) reader.readAsArrayBuffer(file);
-    else reader.readAsText(file);
+    const win = frameRef.current?.contentWindow;
+    const input = win?.document.getElementById("load-file") as HTMLInputElement | null;
+    if (!win || !input) {
+      toast.error("The slicer is not fully loaded yet — try again in a moment.");
+      return;
+    }
+    setSlicePhase("idle");
+    setExportJob({ phase: "idle" });
+    setStats(null);
+    setBusyLabel(`Loading ${file.name}…`);
+    startLoadWatch(file.name);
+    try {
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      input.files = dt.files;
+      input.dispatchEvent(new Event("change", { bubbles: false }));
+      addLog(`load → ${file.name} (kiri import path)`);
+    } catch {
+      // Very old browsers without DataTransfer — fall back to a manual click
+      // of Kiri's input so the user can pick the file in its own dialog.
+      addLog("DataTransfer unavailable — opening Kiri's import dialog");
+      input.click();
+    }
   };
 
   const doSlice = () => {
@@ -406,15 +488,15 @@ export function SlicerStudio({
       toast.error("The slicer is still loading.");
       return;
     }
-    if (!sentModel.current) {
+    if (!partName) {
       toast.error("Load a model first — the slicer has nothing to slice.");
       return;
     }
     setSlicePhase("slicing");
     setExportJob({ phase: "idle" });
     setStats(null);
-    // Kiri's own slice flow handles prepare internally when preview runs;
-    // slice.done (below) drives prepare for the bridge path.
+    // Kiri's slice flow handles its own prepare/preview internally — we only
+    // send {function:slice} and wait for slice.done (no second prepare).
     send(kiriMsg.slice());
     addLog("slice requested");
   };
@@ -442,7 +524,9 @@ export function SlicerStudio({
 
   const doClear = () => {
     send(kiriMsg.clear());
-    sentModel.current = false;
+    clearLoadWatch();
+    seenWidgetFile.current = null;
+    setPartName(null);
     setSlicePhase("idle");
     setExportJob({ phase: "idle" });
     setStats(null);
@@ -507,6 +591,11 @@ export function SlicerStudio({
           <span className="text-sm font-semibold">Slicer Studio</span>
           <Badge variant="outline" className="text-[11px]">Kiri:Moto · embedded</Badge>
           {deviceLabel && <Badge variant="secondary" className="text-[11px]">{deviceLabel}</Badge>}
+          {partName && (
+            <Badge className="border-cyan-500/40 bg-cyan-500/10 text-[11px] text-cyan-300" variant="outline">
+              <Layers className="size-3" /> {partName}
+            </Badge>
+          )}
         </div>
         <div className="flex items-center gap-1.5">
           {sliced && (
