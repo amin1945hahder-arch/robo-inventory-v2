@@ -87,8 +87,7 @@ export function SlicerStudio({
   const sentModel = useRef(false);
 
   const [ready, setReady] = useState(false);
-  const [busyLabel, setBusyLabel] = useState<string | null>(null);
-  const [slicePhase, setSlicePhase] = useState<"idle" | "slicing" | "sliced">("idle");
+  const [busyLabel, setBusyLabel] = useState<string | null>(null);  const [slicePhase, setSlicePhase] = useState<"idle" | "slicing" | "sliced">("idle");
   const [snapshot, setSnapshot] = useState<SlicerSnapshot | null>(null);
   const [exportJob, setExportJob] = useState<ExportJob>({ phase: "idle" });
   const [stats, setStats] = useState<GcodeStats | null>(null);
@@ -185,12 +184,15 @@ export function SlicerStudio({
 
       if (reply.kind === "process") {
         gotProcess.current = reply.process;
+        // Any structured reply proves the slicer booted — flip ready.
+        setReady(true);
         return;
       }
       if (reply.kind === "device") {
         gotDevice.current = reply.device;
         const dn = (reply.device as Record<string, unknown>).deviceName;
         if (typeof dn === "string" && dn) setDeviceLabel(dn);
+        setReady(true);
         return;
       }
       if (reply.kind === "mode") {
@@ -253,12 +255,19 @@ export function SlicerStudio({
     frameWin.current = e.currentTarget.contentWindow;
     // Kiri won't always emit init-done before we attach; poll {get:"mode"} as a
     // handshake. Each reply hits the "mode" branch above and flips ready.
+    // 120 tries × 500ms = 60s: the 4.7.3 bundle is big and a cold cache can
+    // legitimately take a while to finish booting inside the frame.
     let tries = 0;
     const tick = () => {
-      if (frameRef.current?.contentWindow === frameWin.current && !readyRef.current && tries < 40) {
+      if (frameRef.current?.contentWindow === frameWin.current && !readyRef.current && tries < 120) {
         tries += 1;
         send(kiriMsg.getMode());
         setTimeout(tick, 500);
+      } else if (!readyRef.current && tries >= 120) {
+        // Never leave the user on an infinite spinner — uncover the frame so
+        // they can use the slicer's own UI even if the handshake never lands.
+        setReady(true);
+        addLog("handshake timed out — exposing slicer anyway");
       }
     };
     setTimeout(tick, 800);
@@ -268,6 +277,18 @@ export function SlicerStudio({
   useEffect(() => {
     readyRef.current = ready;
   }, [ready]);
+
+  // Watchdog: no busy label should ever spin for more than 90s. Kiri boots
+  // slower than expected on cold caches, but 90s without a reply means the
+  // reply was missed — clear the spinner instead of looping forever.
+  useEffect(() => {
+    if (!busyLabel) return;
+    const t = setTimeout(() => {
+      setBusyLabel((b) => (b === busyLabel ? null : b));
+      addLog(`busy timeout: ${busyLabel}`);
+    }, 90_000);
+    return () => clearTimeout(t);
+  }, [busyLabel, addLog]);
 
   // ---- rail actions ----------------------------------------------------------
 
@@ -605,6 +626,20 @@ export function SlicerStudio({
             allow="clipboard-write; fullscreen"
             onLoad={frameLoaded}
           />
+          {/* Escape hatch: never trap the user behind an infinite spinner —
+              the slicer below is often usable even if our handshake missed. */}
+          {!ready && (
+            <button
+              type="button"
+              onClick={() => {
+                setReady(true);
+                addLog("overlay dismissed manually");
+              }}
+              className="absolute bottom-3 left-1/2 z-20 -translate-x-1/2 rounded-md border border-zinc-600 bg-zinc-900/90 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:border-zinc-400 hover:text-zinc-100"
+            >
+              Taking too long? Open the slicer anyway
+            </button>
+          )}
         </div>
       </div>
 
