@@ -36,6 +36,7 @@ export const kiriMsg = {
   setProcess: (process: Record<string, unknown>): KiriFrameMessage => ({ process }),
   parse: (data: unknown, type: string): KiriFrameMessage => ({ parse: data, type }),
   load: (url: string): KiriFrameMessage => ({ load: url }),
+  getWidgets: (): KiriFrameMessage => ({ get: "widgets" }),
   clear: (): KiriFrameMessage => ({ clear: true }),
   slice: (): KiriFrameMessage => ({ function: "slice", callback: true }),
   prepare: (): KiriFrameMessage => ({ function: "prepare", callback: true }),
@@ -59,7 +60,11 @@ export type KiriReply =
   | { kind: "process"; process: Record<string, unknown> }
   | { kind: "device"; device: Record<string, unknown> }
   | { kind: "mode"; mode: unknown }
+  | { kind: "widgets"; widgets: KiriWidgetInfo[] }
   | { kind: "unknown" };
+
+/** Shape of one entry in a `{get:"widgets"}` reply (id + meta.file). */
+export type KiriWidgetInfo = { id?: string | number; meta?: { file?: unknown } };
 
 /**
  * Classify a postMessage arriving FROM the kiri frame. {get} replies are bare
@@ -78,6 +83,9 @@ export function classifyKiriReply(data: unknown): KiriReply {
   if (d.process && typeof d.process === "object") {
     return { kind: "process", process: d.process as Record<string, unknown> };
   }
+  if (Array.isArray(d.widgets)) {
+    return { kind: "widgets", widgets: d.widgets as KiriWidgetInfo[] };
+  }
   if (d.device && typeof d.device === "object") {
     return { kind: "device", device: d.device as Record<string, unknown> };
   }
@@ -92,6 +100,9 @@ export function classifyKiriReply(data: unknown): KiriReply {
  * "Loading model…" busy state even when Kiri's own UI stays quiet.
  */
 export const MODEL_LOAD_EVENTS = new Set(["parsed", "loaded", "load-done"]);
+
+/** Names Kiri emits when a model file fails to parse/load. */
+export const MODEL_LOAD_ERROR_EVENTS = new Set(["parse.error", "load.error", "error"]);
 
 /**
  * Names that mean "the slicer is alive" — the first of these flips the
@@ -167,3 +178,63 @@ export const GET_REPLY_GRACE_MS = 600;
 export const GET_RETRY_MAX = 3;
 
 export const GET_RETRY_DELAY_MS = 700;
+
+// ---- model-load verification -----------------------------------------------
+
+/**
+ * How often to poll `{get:"widgets"}` after a load attempt, and for how long
+ * total, before declaring the model absent. Kiri's own import path emits no
+ * completion event we can catch, so polling is the only reliable signal.
+ */
+export const WIDGET_POLL_DELAY_MS = 400;
+export const WIDGET_POLL_MAX_MS = 12_000;
+
+/**
+ * Extract the file name of the (first) widget currently on the bed.
+ * Kiri sets `meta.file` for files imported from disk; anonymous/converted
+ * widgets may lack it. Returns null when the bed is empty.
+ */
+export function widgetFileName(widgets: KiriWidgetInfo[] | undefined | null): string | null {
+  if (!Array.isArray(widgets)) return null;
+  for (const w of widgets) {
+    const f = w?.meta?.file;
+    if (typeof f === "string" && f.trim()) return f.trim();
+  }
+  return null;
+}
+
+/**
+ * Strip an extension from a file name for use as a job name.
+ * "bracket_v2.stl" → "bracket_v2"; also cleans URL-ish names.
+ */
+export function fileBaseName(name: string): string {
+  return name.replace(/\\.[^.]+$/, "").replace(/\\/g, "/").split("/").pop() || name;
+}
+
+export type LoadAttempt =
+  | { kind: "file-input"; fileName: string }
+  | { kind: "frame-parse"; fileName: string; type: string }
+  | { kind: "frame-url"; fileName: string };
+
+/**
+ * Plan how to load a model file into the embedded Kiri frame, safest first.
+ *
+ * The frame handler's `{parse: type:"stl"}` branch is broken in Kiri 4.7.3:
+ * it re-wraps binary payloads with `new Float32Array(...)` (throws for most
+ * binary STLs — the byte length 84+50n is rarely a multiple of 4) and passes
+ * its done-callback where the unit-scale number belongs, producing NaN
+ * vertices when it does not throw. Kiri's own import path (its hidden
+ * load-file input) parses every format correctly, so we always prefer that.
+ */
+export function planModelLoad(file: {
+  name: string;
+  isText: boolean;
+  hasFrameSupport: boolean;
+}): LoadAttempt {
+  const ext = file.name.slice(file.name.lastIndexOf(".") + 1).toLowerCase();
+  // Only gcode is safe through the frame parse path (text → function.parse).
+  if (file.hasFrameSupport && ext === "gcode" && file.isText) {
+    return { kind: "frame-parse", fileName: file.name, type: "gcode" };
+  }
+  return { kind: "file-input", fileName: file.name };
+}
