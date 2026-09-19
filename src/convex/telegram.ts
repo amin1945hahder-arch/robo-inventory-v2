@@ -187,13 +187,23 @@ export const sendBackupFile = internalAction({
     dataBase64: v.string(),
     caption: v.optional(v.string()),
     // "group" = club group (or an explicit chatId), "dm" = the caller's own chat
-    mode: v.union(v.literal("group"), v.literal("dm")),
+    mode: v.optional(v.union(v.literal("group"), v.literal("dm"))),
     chatId: v.optional(v.string()),
+    // Which bot identity delivers the file (default: the APP BOT).
+    bot: v.optional(v.union(v.literal("app"), v.literal("printer"))),
+    // Optional forum topic inside the destination group.
+    threadId: v.optional(v.number()),
   },
-  handler: async (ctx, { fileName, dataBase64, caption, mode, chatId }) => {
+  handler: async (ctx, { fileName, dataBase64, caption, mode, chatId, bot, threadId }) => {
+    const which = bot ?? "app";
     const cfg = await ctx.runQuery(internal.settings.getTelegramConfigQuery, {});
-    const token: string = cfg.botToken || process.env.TELEGRAM_BOT_TOKEN || "";
-    if (!token) return { sent: false, reason: "no-bot-token" };
+    const identity = botIdentity(cfg, which);
+    const envToken =
+      which === "printer" ? process.env.TELEGRAM_PRINTER_BOT_TOKEN : process.env.TELEGRAM_BOT_TOKEN;
+    const envGroup =
+      which === "printer" ? process.env.TELEGRAM_PRINTER_CHAT_ID : process.env.TELEGRAM_CHAT_ID;
+    const token: string = identity.token || envToken || "";
+    if (!token) return { sent: false, reason: `no-bot-token-${which}` };
 
     let target = "";
     if (mode === "dm") {
@@ -201,7 +211,7 @@ export const sendBackupFile = internalAction({
       target = me?.telegramChatId ?? "";
       if (!target) return { sent: false, reason: "caller-has-no-telegram-chat" };
     } else {
-      target = chatId || cfg.clubGroupChatId || process.env.TELEGRAM_CHAT_ID || "";
+      target = chatId || identity.groupId || envGroup || "";
     }
     if (!target) return { sent: false, reason: "no-chat-id" };
 
@@ -211,6 +221,7 @@ export const sendBackupFile = internalAction({
     const form = new FormData();
     form.append("chat_id", target);
     if (caption) form.append("caption", caption.slice(0, 1024));
+    if (threadId) form.append("message_thread_id", String(threadId));
     form.append("document", new Blob([bytes]), fileName);
     const res = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, {
       method: "POST",

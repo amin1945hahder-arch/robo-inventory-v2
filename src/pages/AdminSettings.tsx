@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import {
   Bell,
   Boxes,
+  DatabaseBackup,
   Hash,
   Loader2,
   MessageSquare,
@@ -115,6 +116,190 @@ function ListEditor({
         </Button>
       </div>
     </div>
+  );
+}
+
+/** Data backup: schedule + manual "Backup now" (full .zip to the APP group). */
+function DataBackupSection() {
+  const backupSettings = useQuery(api.appBackup.getBackupSettings, {});
+  const appTopics = useQuery(api.telegramTopics.listTopics, { bot: "app" });
+  const saveSettings = useMutation(api.appBackup.setBackupSettings);
+  const backupNow = useAction(api.appBackup.backupNow);
+
+  const [enabled, setEnabled] = useState(false);
+  const [dayOfMonth, setDayOfMonth] = useState("1");
+  const [threadId, setThreadId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [backingUp, setBackingUp] = useState(false);
+
+  useEffect(() => {
+    if (backupSettings !== undefined) {
+      setEnabled(backupSettings.enabled);
+      setDayOfMonth(String(backupSettings.dayOfMonth || 1));
+      setThreadId(backupSettings.threadId ? String(backupSettings.threadId) : "");
+    }
+  }, [backupSettings]);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const d = Number(dayOfMonth);
+      await saveSettings({
+        enabled,
+        dayOfMonth: Number.isFinite(d) ? d : 1,
+        threadId: threadId.trim() ? Number(threadId) : undefined,
+      });
+      toast.success("Backup schedule saved");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runBackup = async () => {
+    setBackingUp(true);
+    try {
+      const res = await backupNow({});
+      if (res.sent) {
+        toast.success(
+          `Backup sent to the APP group ✅ ${res.fileName} (${Math.round(res.bytes / 1024)} KB)`,
+        );
+      } else {
+        toast.error(`Backup not sent: ${res.reason ?? "unknown"}`);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Backup failed");
+    } finally {
+      setBackingUp(false);
+    }
+  };
+
+  return (
+    <section className="flex flex-col gap-4 rounded-lg border p-5">
+      <div>
+        <h2 className="flex items-center gap-2 text-sm font-semibold">
+          <DatabaseBackup className="size-4" /> Full data backup
+        </h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Zips the entire app database — one CSV per table (like the Export studio) plus a
+          structured <code>data.json</code> and a <code>schema.sql</code> any SQL engine can import
+          — and posts the archive into the APP group. Bot tokens are redacted; device login tokens
+          and chat relay rows are never included.
+        </p>
+      </div>
+
+      {backupSettings === undefined ? (
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" /> Loading backup settings…
+        </p>
+      ) : (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {/* Schedule */}
+            <div className="grid gap-3 rounded-lg border p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                Auto-backup schedule
+              </p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Enable schedule</p>
+                  <p className="text-xs text-muted-foreground">Run automatically every month</p>
+                </div>
+                <Switch checked={enabled} onCheckedChange={setEnabled} />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="backup-day" className="text-xs">
+                  Day of the month (1–28, UTC)
+                </Label>
+                <Input
+                  id="backup-day"
+                  type="number"
+                  min={1}
+                  max={28}
+                  value={dayOfMonth}
+                  onChange={(e) => setDayOfMonth(e.target.value)}
+                  className="max-w-32"
+                  disabled={!enabled}
+                />
+              </div>
+            </div>
+
+            {/* Destination */}
+            <div className="grid gap-3 rounded-lg border p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+                Destination — APP group topic
+              </p>
+              <div className="grid gap-1.5">
+                <Label htmlFor="backup-topic" className="text-xs">
+                  Topic id (from APP topics)
+                </Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {(appTopics ?? []).map((t) => (
+                    <button
+                      key={t._id}
+                      type="button"
+                      onClick={() => setThreadId(String(t.threadId))}
+                      className={cn(
+                        "rounded-full border px-2.5 py-1 text-[11px] transition-colors",
+                        threadId === String(t.threadId)
+                          ? "border-primary/60 bg-primary/15 text-primary"
+                          : "border-border bg-muted/40 text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {t.name} ({t.threadId})
+                    </button>
+                  ))}
+                  {appTopics !== undefined && appTopics.length === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      No APP topics configured yet — the backup will land in the group's General
+                      chat. Add topics in the “APP topics” tab.
+                    </p>
+                  )}
+                </div>
+                <Input
+                  id="backup-topic"
+                  value={threadId}
+                  onChange={(e) => setThreadId(e.target.value)}
+                  inputMode="numeric"
+                  placeholder="e.g. 42 — empty = General chat"
+                />
+              </div>
+            </div>
+          </div>
+
+          <Button className="self-start" disabled={busy} onClick={save}>
+            {busy ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+            Save backup settings
+          </Button>
+
+          <div className="flex flex-col gap-2 rounded-md border border-dashed p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-medium">Backup now</p>
+                <p className="text-xs text-muted-foreground">
+                  Build the archive and send it immediately — same pipeline as the schedule.
+                </p>
+              </div>
+              <Button disabled={backingUp} onClick={runBackup}>
+                {backingUp ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <DatabaseBackup className="size-4" />
+                )}
+                Backup now
+              </Button>
+            </div>
+            {backupSettings.lastRunAt && (
+              <p className="text-xs text-muted-foreground">
+                Last scheduled run: {new Date(backupSettings.lastRunAt).toLocaleString()} —{" "}
+                {backupSettings.lastResult ?? "unknown result"}
+              </p>
+            )}
+          </div>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -567,6 +752,7 @@ type SectionId =
   | "telegram"
   | "topics-app"
   | "topics-printer"
+  | "backup"
   | "sounds"
   | "returns"
   | "lists"
@@ -577,6 +763,7 @@ const SECTIONS: { id: SectionId; label: string; icon: typeof Hash; hint: string 
   { id: "telegram", label: "Bots & groups", icon: MessageSquare, hint: "Two bots, two groups" },
   { id: "topics-app", label: "APP topics", icon: Hash, hint: "Route notifications to topics" },
   { id: "topics-printer", label: "Printer topics", icon: Printer, hint: "Print-farm topic routing" },
+  { id: "backup", label: "Data backup", icon: DatabaseBackup, hint: "Full .zip to the APP group" },
   { id: "sounds", label: "My sounds", icon: Volume2, hint: "Your personal tones" },
   { id: "returns", label: "Return rules", icon: Bell, hint: "Return-request cooldown" },
   { id: "lists", label: "Club lists", icon: Boxes, hint: "Positions & academic states" },
@@ -886,6 +1073,9 @@ export default function AdminSettings() {
             <TopicsPanel bot="printer" />
           </section>
         )}
+
+        {/* ===== Data backup ===== */}
+        {section === "backup" && <DataBackupSection />}
 
         {/* ===== Per-user sounds ===== */}
         {section === "sounds" && <MySoundsSection />}

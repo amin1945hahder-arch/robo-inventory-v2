@@ -23,4 +23,8 @@ crons.interval("rent-card-relay-sweep", { minutes: 5 }, internal.rentCardRelay.s
 // Print-farm watchdog: flag jobs running 50% past their estimated duration.
 crons.interval("print-overdue-sweep", { minutes: 15 }, internal.printing.sweepOverduePrints, {});
 
+// Scheduled full-data backup: hourly sweep fires the backup on the admin-set
+// day of the month and posts the .zip into the chosen APP-group topic.
+crons.interval("data-backup-sweep", { minutes: 60 }, internal.appBackup.sweep, {});
+
 export default crons;
