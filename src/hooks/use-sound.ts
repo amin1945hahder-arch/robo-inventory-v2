@@ -5,7 +5,8 @@ import { api } from "@/convex/_generated/api";
 /**
  * Notification sounds — the app plays a short Web-Audio beep per process
  * (scan, request, approval, denial, return, assignment, incoming update).
- * Tones are admin-configurable in Settings; everyone can mute.
+ * Sounds are PER USER: every member configures their own tones (or mutes
+ * entirely) from Settings → My sounds; nobody else is affected.
  */
 
 export type SoundKey =
@@ -18,7 +19,7 @@ export type SoundKey =
   | "notification";
 
 export function useSound() {
-  const cfg = useQuery(api.settings.getSounds, {});
+  const cfg = useQuery(api.settings.getMySounds, {});
   const ctxRef = useRef<AudioContext | null>(null);
 
   useEffect(() => {

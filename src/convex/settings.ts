@@ -13,27 +13,28 @@ import { requireAdmin, requireUser } from "./lib";
 /**
  * Admin-editable app settings, stored in the settings table as JSON values.
  *
- *  - "telegram":  { botToken, clubGroupChatId, notificationsOn }
+ *  - "telegram":  { botToken, printerBotToken, clubGroupChatId,
+ *                   printerGroupChatId, notificationsOn }
  *  - "return_request_cooldown_hours": number stored as JSON string
  */
 
 export type TelegramSettings = {
-  botToken: string;
-  clubGroupChatId: string;
-  // Print-farm archive group: print parts (models/G-code) are posted here by
-  // the bot, never stored in the database. Falls back to the club group.
-  printerGroupChatId: string;
+  botToken: string; // APP BOT — posts club notifications into the club group
+  printerBotToken: string; // PRINTER BOT — posts print-farm notifications
+  clubGroupChatId: string; // APP group (topics/forum enabled)
+  printerGroupChatId: string; // PRINTER group (print farm archive)
   notificationsOn: boolean;
 };
 
 const TELEGRAM_KEY = "telegram";
 const COOLDOWN_KEY = "return_request_cooldown_hours";
 
-/** Per-process notification sound config, e.g.
- *  { enabled, sounds: { rental_request: {freq,dur}, ... } } */
-export type SoundSettings = { enabled: boolean; sounds: Record<string, { freq: number; dur: number }> };
+// ---- Per-user notification sounds ----------------------------------------
+// Every member owns their sound settings (stored on their user row); the
+// DEFAULTS seed the tone list. There is no app-wide sound setting anymore.
 
-const SOUNDS_KEY = "notification_sounds";
+export type SoundSpec = { freq: number; dur: number };
+export type SoundSettings = { enabled: boolean; sounds: Record<string, SoundSpec> };
 
 export const DEFAULT_SOUNDS: SoundSettings = {
   enabled: true,
@@ -48,6 +49,38 @@ export const DEFAULT_SOUNDS: SoundSettings = {
   },
 };
 
+const SOUNDS_KEY = "notification_sounds"; // legacy global key (no longer written)
+
+// Read my own sound settings (any signed-in user). Falls back to defaults.
+export const getMySounds = query({
+  args: {},
+  handler: async (ctx) => {
+    const me = await requireUser(ctx);
+    const parsed = me.soundSettings
+      ? (JSON.parse(me.soundSettings) as Partial<SoundSettings>)
+      : {};
+    return {
+      enabled: parsed.enabled ?? DEFAULT_SOUNDS.enabled,
+      sounds: { ...DEFAULT_SOUNDS.sounds, ...(parsed.sounds ?? {}) },
+    };
+  },
+});
+
+// Save MY OWN sound settings — each member controls their own tones.
+export const setMySounds = mutation({
+  args: {
+    enabled: v.boolean(),
+    sounds: v.record(v.string(), v.object({ freq: v.number(), dur: v.number() })),
+  },
+  handler: async (ctx, { enabled, sounds }) => {
+    const me = await requireUser(ctx);
+    const value = JSON.stringify({ enabled, sounds });
+    await ctx.db.patch(me._id, { soundSettings: value });
+    return { ok: true };
+  },
+});
+
+// @deprecated legacy global sounds (kept only so old clients don't break).
 export const getSounds = query({
   args: {},
   handler: async (ctx) => {
@@ -64,26 +97,8 @@ export const getSounds = query({
   },
 });
 
-export const setSounds = mutation({
-  args: {
-    enabled: v.boolean(),
-    sounds: v.record(v.string(), v.object({ freq: v.number(), dur: v.number() })),
-  },
-  handler: async (ctx, { enabled, sounds }) => {
-    await requireAdmin(ctx);
-    const value = JSON.stringify({ enabled, sounds });
-    const row = await ctx.db
-      .query("settings")
-      .withIndex("by_key", (q) => q.eq("key", SOUNDS_KEY))
-      .unique();
-    if (row) await ctx.db.patch(row._id, { value });
-    else await ctx.db.insert("settings", { key: SOUNDS_KEY, value });
-    return { ok: true };
-  },
-});
-
-// The current Telegram settings (any signed-in user may read; the bot token
-// is masked — only its last 4 chars are returned, never the full secret).
+// The current Telegram settings (any signed-in user may read; the bot tokens
+// are masked — only their last 4 chars are returned, never the full secret).
 export const getTelegram = query({
   args: {},
   handler: async (ctx) => {
@@ -92,6 +107,8 @@ export const getTelegram = query({
     return {
       botToken: cfg.botToken ? "••••" + cfg.botToken.slice(-4) : "",
       hasToken: Boolean(cfg.botToken),
+      printerBotToken: cfg.printerBotToken ? "••••" + cfg.printerBotToken.slice(-4) : "",
+      hasPrinterToken: Boolean(cfg.printerBotToken),
       clubGroupChatId: cfg.clubGroupChatId,
       printerGroupChatId: cfg.printerGroupChatId ?? "",
       notificationsOn: cfg.notificationsOn,
@@ -103,11 +120,12 @@ export const getTelegram = query({
 export const setTelegram = mutation({
   args: {
     botToken: v.optional(v.string()),
+    printerBotToken: v.optional(v.string()),
     clubGroupChatId: v.optional(v.string()),
     printerGroupChatId: v.optional(v.string()),
     notificationsOn: v.optional(v.boolean()),
   },
-  handler: async (ctx, { botToken, clubGroupChatId, printerGroupChatId, notificationsOn }) => {
+  handler: async (ctx, { botToken, printerBotToken, clubGroupChatId, printerGroupChatId, notificationsOn }) => {
     await requireAdmin(ctx);
     const row = await ctx.db
       .query("settings")
@@ -117,6 +135,7 @@ export const setTelegram = mutation({
       ? JSON.parse(row.value)
       : {
           botToken: process.env.TELEGRAM_BOT_TOKEN ?? "",
+          printerBotToken: process.env.TELEGRAM_PRINTER_BOT_TOKEN ?? "",
           clubGroupChatId: process.env.TELEGRAM_CHAT_ID ?? "",
           printerGroupChatId: process.env.TELEGRAM_PRINTER_CHAT_ID ?? "",
           notificationsOn: true,
@@ -125,6 +144,10 @@ export const setTelegram = mutation({
       // An empty token from the UI means "keep the existing one".
       botToken:
         botToken === undefined || botToken.trim() === "" ? current.botToken : botToken.trim(),
+      printerBotToken:
+        printerBotToken === undefined || printerBotToken.trim() === ""
+          ? (current.printerBotToken ?? "")
+          : printerBotToken.trim(),
       clubGroupChatId:
         clubGroupChatId !== undefined ? clubGroupChatId.trim() : current.clubGroupChatId,
       printerGroupChatId:
@@ -142,15 +165,17 @@ export const setTelegram = mutation({
   },
 });
 
-// Server-side helper: the raw telegram config (with the real token).
+// Server-side helper: the raw telegram config (with the real tokens).
 // Falls back to the TELEGRAM_* env vars when no settings row exists yet.
-export async function getTelegramConfig(ctx: QueryCtx): Promise<TelegramSettings> {  const row = await ctx.db
+export async function getTelegramConfig(ctx: QueryCtx): Promise<TelegramSettings> {
+  const row = await ctx.db
     .query("settings")
     .withIndex("by_key", (q) => q.eq("key", TELEGRAM_KEY))
     .unique();
   if (row?.value) return JSON.parse(row.value) as TelegramSettings;
   return {
     botToken: process.env.TELEGRAM_BOT_TOKEN ?? "",
+    printerBotToken: process.env.TELEGRAM_PRINTER_BOT_TOKEN ?? "",
     clubGroupChatId: process.env.TELEGRAM_CHAT_ID ?? "",
     printerGroupChatId: process.env.TELEGRAM_PRINTER_CHAT_ID ?? "",
     notificationsOn: true,
@@ -319,15 +344,26 @@ export const setChatBackupDestination = mutation({
   },
 });
 
-// Admin test send: posts a message into the club group so the setup can be
+// Admin test send: posts a message into the APP group so the setup can be
 // verified right from the Settings page. (see also: sounds above)
 export const sendTestMessage = action({
-  args: { text: v.string() },
-  handler: async (ctx, { text }): Promise<{ sent: boolean; reason?: string }> => {
+  args: {
+    text: v.string(),
+    // Which bot/group to test: "app" (default) or "printer".
+    bot: v.optional(v.union(v.literal("app"), v.literal("printer"))),
+    // Optional topic thread to post into (APP group has topics enabled).
+    threadId: v.optional(v.number()),
+  },
+  handler: async (
+    ctx,
+    { text, bot, threadId },
+  ): Promise<{ sent: boolean; reason?: string }> => {
     const me = await ctx.runQuery(api.users.currentUser, {});
     if (!me || me.role !== "admin") throw new Error("Admin access required");
     return await ctx.runAction(internal.telegram.sendManual, {
       text: text.trim() || "✅ Test message from the Robotics Club inventory app",
+      bot: bot ?? "app",
+      threadId,
     });
   },
 });

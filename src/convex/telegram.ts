@@ -26,17 +26,46 @@ import { api, internal } from "./_generated/api";
 
 type PostArgs = { text: string; tags?: string[]; kind?: "group" | "dm" };
 
-async function postTo(ctx: any, chatId: string, text: string, token: string) {
+async function postTo(
+  ctx: any,
+  chatId: string,
+  text: string,
+  token: string,
+  threadId?: number,
+) {
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true }),
+    body: JSON.stringify({
+      chat_id: chatId,
+      text,
+      disable_web_page_preview: true,
+      // Forum-topic routing: only sent when the admin assigned this category
+      // to a topic; otherwise the message lands in the General chat.
+      ...(threadId ? { message_thread_id: threadId } : {}),
+    }),
   });
   if (!res.ok) {
     console.warn(`[telegram] sendMessage to ${chatId} failed: ${res.status}`);
     return false;
   }
   return true;
+}
+
+/** Token + group chat id for one bot identity. */
+function botIdentity(
+  cfg: { botToken: string; printerBotToken?: string; clubGroupChatId: string; printerGroupChatId?: string },
+  bot: "app" | "printer",
+): { token: string; groupId: string } {
+  return bot === "printer"
+    ? {
+        token: cfg.printerBotToken || "",
+        groupId: cfg.printerGroupChatId || "",
+      }
+    : {
+        token: cfg.botToken || "",
+        groupId: cfg.clubGroupChatId || "",
+      };
 }
 
 // Internal: read config + settings from the DB (actions can't access ctx.db
@@ -53,13 +82,21 @@ export const send = internalAction({
     tags: v.optional(v.array(v.string())),
     dmChatId: v.optional(v.string()),
     dmUsername: v.optional(v.string()),
+    // Which bot identity sends: "app" (default) or "printer".
+    bot: v.optional(v.union(v.literal("app"), v.literal("printer"))),
   },
-  handler: async (ctx, { kind, text, tags, dmChatId, dmUsername }) => {
+  handler: async (ctx, { kind, text, tags, dmChatId, dmUsername, bot }) => {
+    const which = bot ?? "app";
     const cfg = await ctx.runQuery(internal.settings.getTelegramConfigQuery, {});
     if (!cfg.notificationsOn) return { sent: false, reason: "disabled-in-settings" };
 
-    const token = cfg.botToken || process.env.TELEGRAM_BOT_TOKEN || "";
-    if (!token) return { sent: false, reason: "no-bot-token" };
+    const identity = botIdentity(cfg, which);
+    const envToken =
+      which === "printer" ? process.env.TELEGRAM_PRINTER_BOT_TOKEN : process.env.TELEGRAM_BOT_TOKEN;
+    const envGroup =
+      which === "printer" ? process.env.TELEGRAM_PRINTER_CHAT_ID : process.env.TELEGRAM_CHAT_ID;
+    const token = identity.token || envToken || "";
+    if (!token) return { sent: false, reason: `no-bot-token-${which}` };
 
     const tagLine = tags && tags.length > 0 ? tags.map((t) => `@${t.replace(/^@/, "")}`).join(" ") : "";
 
@@ -71,11 +108,12 @@ export const send = internalAction({
         return { sent: ok };
       }
       // No chat id: fall back to a group post that tags the member's username,
-      // so they still get notified inside the club group.
-      if (cfg.clubGroupChatId && dmUsername) {
+      // so they still get notified inside that bot's group.
+      const groupChatId = identity.groupId || envGroup || "";
+      if (groupChatId && dmUsername) {
         const ok = await postTo(
           ctx,
-          cfg.clubGroupChatId,
+          groupChatId,
           `${text}\n${tagLine || `@${dmUsername.replace(/^@/, "")}`}`,
           token,
         );
@@ -84,11 +122,55 @@ export const send = internalAction({
       return { sent: false, reason: "no-chat-id" };
     }
 
-    // Group post: everything goes to the club group, tagging the relevant
+    // Group post: everything goes to that bot's group, tagging the relevant
     // people so Telegram notifies them.
-    const groupChatId = cfg.clubGroupChatId || process.env.TELEGRAM_CHAT_ID || "";
+    const groupChatId = identity.groupId || envGroup || "";
     if (!groupChatId) return { sent: false, reason: "no-group-chat-id" };
     const ok = await postTo(ctx, groupChatId, tagLine ? `${text}\n${tagLine}` : text, token);
+    return { sent: ok };
+  },
+});
+
+/**
+ * Category-routed group post: resolves the notification category to its bot
+ * (printers → PRINTER BOT, everything else → APP BOT) and to the topic
+ * thread the admin assigned in Settings, then posts there.
+ */
+export const sendCategory = internalAction({
+  args: {
+    category: v.string(),
+    text: v.string(),
+    tags: v.optional(v.array(v.string())),
+  },
+  handler: async (ctx, { category, text, tags }) => {
+    const cfg = await ctx.runQuery(internal.settings.getTelegramConfigQuery, {});
+    if (!cfg.notificationsOn) return { sent: false, reason: "disabled-in-settings" };
+
+    // Print-farm events belong to the PRINTER BOT/group; the rest to APP.
+    const which: "app" | "printer" = category === "printers" ? "printer" : "app";
+    const identity = botIdentity(cfg, which);
+    const envToken =
+      which === "printer" ? process.env.TELEGRAM_PRINTER_BOT_TOKEN : process.env.TELEGRAM_BOT_TOKEN;
+    const envGroup =
+      which === "printer" ? process.env.TELEGRAM_PRINTER_CHAT_ID : process.env.TELEGRAM_CHAT_ID;
+    const token = identity.token || envToken || "";
+    if (!token) return { sent: false, reason: `no-bot-token-${which}` };
+    const groupChatId = identity.groupId || envGroup || "";
+    if (!groupChatId) return { sent: false, reason: "no-group-chat-id" };
+
+    const threadId = (await ctx.runQuery(internal.telegramTopics.resolveThreadInternal, {
+      bot: which,
+      category,
+    })) ?? undefined;
+
+    const tagLine = tags && tags.length > 0 ? tags.map((t) => `@${t.replace(/^@/, "")}`).join(" ") : "";
+    const ok = await postTo(
+      ctx,
+      groupChatId,
+      tagLine ? `${text}\n${tagLine}` : text,
+      token,
+      threadId,
+    );
     return { sent: ok };
   },
 });
@@ -238,21 +320,36 @@ export const relayPrintFile = action({
   },
 });
 
-// One-off manual send from the admin Settings page (test message).
+// One-off manual send from the admin Settings page (test message) — can
+// target either bot identity and an optional topic thread.
 export const sendManual = internalAction({
   args: {
     text: v.string(),
     chatId: v.optional(v.string()),
     tags: v.optional(v.array(v.string())),
+    bot: v.optional(v.union(v.literal("app"), v.literal("printer"))),
+    threadId: v.optional(v.number()),
   },
-  handler: async (ctx, { text, chatId, tags }) => {
+  handler: async (ctx, { text, chatId, tags, bot, threadId }) => {
+    const which = bot ?? "app";
     const cfg = await ctx.runQuery(internal.settings.getTelegramConfigQuery, {});
-    const token = cfg.botToken || process.env.TELEGRAM_BOT_TOKEN || "";
-    if (!token) return { sent: false, reason: "no-bot-token" };
-    const groupChatId = chatId || cfg.clubGroupChatId || process.env.TELEGRAM_CHAT_ID || "";
+    const identity = botIdentity(cfg, which);
+    const envToken =
+      which === "printer" ? process.env.TELEGRAM_PRINTER_BOT_TOKEN : process.env.TELEGRAM_BOT_TOKEN;
+    const envGroup =
+      which === "printer" ? process.env.TELEGRAM_PRINTER_CHAT_ID : process.env.TELEGRAM_CHAT_ID;
+    const token = identity.token || envToken || "";
+    if (!token) return { sent: false, reason: `no-bot-token-${which}` };
+    const groupChatId = chatId || identity.groupId || envGroup || "";
     if (!groupChatId) return { sent: false, reason: "no-chat-id" };
     const tagLine = tags?.length ? tags.map((t) => `@${t.replace(/^@/, "")}`).join(" ") : "";
-    const ok = await postTo(ctx, groupChatId, tagLine ? `${text}\n${tagLine}` : text, token);
+    const ok = await postTo(
+      ctx,
+      groupChatId,
+      tagLine ? `${text}\n${tagLine}` : text,
+      token,
+      threadId,
+    );
     return { sent: ok };
   },
 });

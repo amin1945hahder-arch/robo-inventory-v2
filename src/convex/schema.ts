@@ -63,6 +63,11 @@ const schema = defineSchema(
       // "printer" is a privilege, NOT a role: it stacks on top of any role
       // (member + printer, student + printer). Admins have it implicitly.
       printerRole: v.optional(v.boolean()),
+
+      // Per-user notification sound settings (JSON SoundSettings): every
+      // member tunes their own tones in Settings/Profile — sounds are NOT
+      // global anymore.
+      soundSettings: v.optional(v.string()),
     })
       .index("email", ["email"]) // index for the email. do not remove or modify
       .index("by_telegram_username", ["telegramUsername"]),
@@ -307,9 +312,23 @@ const schema = defineSchema(
       value: v.optional(v.string()),
     }).index("by_key", ["key"]),
     // settings keys used by the app:
-    //  - "telegram"                        { botToken, clubGroupChatId, notificationsOn }
+    //  - "telegram"                        { botToken, printerBotToken, clubGroupChatId,
+    //                                        printerGroupChatId, notificationsOn }
     //  - "return_request_cooldown_hours"   number as JSON string
-    //  - "notification_sounds"             { enabled, per-process sound specs }
+
+    // Telegram topic routing. The APP group has topics (forum) enabled: the
+    // admin manages the topic list here and assigns each notification
+    // category (rentals, printers, projects, members, inventory…) to one
+    // topic. `bot` selects which group the topic lives in — "app" (club
+    // group, APP BOT) or "printer" (print-farm group, PRINTER BOT).
+    telegramTopics: defineTable({
+      bot: v.union(v.literal("app"), v.literal("printer")),
+      // Telegram forum topic id (message_thread_id from getUpdates / URL).
+      threadId: v.number(),
+      name: v.string(),
+      // Notification categories routed into this topic.
+      categories: v.array(v.string()),
+    }).index("by_bot", ["bot"]),
 
     profileRequests: defineTable({
       userId: v.id("users"),
