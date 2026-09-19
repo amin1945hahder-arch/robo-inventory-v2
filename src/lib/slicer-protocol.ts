@@ -8,19 +8,26 @@
  *   parent → kiri : { function:"slice"|"prepare"|"export", callback:true }
  *   parent → kiri : { get:"process"|"device" }            (async reply)
  *   parent → kiri : { process:{...} } | { device:{...} }  (push settings)
- *   parent → kiri : { parse: data, type:"stl" }           (load model)
  *   parent → kiri : { clear:true } | { mode:"FDM" }
  *   kiri → parent : { event:"<fn>.done", data }           (callback reply)
- *   kiri → parent : { event:"slice.done"|"prepare.done", data:mode }
- *   kiri → parent : { event:"parsed"|"loaded", data:[ids] }
- *   kiri → parent : { process } | { device } | { mode }   ({get} replies)
+ *   kiri → parent : { event:"slice.end", data:mode }      (REAL completion)
  *   kiri → parent : { event:"export.done", data:"<gcode>" }
+ *   kiri → parent : { process } | { device } | { mode }   ({get} replies)
  *
- * The {function} callback fires when the synchronous call RETURNS — for
- * `export` that means "export accepted, dialog/gcode started", NOT "gcode
- * ready". The gcode itself arrives via the `export.done` EVENT. Treating the
- * callback as the payload is the classic bug that makes "Get G-code" spin or
- * resolve empty.
+ * CRITICAL timing facts (read from the 4.7.3 bundle, `kiri.js`):
+ *  - The `{function}` callback reply fires when the call *returns*, not when
+ *    the work finishes. For `slice` that is an instant ACK — the real
+ *    completion signal is the `slice.end` event emitted after the slicing
+ *    worker drains (`jC.slice=true; emit("slice.end", mode); ... cb(...)`).
+ *    Treating the ack as completion is what made the slice button spin
+ *    forever while Kiri had already finished.
+ *  - For `export` the callback DOES fire at completion with the joined
+ *    G-code (`cb(gcode, mode)`) — so `export.done` carries the payload.
+ *  - Export needs preview toolpaths to exist. Requesting export before the
+ *    preview is ready makes Kiri defer silently (it can hang the modal
+ *    queue), so the UI sequence must be: slice → slice.end → prepare →
+ *    prepare.done → export → export.done(gcode). Preparing WHILE Kiri is
+ *    still slicing jams its modal queue — that was the original freeze bug.
  */
 
 // ---- outbound wire builders -------------------------------------------------
@@ -46,11 +53,13 @@ export const kiriMsg = {
 // ---- inbound classification -------------------------------------------------
 
 export type KiriEventName =
+  | "slice.begin"
+  | "slice.end"
+  | "slice.error"
   | "slice.done"
   | "prepare.done"
+  | "preview.end"
   | "export.done"
-  | "loaded"
-  | "parsed"
   | "init-done"
   | "error"
   | string;
@@ -61,6 +70,7 @@ export type KiriReply =
   | { kind: "device"; device: Record<string, unknown> }
   | { kind: "mode"; mode: unknown }
   | { kind: "widgets"; widgets: KiriWidgetInfo[] }
+  | { kind: "all"; all: Record<string, unknown> }
   | { kind: "unknown" };
 
 /** Shape of one entry in a `{get:"widgets"}` reply (id + meta.file). */
@@ -89,30 +99,107 @@ export function classifyKiriReply(data: unknown): KiriReply {
   if (d.device && typeof d.device === "object") {
     return { kind: "device", device: d.device as Record<string, unknown> };
   }
+  if (d.all && typeof d.all === "object") {
+    return { kind: "all", all: d.all as Record<string, unknown> };
+  }
   if ("mode" in d) {
     return { kind: "mode", mode: d.mode };
   }
   return { kind: "unknown" };
 }
 
+/** Events that mark the slicer bridge as alive (whichever comes first). */
+export const READY_EVENTS = new Set(["init-done", "preset", "load-done", "mode.set"]);
+
+/** Emitted when the slicing worker STARTS. */
+export const SLICE_BEGIN_EVENTS = new Set(["slice.begin"]);
+/** Emitted when the slicing worker FINISHES — the real completion signal. */
+export const SLICE_END_EVENTS = new Set(["slice.end"]);
+/** Failure variants reported by the slicer. */
+export const SLICE_ERROR_EVENTS = new Set(["slice.error", "error"]);
+/** Preview (prepare) finished — export may proceed. */
+export const PREVIEW_END_EVENTS = new Set(["prepare.done", "preview.end"]);
+/** Export finished; payload is the joined G-code string (or empty on failure). */
+export const EXPORT_END_EVENTS = new Set(["export.done"]);
+/** Generic failure events while a job is in flight. */
+export const JOB_ERROR_EVENTS = new Set([
+  "slice.error",
+  "prepare.error",
+  "export.error",
+  "error",
+]);
+
 /**
- * Names Kiri emits while a model file parses/loads. Used to end the
- * "Loading model…" busy state even when Kiri's own UI stays quiet.
+ * Emitted while a model file parses/loads (frame-parse path only — Kiri's own
+ * import emits none; the widgets poll is the universal verification).
  */
 export const MODEL_LOAD_EVENTS = new Set(["parsed", "loaded", "load-done"]);
+/** Events that mean a model file failed to parse/load. */
+export const MODEL_LOAD_ERROR_EVENTS = new Set(["parse.error", "load.error"]);
 
-/** Names Kiri emits when a model file fails to parse/load. */
-export const MODEL_LOAD_ERROR_EVENTS = new Set(["parse.error", "load.error", "error"]);
+// ---- slice flow state machine ----------------------------------------------
+
+export type SlicePhase = "idle" | "slicing" | "sliced" | "failed";
+
+export type SliceEvent =
+  | { type: "request" }
+  | { type: "begin" }
+  | { type: "end" }
+  | { type: "ack" }
+  | { type: "error" }
+  | { type: "model-change" }
+  | { type: "reset" };
 
 /**
- * Names that mean "the slicer is alive" — the first of these flips the
- * bridge to ready (init-done can be missed if we attach late).
+ * Advance the slice flow.
+ *  - `request`  → slicing (the ack comes back instantly; keep spinning)
+ *  - `ack`      → no-op (the `{function}.done` callback reply — NOT completion)
+ *  - `begin`    → no-op (already slicing; defensive against lost requests)
+ *  - `end`      → sliced (the real completion — works for slices started from
+ *                 Kiri's own button too, since the event comes off the bus)
+ *  - `error`    → failed
+ *  - `model-change` → a new model landed on the bed → old toolpaths are stale
+ *  - `reset`    → idle
  */
-export const READY_EVENTS = new Set(["init-done", "preset", "mode.set"]);
+export function sliceFlowTransition(phase: SlicePhase, event: SliceEvent): SlicePhase {
+  switch (event.type) {
+    case "reset":
+      return "idle";
+    case "request":
+      return phase === "slicing" ? phase : "slicing";
+    case "begin":
+      return phase === "slicing" ? phase : "slicing";
+    case "end":
+      return "sliced";
+    case "ack":
+      return phase;
+    case "error":
+      return phase === "slicing" ? "failed" : phase;
+    case "model-change":
+      return phase === "sliced" ? "idle" : phase;
+    default:
+      return phase;
+  }
+}
 
-// ---- export job flow (wait for the EVENT, never the callback) ---------------
+/**
+ * Deadline (ms) after which the UI should give up waiting for the phase to
+ * resolve and re-enable controls instead of spinning forever. 0 = none.
+ */
+export function sliceTimeoutMs(phase: SlicePhase): number {
+  switch (phase) {
+    case "slicing":
+      return 10 * 60_000; // big models legitimately take minutes
+    case "failed":
+      return 0;
+    default:
+      return 0;
+  }
+}
 
-export type ExportPhase = "idle" | "requested" | "done" | "failed";
+// ---- export/preview flow state machine -------------------------------------
+
+export type ExportPhase = "idle" | "preparing" | "requested" | "done" | "failed";
 
 export type ExportJob = {
   phase: ExportPhase;
@@ -120,24 +207,36 @@ export type ExportJob = {
   gcode?: string;
 };
 
+export type ExportEvent =
+  | { type: "prepare" }
+  | { type: "prepare.done" }
+  | { type: "request" }
+  | { type: "export.done"; payload: unknown }
+  | { type: "error" }
+  | { type: "reset" };
+
 /**
- * Advance the export flow. Rules:
- *  - `export.done` with a non-empty string payload → done + gcode
- *  - `export.done` with an empty payload → failed (kiri had nothing to export)
- *  - `error` events while requested → failed
- *  - duplicate/late events after done/failed are ignored
+ * Advance the capture flow.
+ *  - `prepare`      → preparing (preview toolpaths must exist before export)
+ *  - `prepare.done` → requested (bridge should now send {function:export})
+ *  - `request`      → requested directly (caller already knows preview is done)
+ *  - `export.done`  → done + gcode (payload non-empty), else failed
+ *  - `error`        → failed (while preparing/requested)
+ *  - `reset`        → idle
  */
 export function exportJobTransition(
   job: ExportJob,
-  event:
-    | { type: "request" }
-    | { type: "export.done"; payload: unknown }
-    | { type: "error" }
-    | { type: "reset" },
+  event: ExportEvent,
 ): ExportJob {
   switch (event.type) {
     case "reset":
       return { phase: "idle" };
+    case "prepare":
+      return job.phase === "preparing" || job.phase === "requested"
+        ? job
+        : { phase: "preparing" };
+    case "prepare.done":
+      return job.phase === "preparing" ? { phase: "requested" } : job;
     case "request":
       return job.phase === "requested" ? job : { phase: "requested" };
     case "export.done": {
@@ -149,34 +248,40 @@ export function exportJobTransition(
       return { phase: "failed" };
     }
     case "error":
-      return job.phase === "requested" ? { phase: "failed" } : job;
+      return job.phase === "preparing" || job.phase === "requested"
+        ? { phase: "failed" }
+        : job;
     default:
       return job;
   }
 }
 
 /**
- * Deadline for the export flow: how long to wait for `export.done` before the
- * UI should surface a timeout instead of spinning. 0 = no timer needed.
+ * Deadline for the capture flow: how long to wait before surfacing a timeout
+ * instead of spinning. 0 = no timer needed.
  */
 export function exportTimeoutMs(phase: ExportPhase): number {
   switch (phase) {
+    case "preparing":
+      return 90_000; // preview render can take a while on big models
     case "requested":
-      return 60_000; // large gcode assembly can take a while, but not forever
+      return 60_000; // gcode assembly after preview
     default:
       return 0;
   }
 }
 
-/** Milliseconds to wait for {get} replies before surfacing "no data". */
+// ---- settings collector ------------------------------------------------------
+
+/** Milliseconds to wait for {get} replies before the first check. */
 export const GET_REPLY_GRACE_MS = 600;
 
 /**
- * How many times to retry the {get} handshake when the slicer has loaded but
- * answers with nothing (happens right at init while conf loads).
+ * The collector retries the {get} handshake until both process AND device
+ * arrive (replies can be missed while Kiri boots its conf). After the retry
+ * budget, whatever arrived is shown — partial data beats an error.
  */
-export const GET_RETRY_MAX = 3;
-
+export const GET_RETRY_MAX = 8;
 export const GET_RETRY_DELAY_MS = 700;
 
 // ---- model-load verification -----------------------------------------------
@@ -188,6 +293,12 @@ export const GET_RETRY_DELAY_MS = 700;
  */
 export const WIDGET_POLL_DELAY_MS = 400;
 export const WIDGET_POLL_MAX_MS = 12_000;
+
+/**
+ * How often the idle bridge re-syncs the bed state (widgets) so models
+ * imported from Kiri's own menus show up in the app without any action.
+ */
+export const WIDGET_IDLE_SYNC_MS = 2_500;
 
 /**
  * Extract the file name of the (first) widget currently on the bed.
