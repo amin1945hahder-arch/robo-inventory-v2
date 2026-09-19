@@ -131,9 +131,10 @@ export const JOB_ERROR_EVENTS = new Set([
 
 /**
  * Emitted while a model file parses/loads (frame-parse path only — Kiri's own
- * import emits none; the widgets poll is the universal verification).
+ * import emits none; the widgets poll is the universal verification). Note:
+ * `load-done` is Kiri's BOOT completion event, not a model event.
  */
-export const MODEL_LOAD_EVENTS = new Set(["parsed", "loaded", "load-done"]);
+export const MODEL_LOAD_EVENTS = new Set(["parsed", "loaded"]);
 /** Events that mean a model file failed to parse/load. */
 export const MODEL_LOAD_ERROR_EVENTS = new Set(["parse.error", "load.error"]);
 

@@ -45,15 +45,22 @@ import {
   GET_REPLY_GRACE_MS,
   GET_RETRY_DELAY_MS,
   GET_RETRY_MAX,
+  JOB_ERROR_EVENTS,
   kiriMsg,
+  MODEL_LOAD_ERROR_EVENTS,
   MODEL_LOAD_EVENTS,
-  planModelLoad,
+  PREVIEW_END_EVENTS,
   READY_EVENTS,
-  widgetFileName,
+  sliceFlowTransition,
+  SLICE_BEGIN_EVENTS,
+  SLICE_END_EVENTS,
+  sliceTimeoutMs,
+  type SlicePhase,
+  WIDGET_IDLE_SYNC_MS,
   WIDGET_POLL_DELAY_MS,
   WIDGET_POLL_MAX_MS,
+  widgetFileName,
   type ExportJob,
-  type KiriWidgetInfo,
 } from "@/lib/slicer-protocol";
 
 /**
@@ -63,9 +70,15 @@ import {
  *   • pushes the club printer profile ("Set printer")
  *   • applies material temps ("Set material")
  *   • reads everything back ("Get data") into a grouped spec readout
- *   • after slice+prepare, pulls the G-code via the export.done EVENT — the
- *     file is held in browser memory only (downloadable), never sent to the DB.
+ *   • after slice.end → prepare → export.done, captures the G-code — the file
+ *     is held in browser memory only (downloadable), never sent to the DB.
  *     Submitting the job sends stats + settings snapshot for admin approval.
+ *
+ * Protocol notes (verified against the Kiri 4.7.3 bundle):
+ *   - `{function:...}` acks come back instantly; real completion is the
+ *     `slice.end` / `export.done` events off Kiri's event bus.
+ *   - G-code export requires the preview (prepare) to exist first, so the
+ *     capture chain is slice.end → prepare → prepare.done → export → export.done.
  */
 
 const KIRI_URL = "/slicer/";
@@ -84,7 +97,7 @@ export function SlicerStudio({
   const canPrint = hasPrinterPrivilege({ role: userRole, printerRole: userPrinterRole });
   const frameRef = useRef<HTMLIFrameElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  // Pending {get} replies + the timeout id of the active collection window.
+  // {get} replies + the retry timer of the active collection window.
   const gotProcess = useRef<Record<string, unknown> | null>(null);
   const gotDevice = useRef<Record<string, unknown> | null>(null);
   const getTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -92,22 +105,24 @@ export function SlicerStudio({
   const frameWin = useRef<Window | null>(null);
   // Model presence is verified by polling {get:"widgets"} — never assumed.
   const widgetsPoll = useRef<ReturnType<typeof setInterval> | null>(null);
-  const widgetsDeadline = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const seenWidgetFile = useRef<string | null>(null);
-  const partNameRef = useRef<string | null>(null);
-  const jobNameRef = useRef<string>("");
   const loadWatchRef = useRef<{ fileName: string } | null>(null);
+  // Idle bed sync so models imported from Kiri's own menus appear in the app.
+  const idleSync = useRef<ReturnType<typeof setInterval> | null>(null);
+  const seenWidgetFile = useRef<string | null>(null);
+  const jobNameRef = useRef<string>("");
 
   useEffect(
     () => () => {
       if (widgetsPoll.current) clearInterval(widgetsPoll.current);
-      if (widgetsDeadline.current) clearTimeout(widgetsDeadline.current);
+      if (idleSync.current) clearInterval(idleSync.current);
+      if (getTimer.current) clearTimeout(getTimer.current);
     },
     [],
   );
 
   const [ready, setReady] = useState(false);
-  const [busyLabel, setBusyLabel] = useState<string | null>(null);  const [slicePhase, setSlicePhase] = useState<"idle" | "slicing" | "sliced">("idle");
+  const [busyLabel, setBusyLabel] = useState<string | null>(null);
+  const [slicePhase, setSlicePhase] = useState<SlicePhase>("idle");
   const [snapshot, setSnapshot] = useState<SlicerSnapshot | null>(null);
   const [exportJob, setExportJob] = useState<ExportJob>({ phase: "idle" });
   const [stats, setStats] = useState<GcodeStats | null>(null);
@@ -127,9 +142,6 @@ export function SlicerStudio({
   const gcode = exportJob.gcode ?? null;
 
   useEffect(() => {
-    partNameRef.current = partName;
-  }, [partName]);
-  useEffect(() => {
     jobNameRef.current = jobName;
   }, [jobName]);
 
@@ -142,12 +154,8 @@ export function SlicerStudio({
     setLog((l) => [`${new Date().toLocaleTimeString()} · ${line}`, ...l].slice(0, 30));
   }, []);
 
-  /**
-   * Poll {get:"widgets"} until the bed holds a widget (or the deadline
-   * passes). Kiri's own import path emits no postMessage completion event,
-   * so polling the ground truth is the ONLY reliable load verification —
-   * works for our button AND for files imported from Kiri's own menus.
-   */
+  // ---- model-load watch (widgets poll is the universal verification) ---------
+
   const clearLoadWatch = useCallback(() => {
     if (widgetsPoll.current) clearInterval(widgetsPoll.current);
     widgetsPoll.current = null;
@@ -189,31 +197,30 @@ export function SlicerStudio({
         addLog(`load failed: ${watch.fileName}`);
       }
     },
-    [addLog, clearLoadWatch],
+    [clearLoadWatch],
   );
 
+  // ---- settings collector (event-driven with bounded retries) ----------------
 
-  // ---- collect {get} replies ------------------------------------------------
-
-  const collectGetData = useCallback(() => {
+  const settleGetData = useCallback(() => {
     if (!gotProcess.current && !gotDevice.current) {
       if (getAttempts.current < GET_RETRY_MAX) {
         getAttempts.current += 1;
         addLog(`get retry ${getAttempts.current}/${GET_RETRY_MAX}`);
         send(kiriMsg.getProcess());
         send(kiriMsg.getDevice());
-        getTimer.current = setTimeout(collectGetData, GET_RETRY_DELAY_MS);
+        getTimer.current = setTimeout(settleGetData, GET_RETRY_DELAY_MS);
       } else {
-        toast.error("No settings came back from the slicer — is it fully loaded?");
+        // Show whatever arrived (possibly nothing) instead of a dead end.
+        setSnapshot(snapshotFromKiri(gotProcess.current ?? undefined, gotDevice.current ?? undefined));
+        setBusyLabel(null);
+        toast.error("The slicer replied with no settings — try again once it fully loads.");
         addLog("get: no data");
       }
       return;
     }
     setSnapshot(snapshotFromKiri(gotProcess.current ?? undefined, gotDevice.current ?? undefined));
-    if (gotDevice.current) {
-      const dn = (gotDevice.current as Record<string, unknown>).deviceName;
-      if (typeof dn === "string" && dn) setDeviceLabel(dn);
-    }
+    setBusyLabel(null);
     toast.success("Settings captured from the slicer.");
     addLog("get: ok");
   }, [addLog, send]);
@@ -227,32 +234,53 @@ export function SlicerStudio({
     gotDevice.current = null;
     getAttempts.current = 0;
     if (getTimer.current) clearTimeout(getTimer.current);
+    setBusyLabel("Reading settings…");
     send(kiriMsg.getProcess());
     send(kiriMsg.getDevice());
-    getTimer.current = setTimeout(collectGetData, GET_REPLY_GRACE_MS);
+    getTimer.current = setTimeout(settleGetData, GET_REPLY_GRACE_MS);
   };
 
-  useEffect(
-    () => () => {
-      if (getTimer.current) clearTimeout(getTimer.current);
-    },
-    [],
-  );
-
   // ---- inbound bridge --------------------------------------------------------
+
+  // slice watchdog: if slice.end never arrives, stop the spinner.
+  useEffect(() => {
+    const ms = sliceTimeoutMs(slicePhase);
+    if (slicePhase !== "slicing" || ms <= 0) return;
+    const t = setTimeout(() => {
+      setSlicePhase((p) => (p === "slicing" ? "failed" : p));
+      setBusyLabel(null);
+      addLog("slice timed out");
+      toast.error("Slicing timed out — check the slicer view and try again.");
+    }, ms);
+    return () => clearTimeout(t);
+  }, [slicePhase, addLog]);
 
   // export watchdog: if export.done never arrives, stop the spinner.
   useEffect(() => {
     const ms = exportTimeoutMs(exportJob.phase);
-    if (exportJob.phase !== "requested" || ms <= 0) return;
+    if (ms <= 0 || exportJob.phase === "idle" || exportJob.phase === "done" || exportJob.phase === "failed") return;
     const t = setTimeout(() => {
-      setExportJob((j) => (j.phase === "requested" ? { phase: "failed" } : j));
+      setExportJob((j) =>
+        j.phase === "preparing" || j.phase === "requested" ? { phase: "failed" } : j,
+      );
       setBusyLabel(null);
       addLog("export timed out");
       toast.error("G-code export timed out — slice the model and try again.");
     }, ms);
     return () => clearTimeout(t);
   }, [exportJob.phase, addLog]);
+
+  // Reflect export results in UI state (single place, no race with the bridge).
+  useEffect(() => {
+    if (exportJob.phase === "done" && exportJob.gcode) {
+      setStats(parseGcodeStats(exportJob.gcode));
+      setBusyLabel(null);
+      toast.success("G-code captured — stored locally in your browser.");
+    }
+    if (exportJob.phase === "failed") {
+      setBusyLabel(null);
+    }
+  }, [exportJob]);
 
   useEffect(() => {
     const onMessage = (ev: MessageEvent) => {
@@ -263,12 +291,22 @@ export function SlicerStudio({
 
       if (reply.kind === "widgets") {
         const name = widgetFileName(reply.widgets);
-        seenWidgetFile.current = name;
         if (name) {
-          setPartName((prev) => (prev === name ? prev : name));
-          if (!jobNameRef.current) setJobName(fileBaseName(name));
-          // Any widgets on the bed → model load verified.
+          if (seenWidgetFile.current !== name) {
+            seenWidgetFile.current = name;
+            setPartName(name);
+            if (!jobNameRef.current) setJobName(fileBaseName(name));
+            // A model that was not there before invalidates old toolpaths.
+            setSlicePhase((p) => sliceFlowTransition(p, { type: "model-change" }));
+          }
+          // Always settle an active load watch, even for a same-name reload
+          // (importing the same file twice must not stall the spinner).
           if (loadWatchRef.current) finishLoadWatch(true);
+        } else if (!loadWatchRef.current && seenWidgetFile.current) {
+          // Bed emptied from Kiri's side (its own clear) — sync app state.
+          seenWidgetFile.current = null;
+          setPartName(null);
+          setSlicePhase((p) => sliceFlowTransition(p, { type: "reset" }));
         }
         return;
       }
@@ -285,7 +323,7 @@ export function SlicerStudio({
         setReady(true);
         return;
       }
-      if (reply.kind === "mode") {
+      if (reply.kind === "mode" || reply.kind === "all") {
         // First sign of life from the slicer.
         setReady(true);
         return;
@@ -304,54 +342,65 @@ export function SlicerStudio({
         // widgets reply arrives a beat later and finishes the watch.
         send(kiriMsg.getWidgets());
       }
-      if (name === "parse.error" || name === "load.error") {
+      if (MODEL_LOAD_ERROR_EVENTS.has(name)) {
         finishLoadWatch(false);
         setBusyLabel(null);
         toast.error(`The slicer could not load the file (${name}).`);
       }
-      if (name === "slice.done") {
-        // NOTE: do NOT auto-prepare here. Kiri's slice flow already renders
-        // its own preview, and firing a second {function:prepare} while the
-        // slicer is still finishing its own state transition jams its modal
-        // queue (bed freezes until reload). Export self-prepares when needed.
-        setSlicePhase((p) => (p === "slicing" ? "sliced" : p));
-        setBusyLabel(null);
+      if (SLICE_BEGIN_EVENTS.has(name)) {
+        setSlicePhase((p) => sliceFlowTransition(p, { type: "begin" }));
+      }
+      if (SLICE_END_EVENTS.has(name)) {
+        // THE real completion signal — fires whether slicing was started from
+        // our button OR from Kiri's own toolbar (same event bus).
+        setSlicePhase((p) => sliceFlowTransition(p, { type: "end" }));
+        setBusyLabel((b) => (b === "Slicing…" ? null : b));
         toast.success("Slicing finished — press “Get G-code” to capture it.");
       }
-      if (name === "prepare.done") {
+      if (JOB_ERROR_EVENTS.has(name)) {
+        setSlicePhase((p) => sliceFlowTransition(p, { type: "error" }));
+        setExportJob((j) => exportJobTransition(j, { type: "error" }));
         setBusyLabel(null);
+        toast.error(`The slicer reported: ${name}`);
+      }
+      if (PREVIEW_END_EVENTS.has(name)) {
+        setBusyLabel((b) => (b === "Preparing preview…" ? null : b));
+        setExportJob((j) => {
+          const next = exportJobTransition(j, { type: "prepare.done" });
+          if (next.phase === "requested" && j.phase !== "requested") {
+            send(kiriMsg.export());
+            addLog("export requested (after prepare.done)");
+          }
+          return next;
+        });
       }
       if (name === "export.done") {
         setExportJob((j) => exportJobTransition(j, { type: "export.done", payload: reply.data }));
         setBusyLabel(null);
-      }
-      if (name === "slice.error" || name === "prepare.error" || name === "export.error" || name === "error") {
-        setSlicePhase((p) => (p === "slicing" ? "idle" : p));
-        setExportJob((j) => exportJobTransition(j, { type: "error" }));
-        setBusyLabel(null);
-        toast.error(`The slicer reported: ${name}`);
       }
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, [addLog, finishLoadWatch, jobNameRef, send]);
 
-  // Reflect export results in UI state (single place, no race with the bridge).
+  // Idle bed sync: catch models imported via Kiri's own menus without any
+  // user action in the app. Cheap poll; skipped while a load watch is active.
   useEffect(() => {
-    if (exportJob.phase === "done" && exportJob.gcode) {
-      setStats(parseGcodeStats(exportJob.gcode));
-      toast.success("G-code captured — stored locally in your browser.");
-    }
-    if (exportJob.phase === "failed") {
-      toast.error("The slicer returned no G-code. Slice the model first.");
-    }
-  }, [exportJob]);
+    if (!ready) return;
+    idleSync.current = setInterval(() => {
+      if (!loadWatchRef.current) send(kiriMsg.getWidgets());
+    }, WIDGET_IDLE_SYNC_MS);
+    return () => {
+      if (idleSync.current) clearInterval(idleSync.current);
+      idleSync.current = null;
+    };
+  }, [ready, send]);
 
   const frameLoaded = (e: React.SyntheticEvent<HTMLIFrameElement>) => {
     frameWin.current = e.currentTarget.contentWindow;
     // Kiri won't always emit init-done before we attach; poll {get:"mode"} as a
     // handshake. Each reply hits the "mode" branch above and flips ready.
-    // 120 tries × 500ms = 60s: the 4.7.3 bundle is big and a cold cache can
+    // 120 tries × 500ms = 60s: the 4MB bundle is big and a cold cache can
     // legitimately take a while to finish booting inside the frame.
     let tries = 0;
     const tick = () => {
@@ -464,7 +513,7 @@ export function SlicerStudio({
       toast.error("The slicer is not fully loaded yet — try again in a moment.");
       return;
     }
-    setSlicePhase("idle");
+    setSlicePhase((p) => sliceFlowTransition(p, { type: "reset" }));
     setExportJob({ phase: "idle" });
     setStats(null);
     setBusyLabel(`Loading ${file.name}…`);
@@ -492,11 +541,13 @@ export function SlicerStudio({
       toast.error("Load a model first — the slicer has nothing to slice.");
       return;
     }
-    setSlicePhase("slicing");
+    setSlicePhase((p) => sliceFlowTransition(p, { type: "request" }));
     setExportJob({ phase: "idle" });
     setStats(null);
-    // Kiri's slice flow handles its own prepare/preview internally — we only
-    // send {function:slice} and wait for slice.done (no second prepare).
+    setBusyLabel("Slicing…");
+    // Kiri handles prepare/preview internally after slice.end — we only send
+    // {function:slice} and wait for the slice.end EVENT (the ack is instant
+    // and means nothing).
     send(kiriMsg.slice());
     addLog("slice requested");
   };
@@ -506,10 +557,12 @@ export function SlicerStudio({
       toast.error("Slice the model first — the G-code exists only after slicing.");
       return;
     }
-    if (exportJob.phase === "requested") return;
-    setBusyLabel("Exporting G-code…");
-    setExportJob((j) => exportJobTransition(j, { type: "request" }));
-    send(kiriMsg.export());
+    if (exportJob.phase === "preparing" || exportJob.phase === "requested") return;
+    setBusyLabel("Preparing preview…");
+    setExportJob((j) => exportJobTransition(j, { type: "prepare" }));
+    // Preview toolpaths must exist before export — chain prepare → export.
+    send(kiriMsg.prepare());
+    addLog("prepare requested (pre-export)");
   };
 
   const downloadGcode = () => {
@@ -603,7 +656,7 @@ export function SlicerStudio({
               <CheckCircle2 className="size-3" /> sliced
             </Badge>
           )}
-          <a href="https://grid.space/kiri/" target="_blank" rel="noreferrer">
+          <a href="https://docs.grid.space/projects/kiri-moto" target="_blank" rel="noreferrer">
             <Button size="sm" variant="ghost" className="h-7 text-xs">
               Kiri docs <ExternalLinkIcon />
             </Button>
@@ -674,9 +727,14 @@ export function SlicerStudio({
             variant="outline"
             className={railButton}
             onClick={getGcode}
-            disabled={!sliced || exportJob.phase === "requested" || busyLabel === "Exporting G-code…"}
+            disabled={!sliced || exportJob.phase === "preparing" || exportJob.phase === "requested"}
           >
-            <Download className="size-3.5" /> Get G-code
+            {exportJob.phase === "preparing" || exportJob.phase === "requested" ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Download className="size-3.5" />
+            )}
+            Get G-code
           </Button>
           <Button size="sm" variant="outline" className={railButton} onClick={getData}>
             <ClipboardList className="size-3.5" /> Get data

@@ -4,11 +4,20 @@ import {
   exportJobTransition,
   exportTimeoutMs,
   fileBaseName,
+  GET_REPLY_GRACE_MS,
+  GET_RETRY_MAX,
+  JOB_ERROR_EVENTS,
   kiriMsg,
   MODEL_LOAD_EVENTS,
   planModelLoad,
+  PREVIEW_END_EVENTS,
   READY_EVENTS,
+  SLICE_BEGIN_EVENTS,
+  SLICE_END_EVENTS,
+  sliceFlowTransition,
+  sliceTimeoutMs,
   widgetFileName,
+  WIDGET_IDLE_SYNC_MS,
   WIDGET_POLL_DELAY_MS,
   WIDGET_POLL_MAX_MS,
 } from "./slicer-protocol";
@@ -20,10 +29,11 @@ describe("kiriMsg wire builders", () => {
     expect(kiriMsg.export()).toEqual({ function: "export", callback: true });
   });
 
-  it("builds get requests for process and device", () => {
+  it("builds get requests for process, device, mode and widgets", () => {
     expect(kiriMsg.getProcess()).toEqual({ get: "process" });
     expect(kiriMsg.getDevice()).toEqual({ get: "device" });
     expect(kiriMsg.getMode()).toEqual({ get: "mode" });
+    expect(kiriMsg.getWidgets()).toEqual({ get: "widgets" });
   });
 
   it("builds settings pushes and model loads", () => {
@@ -32,17 +42,13 @@ describe("kiriMsg wire builders", () => {
     expect(kiriMsg.parse("data", "stl")).toEqual({ parse: "data", type: "stl" });
     expect(kiriMsg.clear()).toEqual({ clear: true });
   });
-
-  it("builds the widgets ground-truth poll", () => {
-    expect(kiriMsg.getWidgets()).toEqual({ get: "widgets" });
-  });
 });
 
 describe("classifyKiriReply", () => {
   it("classifies named events with payloads", () => {
-    expect(classifyKiriReply({ event: "slice.done", data: "FDM" })).toEqual({
+    expect(classifyKiriReply({ event: "slice.end", data: "FDM" })).toEqual({
       kind: "event",
-      event: "slice.done",
+      event: "slice.end",
       data: "FDM",
     });
     expect(classifyKiriReply({ event: "export.done", data: "G1 X0" })).toEqual({
@@ -80,6 +86,10 @@ describe("classifyKiriReply", () => {
     if (empty.kind === "widgets") expect(widgetFileName(empty.widgets)).toBeNull();
   });
 
+  it("classifies the default {get} reply ({all: settings})", () => {
+    expect(classifyKiriReply({ all: { mode: "FDM" } }).kind).toBe("all");
+  });
+
   it("ignores non-kiri noise (app route pings, primitives)", () => {
     expect(classifyKiriReply(null).kind).toBe("unknown");
     expect(classifyKiriReply("hello").kind).toBe("unknown");
@@ -90,25 +100,105 @@ describe("classifyKiriReply", () => {
   });
 });
 
-describe("event name tables", () => {
-  it("treats parsed/loaded as model load completion", () => {
-    expect(MODEL_LOAD_EVENTS.has("parsed")).toBe(true);
-    expect(MODEL_LOAD_EVENTS.has("loaded")).toBe(true);
-    expect(MODEL_LOAD_EVENTS.has("slice.done")).toBe(false);
+describe("event name tables (verified against the 4.7.3 bundle)", () => {
+  it("treats slice.end as the REAL slicing completion", () => {
+    // The bundle emits slice.begin when the worker starts and slice.end when
+    // the slicing worker finishes — `{function:"slice"}.done` is only an ack.
+    expect(SLICE_END_EVENTS.has("slice.end")).toBe(true);
+    expect(SLICE_BEGIN_EVENTS.has("slice.begin")).toBe(true);
+    expect(SLICE_END_EVENTS.has("slice.done")).toBe(false);
   });
 
-  it("treats init-done and preset as readiness signals", () => {
+  it("treats prepare.done/preview.end as export-eligible", () => {
+    expect(PREVIEW_END_EVENTS.has("prepare.done")).toBe(true);
+    expect(PREVIEW_END_EVENTS.has("preview.end")).toBe(true);
+  });
+
+  it("routes slicer failures through the job-error table", () => {
+    expect(JOB_ERROR_EVENTS.has("slice.error")).toBe(true);
+    expect(JOB_ERROR_EVENTS.has("export.error")).toBe(true);
+    expect(JOB_ERROR_EVENTS.has("prepare.error")).toBe(true);
+    expect(JOB_ERROR_EVENTS.has("error")).toBe(true);
+  });
+
+  it("keeps parsed/loaded as model load events, separate from readiness", () => {
+    expect(MODEL_LOAD_EVENTS.has("parsed")).toBe(true);
+    expect(MODEL_LOAD_EVENTS.has("loaded")).toBe(true);
     expect(READY_EVENTS.has("init-done")).toBe(true);
-    expect(READY_EVENTS.has("preset")).toBe(true);
+    for (const ev of MODEL_LOAD_EVENTS) expect(READY_EVENTS.has(ev)).toBe(false);
+    expect(MODEL_LOAD_EVENTS.has("slice.end")).toBe(false);
   });
 });
 
-describe("exportJobTransition", () => {
-  it("idle → requested on request, and ignores duplicate requests", () => {
-    let job = exportJobTransition({ phase: "idle" }, { type: "request" });
+describe("sliceFlowTransition", () => {
+  it("request starts slicing and duplicate requests are ignored", () => {
+    let phase = sliceFlowTransition("idle", { type: "request" });
+    expect(phase).toBe("slicing");
+    phase = sliceFlowTransition(phase, { type: "request" });
+    expect(phase).toBe("slicing");
+  });
+
+  it("the instant function ack does NOT complete the flow", () => {
+    // THE regression: treating {event:"slice.done"} (the ack) as completion
+    // made the button spin forever while Kiri had already finished.
+    expect(sliceFlowTransition("slicing", { type: "ack" })).toBe("slicing");
+  });
+
+  it("slice.end completes the flow from slicing", () => {
+    expect(sliceFlowTransition("slicing", { type: "end" })).toBe("sliced");
+  });
+
+  it("slice.end from Kiri's own button also lands on sliced", () => {
+    // Slicing started inside Kiri (no app request) still ends sliced —
+    // the event comes off the shared bus.
+    expect(sliceFlowTransition("idle", { type: "end" })).toBe("sliced");
+  });
+
+  it("begin is a defensive no-op transition into slicing", () => {
+    expect(sliceFlowTransition("idle", { type: "begin" })).toBe("slicing");
+    expect(sliceFlowTransition("slicing", { type: "begin" })).toBe("slicing");
+  });
+
+  it("error fails only an in-flight slice", () => {
+    expect(sliceFlowTransition("slicing", { type: "error" })).toBe("failed");
+    expect(sliceFlowTransition("sliced", { type: "error" })).toBe("sliced");
+    expect(sliceFlowTransition("idle", { type: "error" })).toBe("idle");
+  });
+
+  it("a new model invalidates old toolpaths but not a fresh slice", () => {
+    expect(sliceFlowTransition("sliced", { type: "model-change" })).toBe("idle");
+    expect(sliceFlowTransition("slicing", { type: "model-change" })).toBe("slicing");
+  });
+
+  it("reset returns to idle", () => {
+    expect(sliceFlowTransition("sliced", { type: "reset" })).toBe("idle");
+  });
+});
+
+describe("sliceTimeoutMs", () => {
+  it("arms a long deadline while slicing, none when idle/sliced", () => {
+    expect(sliceTimeoutMs("slicing")).toBeGreaterThanOrEqual(60_000);
+    expect(sliceTimeoutMs("idle")).toBe(0);
+    expect(sliceTimeoutMs("sliced")).toBe(0);
+    expect(sliceTimeoutMs("failed")).toBe(0);
+  });
+});
+
+describe("exportJobTransition (prepare → export chain)", () => {
+  it("prepare starts the preview phase", () => {
+    let job = exportJobTransition({ phase: "idle" }, { type: "prepare" });
+    expect(job.phase).toBe("preparing");
+    job = exportJobTransition(job, { type: "prepare" });
+    expect(job.phase).toBe("preparing");
+  });
+
+  it("prepare.done promotes to requested (ready for export)", () => {
+    const job = exportJobTransition({ phase: "preparing" }, { type: "prepare.done" });
     expect(job.phase).toBe("requested");
-    job = exportJobTransition(job, { type: "request" });
-    expect(job.phase).toBe("requested");
+  });
+
+  it("request jumps straight to requested when preview already exists", () => {
+    expect(exportJobTransition({ phase: "idle" }, { type: "request" }).phase).toBe("requested");
   });
 
   it("requested → done and captures gcode from export.done", () => {
@@ -129,7 +219,8 @@ describe("exportJobTransition", () => {
     expect(exportJobTransition(done, { type: "export.done", payload: "G2" })).toEqual(done);
   });
 
-  it("error while requested → failed; error while idle is ignored", () => {
+  it("error while preparing/requested → failed; error while idle is ignored", () => {
+    expect(exportJobTransition({ phase: "preparing" }, { type: "error" }).phase).toBe("failed");
     expect(exportJobTransition({ phase: "requested" }, { type: "error" }).phase).toBe("failed");
     expect(exportJobTransition({ phase: "idle" }, { type: "error" }).phase).toBe("idle");
   });
@@ -140,7 +231,8 @@ describe("exportJobTransition", () => {
 });
 
 describe("exportTimeoutMs", () => {
-  it("arms a watchdog only while requested", () => {
+  it("arms watchdogs while preparing and requested only", () => {
+    expect(exportTimeoutMs("preparing")).toBeGreaterThan(0);
     expect(exportTimeoutMs("requested")).toBeGreaterThan(0);
     expect(exportTimeoutMs("idle")).toBe(0);
     expect(exportTimeoutMs("done")).toBe(0);
@@ -176,7 +268,7 @@ describe("fileBaseName", () => {
 
   it("takes only the final path segment", () => {
     expect(fileBaseName("/models/robot/arm.stl")).toBe("arm");
-    expect(fileBaseName("C:\\\\models\\\\arm.stl")).toBe("arm");
+    expect(fileBaseName("C:\\models\\arm.stl")).toBe("arm");
   });
 });
 
@@ -200,7 +292,6 @@ describe("planModelLoad", () => {
       fileName: "benchy.gcode",
       type: "gcode",
     });
-    // No frame support → fall back to the file input.
     expect(planModelLoad({ name: "benchy.gcode", isText: true, hasFrameSupport: false })).toEqual({
       kind: "file-input",
       fileName: "benchy.gcode",
@@ -215,8 +306,8 @@ describe("planModelLoad", () => {
   });
 });
 
-describe("widget poll constants", () => {
-  it("poll fast but never longer than 12s", () => {
+describe("poll constants", () => {
+  it("widgets poll is fast but bounded", () => {
     expect(WIDGET_POLL_DELAY_MS).toBeGreaterThanOrEqual(200);
     expect(WIDGET_POLL_DELAY_MS).toBeLessThanOrEqual(1000);
     expect(WIDGET_POLL_MAX_MS).toBeGreaterThanOrEqual(5000);
@@ -224,8 +315,14 @@ describe("widget poll constants", () => {
     expect(WIDGET_POLL_MAX_MS % WIDGET_POLL_DELAY_MS).toBe(0);
   });
 
-  it("model load events never overlap with readiness events", () => {
-    for (const ev of MODEL_LOAD_EVENTS) expect(READY_EVENTS.has(ev)).toBe(false);
-    expect(MODEL_LOAD_EVENTS.has("slice.done")).toBe(false);
+  it("idle bed sync is slower than the load watch but under 5s", () => {
+    expect(WIDGET_IDLE_SYNC_MS).toBeGreaterThanOrEqual(1000);
+    expect(WIDGET_IDLE_SYNC_MS).toBeLessThanOrEqual(5000);
+    expect(WIDGET_IDLE_SYNC_MS).toBeGreaterThan(WIDGET_POLL_DELAY_MS);
+  });
+
+  it("settings collector retries are bounded and paced", () => {
+    expect(GET_RETRY_MAX).toBeGreaterThanOrEqual(3);
+    expect(GET_REPLY_GRACE_MS).toBeGreaterThan(0);
   });
 });
