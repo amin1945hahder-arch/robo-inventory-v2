@@ -318,9 +318,13 @@ function ResetDatabaseCard() {
   const requestCode = async () => {
     setBusy(true);
     try {
-      await requestReset({});
+      const res = await requestReset({});
       setStage("awaiting");
-      toast.success("Verification code emailed — check your inbox");
+      toast.success(
+        res.via === "telegram"
+          ? "Email pipeline was down — the code was sent to your Telegram DM instead"
+          : "Verification code emailed — check your inbox",
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
     } finally {
