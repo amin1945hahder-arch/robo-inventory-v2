@@ -66,6 +66,8 @@ export function GroupFormDialog({
       setImageUrl(group?.imageUrl ?? "");
       setQuantityTotal(String(group?.quantityTotal ?? 1));
       setMeasure(group?.measure ?? "count");
+      // New bulk groups start on the unit that fits their kind; edits keep
+      // the stored unit (locked — stock is already ledgered in it).
       setMeasureUnit(group?.measureUnit ?? "kg");
       setMeasureStock(group?.measureStock ?? "0");
       setMeasureLowAt(group?.measureLowAt ?? "");
@@ -153,7 +155,15 @@ export function GroupFormDialog({
           {/* Counting mode */}
           <div className="grid gap-2">
             <Label>How is this counted?</Label>
-            <Select value={measure} onValueChange={(v) => setMeasure(v as any)}>
+            <Select
+              value={measure}
+              onValueChange={(v) => {
+                const next = v as "count" | "weight" | "length";
+                setMeasure(next);
+                // Sensible default unit per kind for brand-new groups.
+                if (!group) setMeasureUnit(next === "weight" ? "kg" : "m");
+              }}
+            >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -184,14 +194,23 @@ export function GroupFormDialog({
               <div className="grid grid-cols-2 gap-3">
                 <div className="grid gap-2">
                   <Label>Unit</Label>
-                  <Select value={measureUnit} onValueChange={setMeasureUnit}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {(measure === "weight" ? ["kg", "g"] : ["m", "cm", "mm"]).map((u) => (
-                        <SelectItem key={u} value={u}>{u}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {group ? (
+                    <Input value={measureUnit} disabled />
+                  ) : (
+                    <Select value={measureUnit} onValueChange={setMeasureUnit}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {(measure === "weight" ? ["kg", "g"] : ["m", "cm", "mm"]).map((u) => (
+                          <SelectItem key={u} value={u}>{u}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  {group && (
+                    <p className="text-xs text-muted-foreground">
+                      Locked — every unit's stock is ledgered in {measureUnit}.
+                    </p>
+                  )}
                 </div>
                 <div className="grid gap-2">
                   <Label>Stock on hand</Label>
@@ -216,8 +235,9 @@ export function GroupFormDialog({
                 />
               </div>
               <p className="text-xs text-muted-foreground">
-                Bulk groups have no per-unit QR tags — members request an amount, and the admin
-                records what was actually taken at pick-up.
+                Bulk groups keep stock per unit (reel, spool, tube…) — each unit gets its own QR
+                tag and amount. Members request an amount; the system splits it across units
+                without ever cutting a unit below its minimum.
               </p>
             </div>
           )}

@@ -11,9 +11,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ReturnDialog } from "@/components/ReturnDialog";
 import { PackageBuilderDialog } from "@/components/PackageBuilderDialog";
+import { GroupDetailUnits, isBulkGroup } from "@/components/GroupDetailUnits";
+import { BulkUnitDialog } from "@/components/BulkUnitDialog";
 import { groupQr, unitQr } from "@/lib/qr";
 import { toast } from "sonner";
 import { ArrowLeft, Loader2, PackagePlus, Package, RotateCcw, Scale } from "lucide-react";
+import type { Doc } from "@/convex/_generated/dataModel";
 
 export default function GroupDetail() {
   const { id } = useParams();
@@ -32,8 +35,10 @@ export default function GroupDetail() {
   const requestRental = useMutation(api.parts.requestRental);
   const requestQty = useMutation(api.parts.requestRentalQuantity);
   const requestBulkRental = useMutation(api.catalog.requestBulkRental);
-  const adjustStock = useMutation(api.catalog.adjustBulkStock);
   const playSound = useSound();
+  // Bulk-unit add/edit dialog state (weight/length groups).
+  const [bulkUnitOpen, setBulkUnitOpen] = useState(false);
+  const [bulkUnitEdit, setBulkUnitEdit] = useState<Doc<"parts"> | null>(null);
 
   const [returnFor, setReturnFor] = useState<{ rentalId: string; partId: string; tag: string } | null>(null);
   const [busyTag, setBusyTag] = useState<string | null>(null);
@@ -57,7 +62,7 @@ export default function GroupDetail() {
   const total = s?.total ?? 0;
   const availableUnits = (parts ?? []).filter((p) => p.status === "available");
   // Bulk stock group (weight/length): rentals deduct an amount, not units.
-  const isBulk = group?.measure === "weight" || group?.measure === "length";
+  const isBulk = isBulkGroup(group);
   const stock = Number(group?.measureStock ?? 0);
   const [bulkAmount, setBulkAmount] = useState("");
 
@@ -135,17 +140,24 @@ export default function GroupDetail() {
               {isAdmin && (
                 <Button
                   variant="outline"
-                  onClick={async () => {
-                    try {
-                      await addPart({ groupId: group._id, count: 1 });
-                      playSound("assigned");
-                      toast.success("Unit added with a new QR tag");
-                    } catch (e) {
-                      toast.error(e instanceof Error ? e.message : "Failed");
+                  onClick={() => {
+                    if (isBulk) {
+                      // Bulk units need their amount up front — open the dialog.
+                      setBulkUnitEdit(null);
+                      setBulkUnitOpen(true);
+                    } else {
+                      addPart({ groupId: group._id, count: 1 })
+                        .then(() => {
+                          playSound("assigned");
+                          toast.success("Unit added with a new QR tag");
+                        })
+                        .catch((e: unknown) =>
+                          toast.error(e instanceof Error ? e.message : "Failed"),
+                        );
                     }
                   }}
                 >
-                  <PackagePlus className="size-4" /> Add unit
+                  <PackagePlus className="size-4" /> {isBulk ? "Add unit" : "Add unit"}
                 </Button>
               )}
               {/* Rental requests are available to every signed-in member —
@@ -168,25 +180,9 @@ export default function GroupDetail() {
                     </Button>
                   </div>
                   {isAdmin && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={async () => {
-                        const v = window.prompt(
-                          `Set the stock of ${group.name} (in ${group.measureUnit}):`,
-                          String(stock),
-                        );
-                        if (v === null) return;
-                        try {
-                          await adjustStock({ groupId: group._id, newStock: Number(v) });
-                          toast.success(`Stock set to ${v} ${group.measureUnit}`);
-                        } catch (e) {
-                          toast.error(e instanceof Error ? e.message : "Failed");
-                        }
-                      }}
-                    >
-                      <Scale className="size-3.5" /> Set stock
-                    </Button>
+                    <p className="max-w-xs text-right text-xs text-muted-foreground">
+                      Stock is the sum of all units — add or edit units below to correct it.
+                    </p>
                   )}
                 </div>
               ) : (
@@ -271,6 +267,20 @@ export default function GroupDetail() {
                 </p>
               </div>              ))}
           </section>
+          )}
+
+          {/* Bulk groups keep a real unit list too: every reel/spool with its
+              amount, minimum, QR and (admin) edit controls. */}
+          {isBulk && (
+            <GroupDetailUnits
+              group={group}
+              parts={parts}
+              isAdmin={isAdmin}
+              onEdit={(u) => {
+                setBulkUnitEdit(u);
+                setBulkUnitOpen(true);
+              }}
+            />
           )}
 
           {!isBulk && (
@@ -362,6 +372,15 @@ export default function GroupDetail() {
           partId={returnFor.partId}
           partTag={returnFor.tag}
           groupName={group?.name ?? ""}
+        />
+      )}
+
+      {group && (
+        <BulkUnitDialog
+          open={bulkUnitOpen}
+          onOpenChange={setBulkUnitOpen}
+          group={group}
+          unit={bulkUnitEdit}
         />
       )}
 

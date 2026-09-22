@@ -104,6 +104,11 @@ export default function PartDetail() {
     );
   }
 
+  // Weight/length units carry their own amount + minimum in the group's unit.
+  const isBulkUnit = group?.measure === "weight" || group?.measure === "length";
+  const bulkRemaining = part.amountRemaining !== undefined ? Number(part.amountRemaining) : undefined;
+  const bulkLowAt = part.lowAt !== undefined ? Number(part.lowAt) : undefined;
+
   const request = async () => {
     if (!part || !group) return;
     setBusy(true);
@@ -199,9 +204,17 @@ export default function PartDetail() {
                 ["Model", group?.model],
                 ["Tag", part.tag],
                 ["Status", undefined],
+                isBulkUnit
+                  ? ["Amount on unit", bulkRemaining !== undefined ? `${bulkRemaining} ${group?.measureUnit ?? ""}` : "—"]
+                  : null,
+                isBulkUnit
+                  ? ["Minimum kept", bulkLowAt !== undefined ? `${bulkLowAt} ${group?.measureUnit ?? ""}` : "—"]
+                  : null,
                 ["Note", part.note ?? "—"],
                 ["Description", group?.description ?? "—"],
-              ].map(([label, value]) => (
+              ]
+                .filter((row): row is [string, string | undefined] => row !== null)
+                .map(([label, value]) => (
                 <div key={label as string} className="flex items-start justify-between gap-6 px-5 py-3">
                   <dt className="text-muted-foreground">{label}</dt>
                   <dd className="text-right">

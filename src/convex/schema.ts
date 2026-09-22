@@ -612,7 +612,10 @@ const schema = defineSchema(
         v.literal("canceled"),
       ),
       priority: v.union(v.literal("normal"), v.literal("high")),
-      // Slicing help flow: request note + who took it.
+      // Slicing help flow: request note + who took it. `needSlicing` marks
+      // requests that arrived without printable G-code and route approval to
+      // the need_slicing stage instead of straight to scheduling.
+      needSlicing: v.optional(v.boolean()),
       slicingNote: v.optional(v.string()),
       slicingBy: v.optional(v.id("users")),
       createdAt: v.number(),

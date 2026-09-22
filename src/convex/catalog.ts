@@ -361,8 +361,9 @@ export const updateBulkUnit = mutation({
     partId: v.id("parts"),
     amountRemaining: v.number(),
     lowAt: v.optional(v.number()),
+    note: v.optional(v.string()),
   },
-  handler: async (ctx, { partId, amountRemaining, lowAt }) => {
+  handler: async (ctx, { partId, amountRemaining, lowAt, note }) => {
     await requireAdmin(ctx);
     const part = await ctx.db.get(partId);
     if (!part) throw new Error("Unit not found");
@@ -376,6 +377,7 @@ export const updateBulkUnit = mutation({
     await ctx.db.patch(partId, {
       amountRemaining: String(amountRemaining),
       ...(lowAt !== undefined ? { lowAt: String(lowAt) } : {}),
+      ...(note !== undefined ? { note: note.trim() } : {}),
     });
     const stock = await sumUnitStock(ctx, part.groupId);
     await ctx.db.patch(group._id, { measureStock: String(stock) });
