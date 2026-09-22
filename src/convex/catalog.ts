@@ -2,6 +2,17 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireAdmin, requireInteractingMember, requireNonStudent } from "./lib";
 import { telegramGroup } from "./notify";
+import { planMeasureTake } from "../lib/measure-alloc";
+
+/** Sum of a group's per-unit amounts (bulk groups keep stock per unit). */
+export async function sumUnitStock(ctx: any, groupId: string): Promise<number> {
+  const parts = await ctx.db
+    .query("parts")
+    .withIndex("by_group", (q: any) => q.eq("groupId", groupId))
+    .filter((q: any) => q.neq(q.field("deleted"), true))
+    .collect();
+  return parts.reduce((s: number, p: any) => s + Number(p.amountRemaining ?? 0), 0);
+}
 
 // ===== Closets =====
 
@@ -193,6 +204,7 @@ export const upsertGroup = mutation({
       }
       const stock = Number(measureStock);
       if (!Number.isFinite(stock) || stock < 0) {
+        // A blank starting stock is fine — units carry the real amounts.
         throw new Error("Stock must be a number ≥ 0");
       }
     }
@@ -269,14 +281,26 @@ export const deleteGroup = mutation({
 });
 
 export const addPartToGroup = mutation({
-  args: { groupId: v.id("groups"), count: v.optional(v.number()) },
+  args: {
+    groupId: v.id("groups"),
+    count: v.optional(v.number()),
+    // Weight/length groups: the amount the new unit holds, in the group's
+    // measureUnit (e.g. 3 meters). Required so every unit starts with stock.
+    amount: v.optional(v.number()),
+    // Per-unit minimum — pre-filled from the group's measureLowAt.
+    lowAt: v.optional(v.number()),
+  },
   handler: async (ctx: any, args: any) => {
     const groupId = args.groupId as string;
     const count = args.count as number | undefined;
     await requireAdmin(ctx);
     const group = await ctx.db.get(groupId);
     if (!group) throw new Error("Group not found");
+    const isBulk = group.measure === "weight" || group.measure === "length";
     const n = Math.max(1, Math.min(count ?? 1, 50));
+    if (isBulk && n > 1) {
+      throw new Error("Add bulk units one at a time — each holds its own amount");
+    }
     const parts = await ctx.db
       .query("parts")
       .withIndex("by_group", (q: any) => q.eq("groupId", groupId))
@@ -301,11 +325,61 @@ export const addPartToGroup = mutation({
         num += 1;
         tag = `${prefix}-${String(num).padStart(3, "0")}`;
       }
-      await ctx.db.insert("parts", { groupId, tag, status: "available" });
+      const partData: any = { groupId, tag, status: "available" };
+      if (isBulk) {
+        // Bulk groups also carry the hidden BULK placeholder for the rental
+        // ledger — never re-create or number it here.
+        if (tag === "BULK") continue;
+        const amount = Number(args.amount);
+        if (!Number.isFinite(amount) || amount <= 0) {
+          throw new Error(`Set the amount this unit holds (in ${group.measureUnit ?? "units"})`);
+        }
+        partData.amountRemaining = String(amount);
+        partData.lowAt = String(
+          Number.isFinite(Number(args.lowAt)) && Number(args.lowAt) >= 0
+            ? Number(args.lowAt)
+            : Number(group.measureLowAt ?? 0),
+        );
+      }
+      await ctx.db.insert("parts", partData);
       num += 1;
     }
-    await ctx.db.patch(groupId, { quantityTotal: parts.length + n });
+    if (isBulk) {
+      // Keep the group's headline stock in sync with the per-unit ledger.
+      const stock = await sumUnitStock(ctx, groupId);
+      await ctx.db.patch(groupId, { measureStock: String(stock) });
+    } else {
+      await ctx.db.patch(groupId, { quantityTotal: parts.length + n });
+    }
     return parts.length + n;
+  },
+});
+
+/** Admin edits a bulk unit's remaining amount / minimum (re-weighed reel…). */
+export const updateBulkUnit = mutation({
+  args: {
+    partId: v.id("parts"),
+    amountRemaining: v.number(),
+    lowAt: v.optional(v.number()),
+  },
+  handler: async (ctx, { partId, amountRemaining, lowAt }) => {
+    await requireAdmin(ctx);
+    const part = await ctx.db.get(partId);
+    if (!part) throw new Error("Unit not found");
+    const group = await ctx.db.get(part.groupId);
+    if (!group || (group.measure !== "weight" && group.measure !== "length")) {
+      throw new Error("Only weight/length group units carry amounts");
+    }
+    if (!Number.isFinite(amountRemaining) || amountRemaining < 0) {
+      throw new Error("Amount must be ≥ 0");
+    }
+    await ctx.db.patch(partId, {
+      amountRemaining: String(amountRemaining),
+      ...(lowAt !== undefined ? { lowAt: String(lowAt) } : {}),
+    });
+    const stock = await sumUnitStock(ctx, part.groupId);
+    await ctx.db.patch(group._id, { measureStock: String(stock) });
+    return { ok: true };
   },
 });
 
@@ -332,10 +406,25 @@ export const requestBulkRental = mutation({
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new Error("Enter the amount you need");
     }
-    const stock = Number(group.measureStock ?? 0);
-    if (amount > stock) {
-      throw new Error(`Only ${stock} ${group.measureUnit} in stock`);
-    }
+    // Feasibility check against the per-unit ledger: the take must be
+    // splittable across available units without dropping any below its
+    // minimum. The concrete allocation happens at hand-over (mark_taken).
+    const units = (
+      await ctx.db
+        .query("parts")
+        .withIndex("by_group", (q) => q.eq("groupId", groupId))
+        .filter((q) => q.neq(q.field("deleted"), true))
+        .collect()
+    ).filter((p: any) => p.status === "available" && p.tag !== "BULK");
+    const plan = planMeasureTake(
+      units.map((p: any) => ({
+        id: p._id,
+        remaining: Number(p.amountRemaining ?? 0),
+        lowAt: Number(p.lowAt ?? group.measureLowAt ?? 0),
+      })),
+      amount,
+    );
+    if (!plan.ok) throw new Error(plan.error);
     // A "placeholder" part row carries the rental ledger for bulk groups —
     // one per group, tagged BULK so it never appears as a physical unit.
     let part = await ctx.db
@@ -389,7 +478,10 @@ export const adjustBulkStock = mutation({
       throw new Error("This group is not a bulk-stock group");
     }
     if (!Number.isFinite(newStock) || newStock < 0) throw new Error("Stock must be ≥ 0");
-    await ctx.db.patch(groupId, { measureStock: String(newStock) });
-    return { ok: true };
+    // The per-unit ledger is the source of truth for bulk groups: a manual
+    // group-level stock set would desync it. Point admins to the units.
+    throw new Error(
+      "Bulk groups keep stock per unit — edit each unit's amount in the unit list instead",
+    );
   },
 });

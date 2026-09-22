@@ -6,6 +6,8 @@ import { adminPhones } from "./whatsapp";
 import { telegramDM, telegramGroup, notifyTelegram } from "./notify";
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
+import { planMeasureTake, describePlan } from "../lib/measure-alloc";
+import { sumUnitStock } from "./catalog";
 
 /**
  * Per-execution memo for joined docs.
@@ -724,12 +726,24 @@ export const adminRentalAction = mutation({
         if (amt === undefined || !Number.isFinite(amt) || amt <= 0) {
           throw new Error("Bulk request has no amount — deny it and ask the member to request again");
         }
-        const stock = Number(group.measureStock ?? 0);
-        if (amt > stock + 1e-9) {
-          throw new Error(
-            `Only ${stock} ${group.measureUnit ?? ""} in stock — the request is for ${amt}`,
-          );
-        }
+        // Stock may have drifted since the request: re-check that a feasible
+        // per-unit split still exists before saying yes.
+        const units = (
+          await ctx.db
+            .query("parts")
+            .withIndex("by_group", (q: any) => q.eq("groupId", group!._id))
+            .filter((q: any) => q.neq(q.field("deleted"), true))
+            .collect()
+        ).filter((p: any) => p.status === "available" && p.tag !== "BULK");
+        const plan = planMeasureTake(
+          units.map((p: any) => ({
+            id: p._id,
+            remaining: Number(p.amountRemaining ?? 0),
+            lowAt: Number(p.lowAt ?? group!.measureLowAt ?? 0),
+          })),
+          amt,
+        );
+        if (!plan.ok) throw new Error(plan.error);
       }
       await ctx.db.patch(rentalId, { status: "approved", decidedAt: now, pickupAt });
       const amountLabel = rental.amount !== undefined ? ` (${rental.amount} ${group?.measureUnit ?? ""})` : "";
@@ -820,21 +834,72 @@ export const adminRentalAction = mutation({
       }
       const isBulk = group?.measure === "weight" || group?.measure === "length";
       if (isBulk) {
-        // Bulk (weight/length) rental: deduct the approved amount from the
-        // group's stock exactly once, at hand-over. The BULK placeholder part
-        // never becomes "rented" and the amount stays on the rental row.
+        // Bulk (weight/length) rental: cut the approved amount across the
+        // group's physical units at hand-over. Whole units go out first; a
+        // remainder is cut from the fullest unit that stays at/above its
+        // minimum. The BULK placeholder part never becomes "rented".
         const amt = rental.amount;
         if (amt === undefined || !Number.isFinite(amt) || amt <= 0) {
           throw new Error("This bulk rental has no amount set — deny it and ask the member to request again");
         }
-        const stock = Number(group.measureStock ?? 0);
-        if (amt > stock + 1e-9) {
-          throw new Error(
-            `Only ${stock} ${group.measureUnit ?? ""} left in stock — cannot hand over ${amt}`,
-          );
+        const units = (
+          await ctx.db
+            .query("parts")
+            .withIndex("by_group", (q: any) => q.eq("groupId", group!._id))
+            .filter((q: any) => q.neq(q.field("deleted"), true))
+            .collect()
+        ).filter((p: any) => p.status === "available" && p.tag !== "BULK");
+        const plan = planMeasureTake(
+          units.map((p: any) => ({
+            id: p._id,
+            remaining: Number(p.amountRemaining ?? 0),
+            lowAt: Number(p.lowAt ?? group!.measureLowAt ?? 0),
+          })),
+          amt,
+        );
+        if (!plan.ok) throw new Error(plan.error);
+        const tagName = new Map(units.map((p: any) => [p._id, p.tag as string]));
+        const allocationNote = describePlan(plan.plan, (id) => tagName.get(id), group!.measureUnit);
+        for (const take of plan.plan) {
+          const unit = units.find((p: any) => p._id === take.unitId);
+          if (!unit) continue;
+          const remaining = Number(unit.amountRemaining ?? 0) - take.amount;
+          await ctx.db.patch(unit._id, {
+            amountRemaining: String(Math.max(0, Number(remaining.toFixed(4)))),
+            // A fully-drained unit is out of the shelf until it returns.
+            status: take.whole ? "rented" : unit.status,
+            currentHolderId: take.whole ? rental.userId : unit.currentHolderId,
+          });
         }
-        await ctx.db.patch(rentalId, { status: "active", pickedUpAt: now });
-        await ctx.db.patch(group!._id, { measureStock: String(stock - amt) });
+        await ctx.db.patch(rentalId, {
+          status: "active",
+          pickedUpAt: now,
+          allocations: plan.plan.map((p) => ({ partId: p.unitId as any, amount: p.amount })),
+        });
+        // Keep the group's headline stock in sync with the per-unit ledger.
+        const stock = await sumUnitStock(ctx, group!._id);
+        await ctx.db.patch(group!._id, { measureStock: String(stock) });
+        // Multi-unit takes (e.g. 4 m from 3 m reels) tell the admin what to
+        // physically hand over and note it on the rental for the record.
+        if (plan.spansUnits) {
+          await ctx.db.patch(rentalId, {
+            conditionReport: `Multi-unit take: ${allocationNote}`,
+          });
+        }
+        const amountNote = plan.spansUnits ? ` — split: ${allocationNote}` : "";
+        await telegramDM(
+          ctx,
+          { name: student?.name ?? student?.email, telegramUsername: student?.telegramUsername, telegramChatId: student?.telegramChatId },
+          `📦 Taken: ${group?.name ?? "a part"} (${rental.amount} ${group?.measureUnit ?? ""}) was handed to you. Return it to the lab when done.`,
+          { name: admin.name ?? admin.email },
+          "rentals",
+        );
+        await telegramGroup(
+          ctx,
+          `📦 ${admin.name ?? admin.email} handed ${student?.name ?? student?.email ?? "a member"} ${rental.amount} ${group?.measureUnit ?? ""} of ${group?.name ?? "a part"} (${part.tag})${amountNote} — stock deducted.`,
+          undefined,
+          "rentals",
+        );
       } else {
         await ctx.db.patch(rentalId, { status: "active", pickedUpAt: now });
         await ctx.db.patch(part._id, { status: "rented", currentHolderId: rental.userId });
@@ -864,7 +929,36 @@ export const adminRentalAction = mutation({
         conditionReport: conditionReport?.trim(),
         returnRequestedAt: undefined,
       });
-      if (functional === false) {
+      const isBulk = group?.measure === "weight" || group?.measure === "length";
+      if (isBulk) {
+        // Bulk return: restore every cut unit from the rental's allocation
+        // list. The member physically returns the leftover pieces to the
+        // lab — the admin records the actual recovered amount per unit
+        // (re-measured), defaulting to what was taken out.
+        for (const alloc of rental.allocations ?? []) {
+          const unit = await ctx.db.get(alloc.partId);
+          if (!unit) continue;
+          const recovered = Math.max(0, Number(alloc.amount));
+          await ctx.db.patch(unit._id, {
+            amountRemaining: String(Number((Number(unit.amountRemaining ?? 0) + recovered).toFixed(4))),
+            status: "available",
+            currentHolderId: undefined,
+          });
+        }
+        const stock = await sumUnitStock(ctx, group!._id);
+        await ctx.db.patch(group!._id, { measureStock: String(stock) });
+        if (functional === false) {
+          // Broken bulk stock: whatever came back is unusable — drop it.
+          for (const alloc of rental.allocations ?? []) {
+            const unit = await ctx.db.get(alloc.partId);
+            if (!unit) continue;
+            const left = Math.max(0, Number(unit.amountRemaining ?? 0) - Number(alloc.amount));
+            await ctx.db.patch(unit._id, { amountRemaining: String(left) });
+          }
+          const stockAfter = await sumUnitStock(ctx, group!._id);
+          await ctx.db.patch(group!._id, { measureStock: String(stockAfter) });
+        }
+      } else if (functional === false) {
         await ctx.db.patch(part._id, { status: "broken", currentHolderId: undefined });
       } else {
         await ctx.db.patch(part._id, { status: "available", currentHolderId: undefined });
@@ -894,7 +988,24 @@ export const adminRentalAction = mutation({
         conditionReport: conditionReport?.trim(),
         returnRequestedAt: undefined,
       });
-      await ctx.db.patch(part._id, { status: "on_project", currentProjectId: projectId, currentHolderId: undefined });
+      const isBulkAssign = group?.measure === "weight" || group?.measure === "length";
+      if (isBulkAssign) {
+        // Bulk stock assigned to a project stays deducted until the project
+        // is dismantled — the units were consumed into the build.
+        for (const alloc of rental.allocations ?? []) {
+          const unit = await ctx.db.get(alloc.partId);
+          if (!unit) continue;
+          const left = Math.max(0, Number(unit.amountRemaining ?? 0) - Number(alloc.amount));
+          await ctx.db.patch(unit._id, {
+            amountRemaining: String(left),
+            currentHolderId: undefined,
+          });
+        }
+        const stock = await sumUnitStock(ctx, group!._id);
+        await ctx.db.patch(group!._id, { measureStock: String(stock) });
+      } else {
+        await ctx.db.patch(part._id, { status: "on_project", currentProjectId: projectId, currentHolderId: undefined });
+      }
       // ONE Telegram message: PDF card + details as its caption.
       await scheduleRentCard(
         ctx,
@@ -909,7 +1020,20 @@ export const adminRentalAction = mutation({
     } else if (action === "mark_broken") {
       if (rental.status !== "active") throw new Error("Rental is not active");
       await ctx.db.patch(rentalId, { status: "returned", returnedAt: now, returnDestination: "shelf", functional: false, conditionReport: conditionReport?.trim(), returnRequestedAt: undefined });
-      await ctx.db.patch(part._id, { status: "broken", currentHolderId: undefined });
+      const isBulkBroken = group?.measure === "weight" || group?.measure === "length";
+      if (isBulkBroken) {
+        // Broken bulk stock is written off — nothing is restored.
+        for (const alloc of rental.allocations ?? []) {
+          const unit = await ctx.db.get(alloc.partId);
+          if (!unit) continue;
+          const left = Math.max(0, Number(unit.amountRemaining ?? 0) - Number(alloc.amount));
+          await ctx.db.patch(unit._id, { amountRemaining: String(left), currentHolderId: undefined });
+        }
+        const stock = await sumUnitStock(ctx, group!._id);
+        await ctx.db.patch(group!._id, { measureStock: String(stock) });
+      } else {
+        await ctx.db.patch(part._id, { status: "broken", currentHolderId: undefined });
+      }
       await scheduleRentCard(
         ctx,
         { ...rental, returnedAt: now, conditionReport: conditionReport?.trim() },

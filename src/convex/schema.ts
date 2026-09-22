@@ -129,6 +129,14 @@ const schema = defineSchema(
       // Optional per-unit photo (URL) shown next to the unit's QR chip and on
       // rent cards; falls back to the group image when not set.
       imageUrl: v.optional(v.string()),
+      // Weight/length (measure-based) groups track stock PER UNIT: each unit
+      // (reel, spool, tube…) holds its own remaining amount in the group's
+      // measureUnit, e.g. "3" meters of wire or "0.85" kg of PLA. Rentals of
+      // such groups cut across units instead of taking a unit out whole.
+      amountRemaining: v.optional(v.string()),
+      // Per-unit minimum: a partial take may never leave the unit below this
+      // amount (inherited from the group's measureLowAt when created).
+      lowAt: v.optional(v.string()),
       currentHolderId: v.optional(v.id("users")),
       currentProjectId: v.optional(v.id("projects")),
       deleted: v.optional(v.boolean()),
@@ -282,6 +290,12 @@ const schema = defineSchema(
       // Weight/length rentals (measure-based groups): amount taken, in the
       // group's measureUnit, e.g. 0.25 (kg) or 120 (cm).
       amount: v.optional(v.number()),
+      // How the take was split across the group's physical units (reels,
+      // spools…): [{ partId, amount }]. Written at hand-over; returns restore
+      // each unit from this list.
+      allocations: v.optional(
+        v.array(v.object({ partId: v.id("parts"), amount: v.number() })),
+      ),
       projectId: v.optional(v.id("projects")),
       returnDestination: v.optional(
         v.union(v.literal("shelf"), v.literal("project")),
@@ -555,6 +569,10 @@ const schema = defineSchema(
       // Link to the club inventory group that stocks this material (e.g. the
       // "PLA filament" weight-tracked group) so stock stays in one ledger.
       inventoryGroupId: v.optional(v.id("groups")),
+      // The inventory unit this spool mirrors (created automatically when the
+      // spool is linked to a weight group): print deductions update both the
+      // spool's remainingG and the unit's amountRemaining.
+      partId: v.optional(v.id("parts")),
       lowAtG: v.optional(v.number()), // warn below this remaining weight
       archived: v.optional(v.boolean()),
       createdAt: v.number(),
