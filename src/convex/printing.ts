@@ -219,7 +219,7 @@ async function notifyAdmins(ctx: MutationCtx, type: string, text: string, link?:
     .filter((q) => q.eq(q.field("role"), "admin"))
     .collect();
   for (const admin of admins) {
-    await telegramDM(ctx, admin, text);
+    await telegramDM(ctx, admin, text, undefined, "printers");
   }
 }
 
@@ -397,6 +397,8 @@ export const createJob = mutation({
     await telegramGroup(
       ctx,
       `🖨️ New print request: ${args.name} — from ${user.name ?? "member"}${args.fileName ? ` · ${args.fileName}` : ""}${args.needSlicing ? " · needs slicing help" : ""}`,
+      undefined,
+      "printers",
     );
     return jobId;
   },
@@ -429,6 +431,7 @@ export const approveJob = mutation({
       requester ?? {},
       `✅ Your print "${job.name}" was approved by ${reviewer.name ?? "the team"}${note ? `: ${note}` : ""}. Next: slice it in Slicer Studio (or hand the file over) and schedule it on a printer.`,
       reviewer,
+      "printers",
     );
   },
 });
@@ -457,6 +460,7 @@ export const denyJob = mutation({
       requester ?? {},
       `❌ Your print "${job.name}" was declined by ${reviewer.name ?? "the team"}${note ? `: ${note}` : ""}. Talk to the team if you want it reconsidered.`,
       reviewer,
+      "printers",
     );
   },
 });
@@ -513,6 +517,7 @@ export const claimSlicing = mutation({
       requester ?? {},
       `🧩 ${claimer.name ?? "A teammate"} took your print "${job.name}" for slicing — you'll be notified when it's scheduled.`,
       claimer,
+      "printers",
     );
   },
 });
@@ -558,6 +563,8 @@ export const scheduleJob = mutation({
       ctx,
       requester ?? {},
       `✅ Your print "${job.name}" is scheduled on ${printer?.name ?? "a printer"} — ${weightG} g, ~${Math.round(minutes)} min. Position in queue: ${queuePos}.`,
+      undefined,
+      "printers",
     );
   },
 });
@@ -590,6 +597,8 @@ export const startPrint = mutation({
       ctx,
       requester ?? {},
       `🖨️ Your print "${job.name}" just started on ${printer?.name ?? "the printer"}.`,
+      undefined,
+      "printers",
     );
   },
 });
@@ -648,10 +657,14 @@ export const completePrint = mutation({
       ctx,
       requester ?? {},
       `✅ "${job.name}" is done! Come pick it up. Material used: ${weightG} g · print time ${Math.round(minutes)} min.`,
+      undefined,
+      "printers",
     );
     await telegramGroup(
       ctx,
       `🖨️ Print finished: ${job.name} by ${requester?.name ?? "member"} — ${weightG} g in ${Math.round(minutes)} min on ${printer?.name ?? "the farm"}.`,
+      undefined,
+      "printers",
     );
   },
 });
@@ -686,6 +699,8 @@ export const failPrint = mutation({
       ctx,
       requester ?? {},
       `❌ Your print "${job.name}" failed (${reason}). We'll requeue it once the printer is fixed — or talk to the team.`,
+      undefined,
+      "printers",
     );
   },
 });

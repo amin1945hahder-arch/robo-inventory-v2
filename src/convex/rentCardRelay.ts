@@ -104,10 +104,18 @@ export const deliver = internalMutation({
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
 
     const name = (fileName || `rent-card-${job.card.tag}.pdf`).slice(0, 64);
+    // Rent cards are rental-lifecycle events → the topic the "rentals"
+    // category is routed to (General chat when none is assigned).
+    const threadId =
+      (await ctx.runQuery(internal.telegramTopics.resolveThreadInternal, {
+        bot: "app",
+        category: "rentals",
+      })) ?? undefined;
     const form = new FormData();
     form.append("chat_id", groupChatId);
     // Telegram allows 0–1024 chars for a document caption.
     form.append("caption", job.caption.slice(0, 1024));
+    if (threadId) form.append("message_thread_id", String(threadId));
     form.append("document", new Blob([bytes], { type: "application/pdf" }), name);
 
     try {

@@ -424,6 +424,7 @@ const CATEGORIES = [
   { key: "projects", label: "Projects" },
   { key: "members", label: "Members" },
   { key: "inventory", label: "Inventory" },
+  { key: "courses", label: "Courses" },
   { key: "system", label: "System / other" },
 ] as const;
 

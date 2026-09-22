@@ -451,6 +451,7 @@ export const requestRental = mutation({
       ctx,
       `📥 ${studentLabel} requested to rent ${group?.name ?? "a part"} (${part.tag})${note ? `\n📝 ${note}` : ""}\n→ approve in the Requests console`,
       admins.filter((a) => a.role === "admin" && a.telegramUsername).map((a) => ({ name: a.name, telegramUsername: a.telegramUsername })),
+      "requests",
     );
     return rentalId;
   },
@@ -505,6 +506,7 @@ export const requestRentalQuantity = mutation({
       ctx,
       `📥 ${label} requested ${wanted}× ${group.name}${note ? `\n📝 ${note}` : ""}\n→ approve in the Requests console`,
       admins.filter((a) => a.role === "admin" && a.telegramUsername).map((a) => ({ name: a.name, telegramUsername: a.telegramUsername })),
+      "requests",
     );
     return { created: pool.length };
   },
@@ -548,8 +550,9 @@ export const rentBrokenPart = mutation({
     const admins = await ctx.db.query("users").collect();
     await telegramGroup(
       ctx,
-      `⚠️ ${label} requested the BROKEN unit ${group?.name ?? "part"} (${part.tag})${note ? `\n📝 ${note}` : ""} — for repair/refurb. Approve carefully.`,
+      `⚠️ ${label} requested the BROKEN-unit rental ${group?.name ?? "part"} (${part.tag})${note ? `\n📝 ${note}` : ""} — for repair/refurb. Approve carefully.`,
       admins.filter((a) => a.role === "admin" && a.telegramUsername).map((a) => ({ name: a.name, telegramUsername: a.telegramUsername })),
+      "requests",
     );
     return { ok: true };
   },
@@ -573,7 +576,7 @@ export const deleteMyRentalRequest = mutation({
       await ctx.db.patch(part._id, { status: rental.rentBroken ? "broken" : "available" });
     }
     const group = part ? await ctx.db.get(part.groupId) : null;
-    await telegramGroup(ctx, `🗑 ${user.name ?? user.email ?? "A member"} deleted their rental request for ${group?.name ?? "a part"}${part ? ` (${part.tag})` : ""}.`);
+    await telegramGroup(ctx, `🗑 ${user.name ?? user.email ?? "A member"} deleted their rental request for ${group?.name ?? "a part"}${part ? ` (${part.tag})` : ""}.`, undefined, "requests");
   },
 });
 
@@ -673,6 +676,8 @@ export const decideRental = mutation({
         approve
           ? `✅ Approved: ${group?.name ?? "a part"} (${part.tag}). You can pick it up from the lab.`
           : `❌ Denied: your request for ${group?.name ?? "a part"} (${part.tag}) was not approved.`,
+        undefined,
+        "rentals",
       );
     }
     if (token && token === process.env.ADMIN_ACTION_TOKEN) return { ok: true };
@@ -751,11 +756,14 @@ export const adminRentalAction = mutation({
           { name: student.name ?? student.email, telegramUsername: student.telegramUsername, telegramChatId: student.telegramChatId },
           `✅ Approved: ${group?.name ?? "a part"} (${part.tag}).\\n📅 Pick-up time: ${pickupLabel}.\\nThe admin hands it over when you arrive — then it counts as rented.`,
           { name: admin.name ?? admin.email },
+          "rentals",
         );
       }
       await telegramGroup(
         ctx,
         `✅ ${admin.name ?? admin.email} approved ${student?.name ?? student?.email ?? "a member"}'s rental of ${group?.name ?? "a part"} (${part.tag}).\\n📅 Scheduled pick-up: ${pickupLabel} — waiting for handover.`,
+        undefined,
+        "rentals",
       );
       // PDF rent card follows the approval, same as returns do.
       await scheduleRentCard(
@@ -794,11 +802,14 @@ export const adminRentalAction = mutation({
           { name: student.name ?? student.email, telegramUsername: student.telegramUsername, telegramChatId: student.telegramChatId },
           `❌ Denied: your request for ${group?.name ?? "a part"} (${part.tag}) was not approved.`,
           { name: admin.name ?? admin.email },
+          "rentals",
         );
       }
       await telegramGroup(
         ctx,
         `❌ ${admin.name ?? admin.email} denied ${student?.name ?? student?.email ?? "a member"}'s rental request for ${group?.name ?? "a part"} (${part.tag}).`,
+        undefined,
+        "rentals",
       );
     } else if (action === "mark_taken") {
       // The admin physically hands the approved unit to the member (picked
@@ -834,11 +845,14 @@ export const adminRentalAction = mutation({
           { name: student.name ?? student.email, telegramUsername: student.telegramUsername, telegramChatId: student.telegramChatId },
           `📦 Taken: ${group?.name ?? "a part"} (${part.tag})${rental.amount !== undefined ? ` (${rental.amount} ${group?.measureUnit ?? ""})` : ""} was handed to you. Return it to the lab when done.`,
           { name: admin.name ?? admin.email },
+          "rentals",
         );
       }
       await telegramGroup(
         ctx,
         `📦 ${admin.name ?? admin.email} marked ${group?.name ?? "a part"} (${part.tag})${rental.amount !== undefined ? ` (${rental.amount} ${group?.measureUnit ?? ""})` : ""} as TAKEN by ${student?.name ?? student?.email ?? "a member"} — ${rental.amount !== undefined ? "stock deducted" : "inventory updated"}.`,
+        undefined,
+        "rentals",
       );
     } else if (action === "mark_returned") {
       if (rental.status !== "active") throw new Error("Rental is not active");
@@ -1486,6 +1500,7 @@ export const createPackage = mutation({
       ctx,
       `📦 ${label} requested a package rental: ${summary}${note ? `\n📝 ${note}` : ""}\n→ approve in the Requests console`,
       admins.filter((a) => a.role === "admin" && a.telegramUsername).map((a) => ({ name: a.name, telegramUsername: a.telegramUsername })),
+      "requests",
     );
     return packageId;
   },
@@ -1564,7 +1579,7 @@ export const editPackage = mutation({
       });
       await ctx.db.patch(partId, { status: "pending" });
     }
-    await telegramGroup(ctx, `✏️ ${user.name ?? user.email ?? "A member"} edited their pending package rental request.`);
+    await telegramGroup(ctx, `✏️ ${user.name ?? user.email ?? "A member"} edited their pending package rental request.`, undefined, "requests");
     return { ok: true };
   },
 });
@@ -1588,7 +1603,7 @@ export const cancelPackage = mutation({
       await ctx.db.patch(r._id, { status: "canceled", decidedAt: Date.now() });
     }
     await ctx.db.patch(packageId, { status: "canceled", decidedAt: Date.now() });
-    await telegramGroup(ctx, `🗑 ${user.name ?? user.email ?? "A member"} canceled their pending package rental request.`);
+    await telegramGroup(ctx, `🗑 ${user.name ?? user.email ?? "A member"} canceled their pending package rental request.`, undefined, "requests");
     return { ok: true };
   },
 });
@@ -1640,6 +1655,7 @@ export const decidePackage = mutation({
           ? `✅ Package approved: ${summaryText}.\n📅 Pick-up time: ${pickupLabel} — units are handed over at the lab.`
           : `❌ Package denied: ${summaryText}.`,
         { name: admin.name ?? admin.email },
+        "rentals",
       );
     }
     await telegramGroup(
@@ -1647,6 +1663,8 @@ export const decidePackage = mutation({
       approve
         ? `✅ ${admin.name ?? admin.email} approved ${member?.name ?? member?.email ?? "a member"}'s package rental (${summaryText}).\n📅 Scheduled pick-up: ${pickupLabel} — waiting for handover.`
         : `❌ ${admin.name ?? admin.email} denied ${member?.name ?? member?.email ?? "a member"}'s package rental (${summaryText}).`,
+      undefined,
+      "rentals",
     );
     if (member?.email) {
       await ctx.scheduler.runAfter(0, api.emails.sendRentalDecisionEmail, {
@@ -1828,6 +1846,8 @@ export const pickupReminders = internalMutation({
               telegramChatId: student.telegramChatId,
             },
             text,
+            undefined,
+            "rentals",
           );
           sent += 1;
         }

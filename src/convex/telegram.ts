@@ -84,8 +84,11 @@ export const send = internalAction({
     dmUsername: v.optional(v.string()),
     // Which bot identity sends: "app" (default) or "printer".
     bot: v.optional(v.union(v.literal("app"), v.literal("printer"))),
+    // Notification category for topic routing when the DM falls back to a
+    // group post (member has no linked chat). Real DMs ignore it.
+    category: v.optional(v.string()),
   },
-  handler: async (ctx, { kind, text, tags, dmChatId, dmUsername, bot }) => {
+  handler: async (ctx, { kind, text, tags, dmChatId, dmUsername, bot, category }) => {
     const which = bot ?? "app";
     const cfg = await ctx.runQuery(internal.settings.getTelegramConfigQuery, {});
     if (!cfg.notificationsOn) return { sent: false, reason: "disabled-in-settings" };
@@ -108,14 +111,22 @@ export const send = internalAction({
         return { sent: ok };
       }
       // No chat id: fall back to a group post that tags the member's username,
-      // so they still get notified inside that bot's group.
+      // so they still get notified inside that bot's group — in the topic the
+      // category routes to (e.g. printer decisions → Printing topic).
       const groupChatId = identity.groupId || envGroup || "";
       if (groupChatId && dmUsername) {
+        const threadId = category
+          ? ((await ctx.runQuery(internal.telegramTopics.resolveThreadInternal, {
+              bot: which,
+              category,
+            })) ?? undefined)
+          : undefined;
         const ok = await postTo(
           ctx,
           groupChatId,
           `${text}\n${tagLine || `@${dmUsername.replace(/^@/, "")}`}`,
           token,
+          threadId,
         );
         return { sent: ok };
       }
@@ -249,23 +260,34 @@ export const sendPrintFile = internalAction({
   },
   handler: async (ctx, { fileName, dataBase64, caption }): Promise<{ sent: boolean; reason?: string }> => {
     const cfg = await ctx.runQuery(internal.settings.getTelegramConfigQuery, {});
-    const token: string = cfg.botToken || process.env.TELEGRAM_BOT_TOKEN || "";
-    if (!token) return { sent: false, reason: "no-bot-token" };
+    const identity = botIdentity(cfg, "printer");
+    const envToken = process.env.TELEGRAM_PRINTER_BOT_TOKEN;
+    const envGroup = process.env.TELEGRAM_PRINTER_CHAT_ID;
+    const token: string = identity.token || envToken || "";
+    if (!token) return { sent: false, reason: "no-printer-bot-token" };
     // The printer group is the archive home for parts; without one configured
     // we fall back to the main club group so nothing is ever silently lost.
     const target: string =
-      cfg.printerGroupChatId || cfg.clubGroupChatId || process.env.TELEGRAM_CHAT_ID || "";
+      identity.groupId || envGroup || cfg.clubGroupChatId || process.env.TELEGRAM_CHAT_ID || "";
     if (!target) return { sent: false, reason: "no-printer-group-chat-id" };
     if (cfg.notificationsOn === false) return { sent: false, reason: "disabled-in-settings" };
+
+    // Parts belong to the Printing topic when the printer group has topics.
+    const threadId =
+      (await ctx.runQuery(internal.telegramTopics.resolveThreadInternal, {
+        bot: "printer",
+        category: "printers",
+      })) ?? undefined;
 
     try {
       const bin = atob(dataBase64);
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      const form = new FormData();
-      form.append("chat_id", target);
-      if (caption) form.append("caption", caption.slice(0, 1024));
-      form.append("document", new Blob([bytes]), fileName);
+    const form = new FormData();
+    form.append("chat_id", target);
+    if (caption) form.append("caption", caption.slice(0, 1024));
+    if (threadId) form.append("message_thread_id", String(threadId));
+    form.append("document", new Blob([bytes]), fileName);
       const res = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, {
         method: "POST",
         body: form,

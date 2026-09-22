@@ -330,6 +330,7 @@ export const addMember = mutation({
       ref,
       `🤖 You were added to the project “${project.name}”${center ? ` · ${center} center` : ""}.`,
       actor,
+      "projects",
     );
     await ctx.db.insert("notifications", {
       forRole: "admin",
@@ -467,6 +468,7 @@ export const createTask = mutation({
         ref,
         `🎯 New mission in “${project.name}” (${center}): ${clean}`,
         { name: me.name ?? me.email ?? undefined },
+        "projects",
       );
     }
     return taskId;
@@ -528,12 +530,12 @@ export const updateTask = mutation({
       const ref = await personRefOf(ctx, assigneeId);
       await telegramDM(ctx, ref, `🎯 Mission assigned in “${projectName}” (${task.center}): ${patch.title as string ?? task.title}`, {
         name: me.name ?? me.email ?? undefined,
-      });
+      }, "projects");
     }
     // Mission completed → tell the club group + admin console.
     if (status === "done" && task.status !== "done") {
       const finalTitle = (patch.title as string | undefined) ?? task.title;
-      await telegramGroup(ctx, `✅ “${projectName}” — ${task.center} mission completed: ${finalTitle}`);
+      await telegramGroup(ctx, `✅ “${projectName}” — ${task.center} mission completed: ${finalTitle}`, undefined, "projects");
       await ctx.db.insert("notifications", {
         forRole: "admin",
         type: "project",

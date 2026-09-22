@@ -2,6 +2,7 @@ import { internal } from "./_generated/api";
 import type { MutationCtx } from "./_generated/server";
 import {
   botForCategory,
+  DEFAULT_CATEGORY,
   type NotificationCategory,
 } from "./telegramTopics";
 
@@ -14,6 +15,9 @@ import {
  *  - "printers" category → PRINTER BOT → PRINTER group (topic via routing)
  *  - everything else     → APP BOT → APP group (topics/forum routing)
  * The category → topic map is admin-managed in Settings (telegramTopics).
+ * Every call site passes its own category — the shared default is only the
+ * "System / other" catch-all, so an unannotated site can never silently
+ * land in a real topic like Lend or Projects.
  */
 
 export type PersonRef = {
@@ -22,7 +26,7 @@ export type PersonRef = {
   telegramChatId?: string;
 };
 
-/** Default category for each helper, overridable per call site. */
+/** Which module a message belongs to — this is what routes it to a topic. */
 export type NotifyCategory = NotificationCategory;
 
 /** Resolve the tag target for a person: username if set, otherwise their name
@@ -35,14 +39,15 @@ function tagFor(p: PersonRef): string {
 /**
  * Post to a club group. `tags` are the people Telegram should notify —
  * e.g. the admins who must act, or the member concerned. `category` routes
- * the message to the right bot/group/topic (defaults to "rentals" — most
- * call sites are rental lifecycle events).
+ * the message to the right bot/group/topic. ALWAYS pass the module category
+ * ("rentals", "projects", "printers", …) — the default is only the
+ * "system" catch-all.
  */
 export async function telegramGroup(
   ctx: MutationCtx,
   text: string,
   tags?: PersonRef[],
-  category: NotifyCategory = "rentals",
+  category: NotifyCategory = DEFAULT_CATEGORY,
 ): Promise<void> {
   await ctx.scheduler.runAfter(0, internal.telegram.sendCategory, {
     category,
@@ -62,7 +67,7 @@ export async function telegramDM(
   member: PersonRef,
   text: string,
   actor?: PersonRef,
-  category: NotifyCategory = "rentals",
+  category: NotifyCategory = DEFAULT_CATEGORY,
 ): Promise<void> {
   const from = actor ? `\n— ${actor.name ?? "Club admin"}` : "";
   if (member.telegramChatId) {
@@ -100,7 +105,7 @@ export async function telegramPrinterDM(
   });
 }
 
-/** Back-compat wrapper: chatId → DM, no chatId → APP group. */
+/** Back-compat wrapper: chatId → DM, no chatId → APP group (Members topic). */
 export async function notifyTelegram(ctx: MutationCtx, text: string, chatId?: string) {
   if (chatId) {
     await ctx.scheduler.runAfter(0, internal.telegram.send, {

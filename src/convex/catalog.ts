@@ -368,6 +368,8 @@ export const requestBulkRental = mutation({
     await telegramGroup(
       ctx,
       `📤 ${user.name ?? user.email} requested ${amount} ${group.measureUnit} of ${group.name}. Awaiting admin approval.`,
+      undefined,
+      "requests",
     );
     return { rentalId };
   },

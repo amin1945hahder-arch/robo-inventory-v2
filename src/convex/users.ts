@@ -615,6 +615,7 @@ export const setPrinterRole = mutation({
           ? `🖨️ ${admin.name ?? admin.email} granted you printer access — the Slicer Studio and print scheduling are unlocked.`
           : `🖨️ ${admin.name ?? admin.email} revoked your printer access.`,
         { name: admin.name ?? admin.email },
+        "members",
       );
     }
   },

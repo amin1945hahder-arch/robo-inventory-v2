@@ -24,6 +24,7 @@ export const NOTIFICATION_CATEGORIES = [
   "projects",
   "members",
   "inventory",
+  "courses",
   "system",
 ] as const;
 
@@ -56,6 +57,10 @@ export const CATEGORY_INFO: Record<
   inventory: {
     label: "Inventory",
     hint: "Catalog edits, bulk stock, low-stock and broken parts",
+  },
+  courses: {
+    label: "Courses",
+    hint: "Course announcements and sessions (reserved for future use)",
   },
   system: {
     label: "System / other",
@@ -226,6 +231,11 @@ export const resolveThreadInternal = internalQuery({
 export function botForCategory(category: NotificationCategory): "app" | "printer" {
   return category === "printers" ? "printer" : "app";
 }
+
+/** Default category for call sites that don't specify one. "system" is the
+ *  catch-all on purpose: the app can never silently route an event into a
+ *  real category's topic — the admin decides where "System / other" lands. */
+export const DEFAULT_CATEGORY: NotificationCategory = "system";
 
 /** Resolve + schedule a category-routed group post from inside a mutation. */
 export async function notifyCategory(
