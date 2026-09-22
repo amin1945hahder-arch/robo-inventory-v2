@@ -380,10 +380,6 @@ const schema = defineSchema(
       decidedAt: v.optional(v.number()),
     }).index("by_status", ["status"]),
 
-    seedState: defineTable({
-      key: v.string(),
-    }).index("by_key", ["key"]),
-
     // ===== Chat module (local-first relay) =====
     // The database NEVER stores conversation logs. These tables hold only
     // ephemeral relay state: live messages are pulled by online recipients

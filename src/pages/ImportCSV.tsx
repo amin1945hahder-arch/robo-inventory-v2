@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { downloadCsv } from "@/lib/csv";
 import { toast } from "sonner";
-import { FileDown, FileUp, Loader2, Sparkles } from "lucide-react";
+import { FileDown, FileUp, Loader2 } from "lucide-react";
 
 const SAMPLE = `group,category,closet,quantity,brand,model,description
 Arduino Uno,Boards,Closet 1,8,Arduino,A000066,ATmega328P board
@@ -32,10 +32,8 @@ const TEMPLATE_ROWS: (string | number)[][] = [
 
 export default function ImportCSV() {
   const importCsv = useMutation(api.importer.importCsv);
-  const seedClub = useMutation(api.seedClub.seedClubData);
   const [csv, setCsv] = useState("");
   const [busy, setBusy] = useState(false);
-  const [seeding, setSeeding] = useState(false);
 
   const run = async () => {
     setBusy(true);
@@ -105,35 +103,6 @@ export default function ImportCSV() {
           </Button>
         </div>
 
-        <div className="rounded-lg border border-dashed px-5 py-4">
-          <p className="text-sm font-medium">Import the full club dataset</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Closets 1–8, your real component groups (working/broken per closet), the 14 club
-            projects with assigned parts, all members with roles, and the complete loan history.
-            Re-running wipes inventory tables and rebuilds them cleanly — user accounts are kept.
-          </p>
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-3"
-            disabled={seeding}
-            onClick={async () => {
-              setSeeding(true);
-              try {
-                const res = await seedClub({});
-                toast.success(
-                  `Club dataset loaded — ${res.groups} groups, ${res.parts} tagged units, ${res.projects} projects, ${res.members} members`,
-                );
-              } catch (e) {
-                toast.error(e instanceof Error ? e.message : "Failed");
-              } finally {
-                setSeeding(false);
-              }
-            }}
-          >
-            <Sparkles className="size-4" /> Import club dataset
-          </Button>
-        </div>
       </div>
     </AppShell>
   );

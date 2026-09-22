@@ -1,5 +1,4 @@
-import { useEffect, useRef } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { Link } from "react-router";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
@@ -9,7 +8,6 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { closetQr, projectQr } from "@/lib/qr";
-import { toast } from "sonner";
 import {
   Boxes,
   CircleDot,
@@ -35,32 +33,6 @@ export default function Dashboard() {
   const projects = useQuery(api.projects.listProjects, { status: "active" });
   const closets = useQuery(api.catalog.listClosets, {});
 
-  // Auto-fill the database with the real club dataset: on first run (empty
-  // inventory) and whenever the dataset is stale (e.g. after we extended it
-  // with student codes / club positions). Re-importing wipes inventory tables
-  // and rebuilds them cleanly — user accounts are kept.
-  const isSeeded = useQuery(api.seedClub.isClubSeeded, {});
-  const refreshNeeded = useQuery(api.seedClub.needsRefresh, {});
-  const seed = useMutation(api.seedClub.seedClubData);
-  const seedTriedRef = useRef(false);
-  useEffect(() => {
-    if (!isAdmin || seedTriedRef.current || isSeeded === undefined || refreshNeeded === undefined)
-      return;
-    if (isSeeded === false || refreshNeeded === true) {
-      seedTriedRef.current = true;
-      seed()
-        .then((res) => {
-          if (res.seeded)
-            toast.success(
-              `Club dataset loaded — ${res.groups} groups, ${res.parts} tagged units, ${res.projects} projects`,
-            );
-        })
-        .catch((e) => {
-          seedTriedRef.current = false;
-          console.error("Club seed failed:", e);
-        });
-    }
-  }, [isAdmin, isSeeded, refreshNeeded, overview, seed]);
 
   const myActive = (my ?? []).filter((r) => r.rental.status === "active");
   const myPending = (my ?? []).filter((r) => r.rental.status === "pending");

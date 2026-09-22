@@ -39,6 +39,9 @@ export const getPending = internalQuery({
 });
 
 // The purge itself — one mutation, one transaction: all-or-nothing.
+// Wipes EVERY app table (a true factory reset): inventory, projects, rentals,
+// printing, chat relay, topics, and all settings (bot tokens, schedules…).
+// No seed/demo data is ever re-created afterwards — the app starts empty.
 export const purgeAll = internalMutation({
   args: { adminId: v.id("users") },
   handler: async (ctx, { adminId }) => {
@@ -50,20 +53,31 @@ export const purgeAll = internalMutation({
       counts[table] = rows.length;
     };
 
-    // Inventory + rentals + requests + notifications + lists + chat relay.
+    // Every app table except users and the @convex-dev/auth internals.
+    // Auth rows for deleted users are removed in the user loop below.
     for (const table of [
-      "rentals",
-      "rentalPackages",
-      "parts",
-      "groups",
-      "categories",
       "closets",
+      "categories",
+      "groups",
+      "parts",
       "projects",
+      "projectMembers",
+      "projectTasks",
+      "projectNotes",
+      "rentalPackages",
+      "rentals",
       "notifications",
+      "settings",
+      "telegramTopics",
       "profileRequests",
-      "rankRequests",
       "clubLists",
-      "seedState",
+      "rankRequests",
+      "printerRequests",
+      "printers",
+      "printerMaintenance",
+      "filaments",
+      "printJobs",
+      "rentCardJobs",
       "chatMessages",
       "chatConversations",
       "chatPresence",
