@@ -41,7 +41,7 @@ export function GroupFormDialog({
   open: boolean;
   onOpenChange: (v: boolean) => void;
   group?: Doc<"groups"> | null;
-  defaults?: { categoryId?: string; closetId?: string };
+  defaults?: { categoryId?: string; closetId?: string; parentGroupId?: string };
 }) {
   const categories = useQuery(api.catalog.listCategories, open ? {} : "skip");
   const closets = useQuery(api.catalog.listClosets, open ? {} : "skip");
@@ -76,7 +76,7 @@ export function GroupFormDialog({
       setName(group?.name ?? "");
       setCategoryId(group?.categoryId ?? defaults?.categoryId ?? "");
       setClosetId(group?.closetId ?? defaults?.closetId ?? "");
-      setParentGroupId(group?.parentGroupId ?? "");
+      setParentGroupId(group?.parentGroupId ?? defaults?.parentGroupId ?? "");
       setBrand(group?.brand ?? "");
       setModel(group?.model ?? "");
       setDescription(group?.description ?? "");

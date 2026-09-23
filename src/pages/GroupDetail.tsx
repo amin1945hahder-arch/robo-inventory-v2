@@ -13,9 +13,10 @@ import { ReturnDialog } from "@/components/ReturnDialog";
 import { PackageBuilderDialog } from "@/components/PackageBuilderDialog";
 import { GroupDetailUnits, isBulkGroup, ConsumeBulkDialog } from "@/components/GroupDetailUnits";
 import { BulkUnitDialog } from "@/components/BulkUnitDialog";
+import { GroupFormDialog } from "@/components/GroupFormDialog";
 import { groupQr, unitQr } from "@/lib/qr";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2, PackagePlus, Package, RotateCcw, Scale } from "lucide-react";
+import { ArrowLeft, Box, Loader2, PackagePlus, Package, RotateCcw, Scale } from "lucide-react";
 import type { Doc } from "@/convex/_generated/dataModel";
 
 export default function GroupDetail() {
@@ -43,6 +44,9 @@ export default function GroupDetail() {
   const [consumeFor, setConsumeFor] = useState<Doc<"parts"> | null>(null);
 
   const [returnFor, setReturnFor] = useState<{ rentalId: string; partId: string; tag: string; amount?: number } | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  // New groups created from a container's page start inside it.
+  const [insideDefaults, setInsideDefaults] = useState<{ parentGroupId?: string }>({});
   // QR payload helpers:
   const closets = useQuery(api.catalog.listClosets, {});
   const groupsIndex = useQuery(api.catalog.childGroupOptions, {});
@@ -180,6 +184,17 @@ export default function GroupDetail() {
                   }}
                 >
                   <PackagePlus className="size-4" /> {isBulk ? "Add unit" : "Add unit"}
+                </Button>
+              )}
+              {isAdmin && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setInsideDefaults({ parentGroupId: group._id });
+                    setAddOpen(true);
+                  }}
+                >
+                  <Box className="size-4" /> Add group inside
                 </Button>
               )}
               {/* Rental requests are available to every signed-in member —
@@ -453,6 +468,18 @@ export default function GroupDetail() {
         onOpenChange={setPkgOpen}
         presetGroupId={group?._id}
         onDone={() => playSound("rental_request")}
+      />
+
+      {/* New-group dialog: when opened from a container, the group is created
+          inside it (defaults.parentGroupId). */}
+      <GroupFormDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        defaults={{
+          categoryId: group?.categoryId,
+          closetId: group?.closetId,
+          ...insideDefaults,
+        }}
       />
     </AppShell>
   );

@@ -62,6 +62,7 @@ export function GroupCard({
               {group.name}
             </h3>
             <p className="mt-0.5 text-xs text-muted-foreground">
+              {group.parentGroupId ? "📦 Container · " : ""}
               {[group.brand, group.model].filter(Boolean).join(" · ") || "—"}
             </p>
           </Link>
