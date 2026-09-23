@@ -964,7 +964,7 @@ export default function AdminRequests() {
                 <RadioGroupItem value="shelf" className="mt-0.5" />
                 <div>
                   <p className="text-sm font-medium">Return to shelf</p>
-                  <p className="text-xs text-muted-foreground">Back to its closet, rentable again.</p>
+                  <p className="text-xs text-muted-foreground">Back to its storage, rentable again.</p>
                 </div>
               </label>
               <label className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${destination === "project" ? "border-foreground" : ""}`}>
@@ -1068,7 +1068,7 @@ export default function AdminRequests() {
                 <RadioGroupItem value="shelf" className="mt-0.5" />
                 <div>
                   <p className="text-sm font-medium">Return to shelf</p>
-                  <p className="text-xs text-muted-foreground">All units back in their closets (or marked broken).</p>
+                  <p className="text-xs text-muted-foreground">All units back in their storages (or marked broken).</p>
                 </div>
               </label>
               <label className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${wholeDestination === "project" ? "border-foreground" : ""}`}>

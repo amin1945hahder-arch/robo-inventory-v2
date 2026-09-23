@@ -48,8 +48,8 @@ const FEATURES = [
   },
   {
     icon: Warehouse,
-    title: "Closets & categories",
-    body: "Even closets and categories get their own QR codes. Scan a closet door to see everything inside it, live.",
+    title: "Storages & categories",
+    body: "Even storages and categories get their own QR codes. Scan a storage door to see everything inside it, live.",
   },
   {
     icon: Mail,
@@ -195,7 +195,7 @@ export default function Landing() {
         <motion.div {...fadeUp} transition={{ duration: 0.5 }} className="mx-auto max-w-2xl text-center">
           <h2 className="text-3xl font-bold tracking-tight">Built for makers, not spreadsheets</h2>
           <p className="mt-3 text-muted-foreground">
-            Hardware lives in closets, parts go missing, projects hoard components. RoboShelf keeps
+            Hardware lives in storages, parts go missing, projects hoard components. RoboShelf keeps
             the whole story straight.
           </p>
         </motion.div>

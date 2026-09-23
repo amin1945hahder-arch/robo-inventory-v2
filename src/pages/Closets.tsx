@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import type { Doc } from "@/convex/_generated/dataModel";
 import { useAuth } from "@/hooks/use-auth";
 import { AppShell } from "@/components/AppShell";
 import { QrChip } from "@/components/QrChip";
@@ -19,8 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { closetQr } from "@/lib/qr";
 import { toast } from "sonner";
-import { Plus, Warehouse } from "lucide-react";
-
+import { Pencil, Plus, Trash2, Warehouse } from "lucide-react";
 type Stats = { total: number; available: number; rented: number; onProject: number; broken: number; pending: number };
 
 export default function Closets() {
@@ -29,26 +29,59 @@ export default function Closets() {
   const closets = useQuery(api.catalog.listClosets, {});
   const groups = useQuery(api.catalog.listGroups, {});
   const stats = useQuery(api.stats.groupStats, {});
-  const upsert = useMutation(api.catalog.upsertCloset);
+  const remove = useMutation(api.catalog.deleteCloset);
+  const upsertCloset = useMutation(api.catalog.upsertCloset);
 
+  // Add/edit dialog: editing === null → closed; {id?} → open for add or edit.
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<Doc<"closets"> | null>(null);
   const [name, setName] = useState("");
   const [location, setLocation] = useState("");
+  const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+
+  const openAdd = () => {
+    setEditing(null);
+    setName("");
+    setLocation("");
+    setNote("");
+    setOpen(true);
+  };
+
+  const openEdit = (c: Doc<"closets">) => {
+    setEditing(c);
+    setName(c.name);
+    setLocation(c.location ?? "");
+    setNote(c.note ?? "");
+    setOpen(true);
+  };
 
   const create = async () => {
     if (!name.trim()) return;
     setBusy(true);
     try {
-      await upsert({ name: name.trim(), location: location.trim() || undefined });
-      toast.success("Closet added");
+      await upsertCloset({
+        id: editing?._id,
+        name: name.trim(),
+        location: location.trim() || undefined,
+        note: note.trim() || undefined,
+      });
+      toast.success(editing ? "Storage updated" : "Storage added");
       setOpen(false);
-      setName("");
-      setLocation("");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const doDelete = async (c: Doc<"closets">) => {
+    if (!confirm(`Delete storage “${c.name}”? Storages with component groups cannot be deleted.`)) return;
+    try {
+      await remove({ id: c._id });
+      toast.success(`Storage “${c.name}” deleted`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
     }
   };
 
@@ -57,14 +90,14 @@ export default function Closets() {
       <div className="flex flex-col gap-8">
         <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Closets</h1>
+            <h1 className="text-2xl font-bold tracking-tight">Storages</h1>
             <p className="mt-1 text-sm text-muted-foreground">
               Storage locations — each has a QR you can print and stick on the door.
             </p>
           </div>
           {isAdmin && (
-            <Button onClick={() => setOpen(true)}>
-              <Plus className="size-4" /> Add closet
+            <Button onClick={openAdd}>
+              <Plus className="size-4" /> Add storage
             </Button>
           )}
         </header>
@@ -74,7 +107,7 @@ export default function Closets() {
         ) : closets.length === 0 ? (
           <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed px-6 py-16 text-center">
             <Warehouse className="size-8 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">No closets yet.</p>
+            <p className="text-sm text-muted-foreground">No storages yet.</p>
           </div>
         ) : (
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -101,7 +134,31 @@ export default function Closets() {
                           {c.location ?? "Lab storage"}
                         </p>
                       </Link>
-                      <QrChip payload={closetQr(c._id)} label={c.name} />
+                      <div className="flex items-center gap-1">
+                        <QrChip payload={closetQr(c._id)} label={c.name} />
+                        {isAdmin && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="size-7"
+                            title="Edit storage"
+                            onClick={() => openEdit(c)}
+                          >
+                            <Pencil className="size-3.5" />
+                          </Button>
+                        )}
+                        {isAdmin && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="size-7 text-muted-foreground hover:text-destructive"
+                            title="Delete storage"
+                            onClick={() => doDelete(c)}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        )}
+                      </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
                       <span><b className="text-foreground">{agg.available}</b> available</span>
@@ -143,22 +200,26 @@ export default function Closets() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Add closet</DialogTitle>
+            <DialogTitle>{editing ? "Edit storage" : "Add storage"}</DialogTitle>
           </DialogHeader>
           <div className="grid gap-3">
             <div className="grid gap-2">
               <Label>Name</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Closet 3" />
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Storage 3" />
             </div>
             <div className="grid gap-2">
               <Label>Location</Label>
               <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Lab B — Cabinet" />
             </div>
+            <div className="grid gap-2">
+              <Label>Note (optional)</Label>
+              <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Anything worth remembering" />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
             <Button onClick={create} disabled={busy || !name.trim()}>
-              {busy ? "Saving…" : "Create"}
+              {busy ? "Saving…" : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>

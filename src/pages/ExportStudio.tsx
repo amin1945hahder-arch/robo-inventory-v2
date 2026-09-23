@@ -42,7 +42,7 @@ function useColumns(dataset: Dataset): Col[] {
       return [
         { key: "group", label: "Component", get: (r) => r.group?.name ?? "" },
         { key: "category", label: "Category", get: (r) => r.category?.name ?? "" },
-        { key: "closet", label: "Closet", get: (r) => r.closet?.name ?? "" },
+        { key: "closet", label: "Storage", get: (r) => r.closet?.name ?? "" },
         { key: "brand", label: "Brand", get: (r) => r.group.brand ?? "" },
         { key: "model", label: "Model", get: (r) => r.group.model ?? "" },
         { key: "total", label: "Total", get: (r) => String(r.s?.total ?? 0) },
@@ -262,9 +262,9 @@ export default function ExportStudio() {
                   </SelectContent>
                 </Select>
                 <Select value={closetId} onValueChange={setClosetId}>
-                  <SelectTrigger className="w-40"><SelectValue placeholder="Closet" /></SelectTrigger>
+                  <SelectTrigger className="w-40"><SelectValue placeholder="Storage" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All closets</SelectItem>
+                    <SelectItem value="all">All storages</SelectItem>
                     {(closets ?? []).map((c) => (
                       <SelectItem key={c._id} value={c._id}>{c.name}</SelectItem>
                     ))}

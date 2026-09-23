@@ -9,25 +9,25 @@ import { toast } from "sonner";
 import { FileDown, FileUp, Loader2 } from "lucide-react";
 
 const SAMPLE = `group,category,closet,quantity,brand,model,description
-Arduino Uno,Boards,Closet 1,8,Arduino,A000066,ATmega328P board
-HC-SR04 Ultrasonic,Sensors,Closet 2,10,Generic,,Distance sensor 2-400cm`;
+Arduino Uno,Boards,Storage 1,8,Arduino,A000066,ATmega328P board
+HC-SR04 Ultrasonic,Sensors,Storage 2,10,Generic,,Distance sensor 2-400cm`;
 
 // Importer template: the exact columns importCsv accepts, with one example
 // row and a comment row describing each column. Fill it in Excel/Sheets and
-// re-import — missing categories/closets/groups are created automatically.
+// re-import — missing categories/storages/groups are created automatically.
 const TEMPLATE_ROWS: (string | number)[][] = [
   ["group", "category", "closet", "quantity", "brand", "model", "description"],
   [
     "(required) component name, e.g. Arduino Uno",
     "(required) category — created if missing",
-    "(required) closet/shelf — created if missing",
+    "(required) storage/shelf — created if missing",
     "units to create (1-200)",
     "brand",
     "model number",
     "description",
   ],
-  ["Arduino Uno", "Boards", "Closet 1", 8, "Arduino", "A000066", "ATmega328P board"],
-  ["HC-SR04 Ultrasonic", "Sensors", "Closet 2", 10, "Generic", "", "Distance sensor 2-400cm"],
+  ["Arduino Uno", "Boards", "Storage 1", 8, "Arduino", "A000066", "ATmega328P board"],
+  ["HC-SR04 Ultrasonic", "Sensors", "Storage 2", 10, "Generic", "", "Distance sensor 2-400cm"],
 ];
 
 export default function ImportCSV() {
@@ -54,8 +54,9 @@ export default function ImportCSV() {
         <header>
           <h1 className="text-2xl font-bold tracking-tight">Import inventory</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Paste CSV rows — missing categories, closets and groups are created automatically, and
-            every unit gets its own QR tag.
+            Paste CSV rows — missing categories, storages and groups are created automatically, and
+            every unit gets its own QR tag. The CSV column is still named <code>closet</code> for
+            backwards compatibility, but its values are your storage names.
           </p>
         </header>
 

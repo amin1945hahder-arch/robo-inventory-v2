@@ -26,14 +26,14 @@ export default function ClosetDetail() {
       <div className="flex flex-col gap-6">
         <div>
           <Button variant="ghost" size="sm" onClick={() => navigate("/closets")}>
-            <ArrowLeft className="size-4" /> Closets
+            <ArrowLeft className="size-4" /> Storages
           </Button>
         </div>
 
         {closet === undefined ? (
           <p className="py-16 text-center text-sm text-muted-foreground">Loading…</p>
         ) : closet === null ? (
-          <p className="py-16 text-center text-sm text-muted-foreground">Closet not found.</p>
+          <p className="py-16 text-center text-sm text-muted-foreground">Storage not found.</p>
         ) : (
           <>
             <header className="flex flex-wrap items-start gap-3 border-b pb-6">
@@ -58,7 +58,7 @@ export default function ClosetDetail() {
               <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed px-6 py-16 text-center">
                 <Warehouse className="size-8 text-muted-foreground" />
                 <p className="text-sm text-muted-foreground">
-                  No component groups in this closet yet.
+                  No component groups in this storage yet.
                 </p>
                 {isAdmin && (
                   <p className="text-xs text-muted-foreground">

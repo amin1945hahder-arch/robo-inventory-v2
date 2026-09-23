@@ -79,7 +79,7 @@ export function PermissionsPrompt() {
           </div>
           <DialogTitle>Enable camera for QR scanning</DialogTitle>
           <DialogDescription>
-            RoboShelf scans part, unit, closet and project QR labels with your
+            RoboShelf scans part, unit, storage and project QR labels with your
             device camera. Granting access once lets every scan flow — renting,
             returning, browsing — work instantly.
           </DialogDescription>

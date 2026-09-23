@@ -179,7 +179,7 @@ export default function Inventory() {
           </div>
         </header>
 
-        {/* Filter bar — search, category, closet, availability, sort */}
+        {/* Filter bar — search, category, storage, availability, sort */}
         <div className="flex flex-col gap-2 rounded-lg border bg-card/40 p-3">
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative min-w-56 flex-1">
@@ -204,10 +204,10 @@ export default function Inventory() {
             </Select>
             <Select value={closetFilter} onValueChange={setClosetFilter}>
               <SelectTrigger className="w-40">
-                <SelectValue placeholder="Closet" />
+                <SelectValue placeholder="Storage" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All closets</SelectItem>
+                <SelectItem value="all">All storages</SelectItem>
                 {(closets ?? []).map((c) => (
                   <SelectItem key={c._id} value={c._id}>{c.name}</SelectItem>
                 ))}
@@ -387,11 +387,15 @@ export default function Inventory() {
             <Button
               onClick={async () => {
                 if (!catName.trim()) return;
-                await upsertCategory({ name: catName.trim(), description: catDesc.trim() || undefined });
-                toast.success("Category added");
-                setCatDialogOpen(false);
-                setCatName("");
-                setCatDesc("");
+                try {
+                  await upsertCategory({ name: catName.trim(), description: catDesc.trim() || undefined });
+                  toast.success("Category added");
+                  setCatDialogOpen(false);
+                  setCatName("");
+                  setCatDesc("");
+                } catch (e) {
+                  toast.error(e instanceof Error ? e.message : "Failed");
+                }
               }}
             >
               Create

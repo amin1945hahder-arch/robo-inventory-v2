@@ -76,7 +76,7 @@ export function GroupFormDialog({
 
   const submit = async () => {
     if (!name.trim() || !categoryId || !closetId) {
-      toast.error("Name, category and closet are required");
+      toast.error("Name, category and storage are required");
       return;
     }
     setBusy(true);
@@ -131,7 +131,7 @@ export function GroupFormDialog({
               </Select>
             </div>
             <div className="grid gap-2">
-              <Label>Closet</Label>
+              <Label>Storage</Label>
               <Select value={closetId} onValueChange={setClosetId}>
                 <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
                 <SelectContent>

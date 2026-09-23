@@ -42,7 +42,7 @@ import { usePush } from "@/hooks/use-push";
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/inventory", label: "Inventory", icon: Boxes, studentBlocked: true },
-  { to: "/closets", label: "Closets", icon: Warehouse, studentBlocked: true },
+  { to: "/closets", label: "Storages", icon: Warehouse, studentBlocked: true },
   { to: "/projects", label: "Projects", icon: FolderKanban, studentBlocked: true },
   { to: "/rentals", label: "My rentals", icon: PackageSearch, studentBlocked: true },
   { to: "/3d-printing", label: "3D printing", icon: Box, studentBlocked: true },

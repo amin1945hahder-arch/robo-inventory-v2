@@ -164,7 +164,7 @@ export default function Dashboard() {
               </Link>
               <Link to="/closets" className="flex flex-col gap-1 bg-background px-5 py-4 transition-colors hover:bg-muted/60">
                 <Warehouse className="size-4 text-primary" />
-                <p className="text-sm font-medium">Closets</p>
+                <p className="text-sm font-medium">Storages</p>
                 <p className="text-xs text-muted-foreground">{closets?.length ?? 0} storage locations</p>
               </Link>
               <Link to="/projects" className="flex flex-col gap-1 bg-background px-5 py-4 transition-colors hover:bg-muted/60">
@@ -190,12 +190,12 @@ export default function Dashboard() {
           </p>
         )}
 
-        {/* print QR labels for closets and projects straight from the dashboard */}
+        {/* print QR labels for storages and projects straight from the dashboard */}
         {isAdmin && ((closets?.length ?? 0) > 0 || (projects?.length ?? 0) > 0) && (
           <section className="rounded-lg border p-5">
             <h2 className="text-sm font-semibold">Print lab labels</h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Every closet and project has its own QR — print and stick them on the doors.
+              Every storage and project has its own QR — print and stick them on the doors.
             </p>
             <div className="mt-4 flex flex-wrap gap-4">
               {(closets ?? []).map((c) => (

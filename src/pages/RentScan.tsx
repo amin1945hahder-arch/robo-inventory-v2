@@ -29,7 +29,7 @@ import {
  * - Student scanning a unit they hold   -> info + reminder that admin returns it
  * - Admin scanning a rented unit        -> full rental context + Return / Assign flow
  * - Admin scanning a pending unit       -> approve / deny inline
- * - Any tag/category/closet/project QR  -> smart redirect to the right page
+ * - Any tag/category/storage/project QR  -> smart redirect to the right page
  */
 export default function RentScan() {
   const { user } = useAuth();
@@ -42,7 +42,7 @@ export default function RentScan() {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
 
-  // resolve any scanned payload (unit / inv / cat / closet / proj)
+  // resolve any scanned payload (unit / inv / cat / storage / proj)
   const resolved = useQuery(
     api.lookup.resolve,
     payload ? { payload } : "skip",

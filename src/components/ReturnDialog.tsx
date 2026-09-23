@@ -128,7 +128,7 @@ export function ReturnDialog({
               <RadioGroupItem value="shelf" className="mt-0.5" />
               <div>
                 <p className="text-sm font-medium">Return to shelf</p>
-                <p className="text-xs text-muted-foreground">Back to its closet, available for rent again.</p>
+                <p className="text-xs text-muted-foreground">Back to its storage, available for rent again.</p>
               </div>
             </label>
             <label

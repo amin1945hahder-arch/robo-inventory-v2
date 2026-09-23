@@ -12,6 +12,7 @@ import {
   Bell,
   Boxes,
   DatabaseBackup,
+  FolderTree,
   Hash,
   Loader2,
   MessageSquare,
@@ -750,6 +751,182 @@ function MySoundsSection() {
 }
 
 /* ========================================================================= */
+/* Inventory structure: categories & storages                                  */
+/* ========================================================================= */
+
+/** Inline edit/delete list for one entity type (categories or storages). */
+function StructureList({
+  kind,
+}: {
+  kind: "categories" | "closets";
+}) {
+  const isCategory = kind === "categories";
+  const rows = useQuery(
+    isCategory ? api.catalog.listCategories : api.catalog.listClosets,
+    {},
+  );
+  const upsert = useMutation(
+    isCategory ? api.catalog.upsertCategory : api.catalog.upsertCloset,
+  );
+  const remove = useMutation(
+    isCategory ? api.catalog.deleteCategory : api.catalog.deleteCloset,
+  );
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [detail, setDetail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const detailLabel = isCategory ? "Description" : "Location";
+
+  const startEdit = (r: { _id: string; name: string }) => {
+    setEditingId(r._id);
+    setName(r.name);
+    setDetail("");
+  };
+
+  const save = async (row: { _id: string }) => {
+    setBusy(true);
+    try {
+      if (isCategory) {
+        await upsert({ id: row._id as Id<"categories">, name });
+      } else {
+        await upsert({ id: row._id as Id<"closets">, name });
+      }
+      toast.success(isCategory ? "Category updated" : "Storage updated");
+      setEditingId(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const del = async (row: { _id: string; name: string }) => {
+    if (
+      !confirm(
+        isCategory
+          ? `Delete category “${row.name}”? Categories with groups cannot be deleted.`
+          : `Delete storage “${row.name}”? Storages with groups cannot be deleted.`,
+      )
+    )
+      return;
+    try {
+      await remove({ id: row._id as never });
+      toast.success(`${isCategory ? "Category" : "Storage"} “${row.name}” deleted`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    }
+  };
+
+  return (
+    <div className="grid gap-2">
+      {rows === undefined ? (
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" /> Loading…
+        </p>
+      ) : rows.length === 0 ? (
+        <p className="rounded-md border border-dashed px-3 py-3 text-center text-xs text-muted-foreground">
+          Nothing here yet.
+        </p>
+      ) : (
+        rows.map((r) => (
+          <div
+            key={r._id}
+            className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2"
+          >
+            {editingId === r._id ? (
+              <>
+                <Input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="h-8 max-w-56 flex-1"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && name.trim()) void save(r);
+                    if (e.key === "Escape") setEditingId(null);
+                  }}
+                />
+                <Button
+                  size="sm"
+                  disabled={busy || !name.trim() || name.trim() === r.name}
+                  onClick={() => save(r)}
+                >
+                  {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+                  Save
+                </Button>
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => setEditingId(null)}>
+                  Cancel
+                </Button>
+              </>
+            ) : (
+              <>
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">{r.name}</span>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-7"
+                  title="Rename"
+                  onClick={() => startEdit(r)}
+                >
+                  <Pencil className="size-3.5" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-7 text-muted-foreground hover:text-destructive"
+                  title="Delete"
+                  onClick={() => del(r)}
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
+              </>
+            )}
+          </div>
+        ))
+      )}
+      <p className="text-[11px] text-muted-foreground">
+        Names must be unique. Deleting is blocked while {isCategory ? "categories" : "storages"} still
+        contain component groups — move or delete those first.
+      </p>
+    </div>
+  );
+}
+
+/** Settings section: edit all categories and storages (rename / delete). */
+function InventoryStructureSection() {
+  const [tab, setTab] = useState<"categories" | "storages">("categories");
+  return (
+    <section className="flex flex-col gap-4 rounded-lg border p-5">
+      <div>
+        <h2 className="flex items-center gap-2 text-sm font-semibold">
+          <FolderTree className="size-4" /> Inventory structure
+        </h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Rename or delete categories and storages. Changes apply everywhere instantly — QR labels
+          keep working because they point at ids, not names.
+        </p>
+      </div>
+      <div className="flex gap-1.5">
+        <Button
+          size="sm"
+          variant={tab === "categories" ? "default" : "outline"}
+          onClick={() => setTab("categories")}
+        >
+          Categories
+        </Button>
+        <Button
+          size="sm"
+          variant={tab === "storages" ? "default" : "outline"}
+          onClick={() => setTab("storages")}
+        >
+          Storages
+        </Button>
+      </div>
+      {tab === "categories" ? <StructureList kind="categories" /> : <StructureList kind="closets" />}
+    </section>
+  );
+}
+
+/* ========================================================================= */
 /* The Settings page                                                          */
 /* ========================================================================= */
 
@@ -760,6 +937,7 @@ type SectionId =
   | "backup"
   | "sounds"
   | "returns"
+  | "structure"
   | "lists"
   | "chat-backup"
   | "danger";
@@ -771,6 +949,7 @@ const SECTIONS: { id: SectionId; label: string; icon: typeof Hash; hint: string 
   { id: "backup", label: "Data backup", icon: DatabaseBackup, hint: "Full .zip to the APP group" },
   { id: "sounds", label: "My sounds", icon: Volume2, hint: "Your personal tones" },
   { id: "returns", label: "Return rules", icon: Bell, hint: "Return-request cooldown" },
+  { id: "structure", label: "Inventory structure", icon: FolderTree, hint: "Categories & storages" },
   { id: "lists", label: "Club lists", icon: Boxes, hint: "Positions & academic states" },
   { id: "chat-backup", label: "Chat backups", icon: MessageSquare, hint: "Archive destinations" },
   { id: "danger", label: "Danger zone", icon: TriangleAlert, hint: "Reset the database" },
@@ -1133,6 +1312,9 @@ export default function AdminSettings() {
             </div>
           </section>
         )}
+
+        {/* ===== Inventory structure ===== */}
+        {section === "structure" && <InventoryStructureSection />}
 
         {/* ===== Club lists ===== */}
         {section === "lists" && (

@@ -30,7 +30,7 @@ import { Printer, Loader2, QrCode, Grid2x2, Download } from "lucide-react";
 
 /**
  * Bulk QR label sheets with physical sizing:
- *  - every section (closets, categories, projects, groups, units) has its own
+ *  - every section (storages, categories, projects, groups, units) has its own
  *    label size in millimetres — sub-units of a group can get their own size
  *  - labels are laid out on the chosen paper (A4/A3/Letter) in mm, so what you
  *    see is the physical sheet you print; rows never split mid-label
@@ -195,7 +195,7 @@ export default function Labels() {
                 if (!data) return;
                 const rows: (string | number)[][] = [
                   ["Section", "Title", "Sub", "QR payload"],
-                  ...data.closets.map((c) => ["closet", c.name, c.location ?? "", closetQr(c._id)]),
+                  ...data.closets.map((c) => ["storage", c.name, c.location ?? "", closetQr(c._id)]),
                   ...data.categories.map((c) => ["category", c.name, "", categoryQr(c.name)]),
                   ...data.projects.map((p) => ["project", p.name, "", projectQr(p._id)]),
                   ...data.groups.map(({ group }) => ["group", group.name, "", groupQr(group.name)]),
@@ -222,7 +222,7 @@ export default function Labels() {
             {(
               [
                 ["all", "Everything"],
-                ["closets", "Closets"],
+                ["closets", "Storages"],
                 ["categories", "Categories"],
                 ["projects", "Projects"],
                 ["groups", "Groups"],
@@ -244,7 +244,7 @@ export default function Labels() {
             <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
               <QrCode className="size-3.5" /> Label size
             </p>
-            {(section === "all" || section === "closets") && sizeControl("closets", "Closets")}
+            {(section === "all" || section === "closets") && sizeControl("closets", "Storages")}
             {(section === "all" || section === "categories") && sizeControl("categories", "Categories")}
             {(section === "all" || section === "projects") && sizeControl("projects", "Projects")}
             {(section === "all" || section === "groups") && sizeControl("groups", "Groups")}
@@ -296,7 +296,7 @@ export default function Labels() {
             {show("closets") && data.closets.length > 0 && (
               <section>
                 <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-neutral-500">
-                  Closets
+                  Storages
                 </h2>
                 <div style={gridStyle}>
                   {data.closets.map((c) => (

@@ -64,7 +64,7 @@ export function PackageBuilderDialog({
   const [lines, setLines] = useState<Line[]>([]);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
-  // QR scanning: a unit/group label adds a line, a category/closet label
+  // QR scanning: a unit/group label adds a line, a category/storage label
   // narrows the item dropdown to the available items of that scope.
   const [scanOpen, setScanOpen] = useState(false);
   const [scanFilter, setScanFilter] = useState<ScanFilter>(null);
@@ -104,7 +104,7 @@ export function PackageBuilderDialog({
 
   const maxFor = (groupId: string) => availability?.[groupId]?.available ?? 0;
 
-  // Dropdown content: groups filtered by the scanned category/closet (and the
+  // Dropdown content: groups filtered by the scanned category/storage (and the
   // free-text search), each with its live availability count.
   const dropdownGroups = useMemo(() => {
     const q = scanQuery.trim().toLowerCase();
@@ -134,7 +134,7 @@ export function PackageBuilderDialog({
     } else if (out.action === "set-filter") {
       setScanFilter(out.filter);
       toast.success(
-        out.filter.type === "category" ? "Showing that category only" : "Showing that closet only",
+        out.filter.type === "category" ? "Showing that category only" : "Showing that storage only",
       );
     } else {
       toast.info(out.reason);
@@ -197,7 +197,7 @@ export function PackageBuilderDialog({
           <DialogDescription>
             Bundle several items into one request — e.g. 3× Arduino Uno + 2× servo. One approval,
             one pickup. Available counts update live. Scan item labels to add lines, or scan a
-            category/closet label to filter the list below.
+            category/storage label to filter the list below.
           </DialogDescription>
         </DialogHeader>
 
@@ -205,7 +205,7 @@ export function PackageBuilderDialog({
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             {scanFilter && (
               <span className="inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-primary">
-                {scanFilter.type === "category" ? "Category" : "Closet"} filter
+                {scanFilter.type === "category" ? "Category" : "Storage"} filter
                 <button
                   type="button"
                   onClick={() => setScanFilter(null)}
@@ -329,7 +329,7 @@ export function PackageBuilderDialog({
               variant="outline"
               size="sm"
               onClick={() => setScanOpen(true)}
-              title="Scan a unit/group label to add it, or a category/closet label to filter the list"
+              title="Scan a unit/group label to add it, or a category/storage label to filter the list"
             >
               <ScanLine className="size-4" /> Scan QR
             </Button>
@@ -370,7 +370,7 @@ export function PackageBuilderDialog({
         open={scanOpen}
         onOpenChange={setScanOpen}
         onResult={(text) => setScanPayload(normalizeScan(text))}
-        hint="Unit/group labels add items · category/closet labels filter the list"
+        hint="Unit/group labels add items · category/storage labels filter the list"
       />
     </Dialog>
   );

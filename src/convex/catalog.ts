@@ -33,6 +33,8 @@ export const getCloset = query({
   },
 });
 
+const normalizeName = (s: string) => s.trim().toLowerCase();
+
 export const upsertCloset = mutation({
   args: {
     id: v.optional(v.id("closets")),
@@ -42,7 +44,24 @@ export const upsertCloset = mutation({
   },
   handler: async (ctx, { id, name, location, note }) => {
     await requireAdmin(ctx);
-    const data = { name: name.trim(), location: location?.trim(), note: note?.trim() };
+    const clean = name.trim();
+    if (!clean) throw new Error("Name is required");
+    // No duplicate storages: match case-insensitively against every closet.
+    const dup = await ctx.db
+      .query("closets")
+      .withIndex("by_name", (q) => q.eq("name", clean))
+      .first();
+    if (dup && dup._id !== id) {
+      throw new Error(`A storage named “${dup.name}” already exists`);
+    }
+    const all = await ctx.db.query("closets").collect();
+    const dupLoose = all.find(
+      (c) => normalizeName(c.name) === normalizeName(clean) && c._id !== id,
+    );
+    if (dupLoose) {
+      throw new Error(`A storage named “${dupLoose.name}” already exists`);
+    }
+    const data = { name: clean, location: location?.trim(), note: note?.trim() };
     if (id) {
       await ctx.db.patch(id, data);
       return id;
@@ -86,7 +105,24 @@ export const upsertCategory = mutation({
   },
   handler: async (ctx, { id, name, description }) => {
     await requireAdmin(ctx);
-    const data = { name: name.trim(), description: description?.trim() };
+    const clean = name.trim();
+    if (!clean) throw new Error("Name is required");
+    // No duplicate categories: exact + case-insensitive check.
+    const dup = await ctx.db
+      .query("categories")
+      .withIndex("by_name", (q) => q.eq("name", clean))
+      .first();
+    if (dup && dup._id !== id) {
+      throw new Error(`A category named “${dup.name}” already exists`);
+    }
+    const all = await ctx.db.query("categories").collect();
+    const dupLoose = all.find(
+      (c) => normalizeName(c.name) === normalizeName(clean) && c._id !== id,
+    );
+    if (dupLoose) {
+      throw new Error(`A category named “${dupLoose.name}” already exists`);
+    }
+    const data = { name: clean, description: description?.trim() };
     if (id) {
       await ctx.db.patch(id, data);
       return id;
