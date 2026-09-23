@@ -251,7 +251,7 @@ export default function GroupDetail() {
               ))}
             </section>
           ) : (
-          <section className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border md:grid-cols-6">
+          <section className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border md:grid-cols-4">
             {[
               ["Total", total, ""],
               ["Available", s?.available ?? 0, "text-emerald-400"],
@@ -259,6 +259,8 @@ export default function GroupDetail() {
               ["Rented", s?.rented ?? 0, "text-sky-400"],
               ["On projects", s?.onProject ?? 0, "text-violet-400"],
               ["Broken", s?.broken ?? 0, "text-rose-400"],
+              ["Transferred", s?.transferred ?? 0, "text-orange-400"],
+              ["Consumed", s?.consumed ?? 0, "text-zinc-400"],
             ].map(([label, value, cls]) => (
               <div key={label as string} className="bg-background px-5 py-5">
                 <p className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground">

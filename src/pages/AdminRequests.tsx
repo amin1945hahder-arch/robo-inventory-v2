@@ -272,8 +272,9 @@ export default function AdminRequests() {
       } else {
         const taken = returnFor.rental.amount;
         const isBulkRow = returnFor.group?.measure === "weight" || returnFor.group?.measure === "length";
+        const consumableRow = isBulkRow && taken !== undefined;
         const recoveredNum =
-          isBulkRow && taken !== undefined && recovered.trim() !== "" ? Number(recovered) : undefined;
+          consumableRow && recovered.trim() !== "" ? Number(recovered) : undefined;
         if (recoveredNum !== undefined) {
           if (!Number.isFinite(recoveredNum) || recoveredNum < 0) {
             toast.error(`Enter the recovered amount in ${returnFor.group?.measureUnit ?? "units"}`);

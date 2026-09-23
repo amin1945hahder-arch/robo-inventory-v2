@@ -155,6 +155,9 @@ export const getPartWithRental = query({
         returnedAt: r.returnedAt,
         returnDestination: r.returnDestination,
         transferToName: r.transferToName,
+        transferDocName: r.transferDoc?.name,
+        transferDocUrl: r.transferDoc?.dataUrl,
+        transferDocMime: r.transferDoc?.mime,
         recoveredAmount: r.recoveredAmount,
         functional: r.functional,
         conditionReport: r.conditionReport,
@@ -994,7 +997,10 @@ export const adminRentalAction = mutation({
         0,
       );
       if (isBulk) {
-        if (recoveredAmount === undefined) {
+        if (functional === false) {
+          // Broken bulk stock: nothing usable came back — write it all off.
+          recovered = 0;
+        } else if (recoveredAmount === undefined) {
           recovered = takenTotal;
         }
         if (!Number.isFinite(recovered) || recovered < 0) {

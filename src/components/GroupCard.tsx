@@ -21,6 +21,8 @@ export interface GroupStats {
   onProject: number;
   broken: number;
   pending: number;
+  transferred?: number;
+  consumed?: number;
 }
 
 export function GroupCard({
@@ -39,7 +41,7 @@ export function GroupCard({
   onDelete?: () => void;
 }) {
   const s: GroupStats =
-    stats ?? { total: 0, available: 0, rented: 0, onProject: 0, broken: 0, pending: 0 };
+    stats ?? { total: 0, available: 0, rented: 0, onProject: 0, broken: 0, pending: 0, transferred: 0, consumed: 0 };
   const total = Math.max(s.total, 1);
   return (
     <Card className="group relative overflow-hidden border-border/80 shadow-none transition-colors hover:border-primary/40">
@@ -95,12 +97,20 @@ export function GroupCard({
             <div className="bg-violet-500/80" style={{ width: `${(s.onProject / total) * 100}%` }} />
             <div className="bg-amber-500/80" style={{ width: `${(s.pending / total) * 100}%` }} />
             <div className="bg-rose-500/80" style={{ width: `${(s.broken / total) * 100}%` }} />
+            <div className="bg-orange-500/80" style={{ width: `${((s.transferred ?? 0) / total) * 100}%` }} />
+            <div className="bg-zinc-500/80" style={{ width: `${((s.consumed ?? 0) / total) * 100}%` }} />
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
             <span><b className="text-foreground">{s.available}</b> available</span>
             <span><b className="text-foreground">{s.rented}</b> rented</span>
             <span><b className="text-foreground">{s.onProject}</b> on project</span>
             <span><b className="text-foreground">{s.broken}</b> broken</span>
+            {(s.transferred ?? 0) > 0 && (
+              <span className="text-orange-400"><b>{s.transferred}</b> transferred</span>
+            )}
+            {(s.consumed ?? 0) > 0 && (
+              <span><b className="text-foreground">{s.consumed}</b> consumed</span>
+            )}
             <span className="ml-auto font-medium text-foreground">{s.total} total</span>
           </div>
         </Link>

@@ -61,6 +61,23 @@ function useColumns(dataset: Dataset): Col[] {
         { key: "group", label: "Component", get: (r) => r.group?.name ?? "" },
         { key: "status", label: "Status", get: (r) => r.rental?.status ?? "" },
         { key: "project", label: "Project", get: (r) => r.project?.name ?? "" },
+        {
+          key: "destination",
+          label: "Return destination",
+          get: (r) =>
+            r.rental?.returnDestination === "transferred"
+              ? `Transferred to ${r.rental?.transferToName ?? "—"}`
+              : r.rental?.returnDestination === "project"
+                ? "Project"
+                : r.rental?.returnDestination === "shelf"
+                  ? "Shelf"
+                  : "",
+        },
+        {
+          key: "recovered",
+          label: "Recovered amount",
+          get: (r) => (r.rental?.recoveredAmount !== undefined ? String(r.rental.recoveredAmount) : ""),
+        },
         { key: "requested", label: "Requested", get: (r) => date(r.rental?.requestedAt) },
         { key: "returned", label: "Returned", get: (r) => date(r.rental?.returnedAt) },
         { key: "condition", label: "Condition note", get: (r) => r.rental?.conditionReport ?? "" },

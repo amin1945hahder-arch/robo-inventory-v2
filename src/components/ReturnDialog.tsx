@@ -56,6 +56,9 @@ export function ReturnDialog({
   const partData = useQuery(api.parts.getPartWithRental, { id: partId as any });
   const group = partData?.group;
   const isBulk = group?.measure === "weight" || group?.measure === "length";
+  // Measurable stock asks how much came back unless the category is explicitly
+  // non-consumable (then everything taken is expected back whole).
+  const consumableForm = isBulk && rentalAmount !== undefined && partData?.category?.consumable !== false;
 
   const [destination, setDestination] = useState<ReturnDestination>("shelf");
   const [functional, setFunctional] = useState<boolean | null>(null);
@@ -90,7 +93,6 @@ export function ReturnDialog({
 
   const unitLabel = group?.measureUnit ?? "";
   const taken = rentalAmount ?? 0;
-  const consumableForm = isBulk && rentalAmount !== undefined;
 
   const valid = useMemo(() => {
     if (functional === null) return false;

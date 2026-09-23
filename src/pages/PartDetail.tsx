@@ -483,6 +483,30 @@ export default function PartDetail() {
                             {row.rental.recoveredAmount !== undefined
                               ? ` · recovered ${row.rental.recoveredAmount}`
                               : ""}
+                            {row.rental.transferDocName &&
+                              row.rental.transferDocUrl && (
+                                <>
+                                  {" · "}
+                                  {row.rental.transferDocMime?.startsWith("image/") ? (
+                                    <a
+                                      href={row.rental.transferDocUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="underline"
+                                    >
+                                      view doc photo
+                                    </a>
+                                  ) : (
+                                    <a
+                                      href={row.rental.transferDocUrl}
+                                      download={row.rental.transferDocName}
+                                      className="underline"
+                                    >
+                                      download {row.rental.transferDocName}
+                                    </a>
+                                  )}
+                                </>
+                              )}
                           </p>
                         )}
                         {row.rental.recoveredAmount !== undefined &&

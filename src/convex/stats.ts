@@ -15,7 +15,7 @@ export const groupStats = query({
       .query("parts")
       .filter((q) => q.neq(q.field("deleted"), true))
       .collect();
-    const byGroup: Record<string, { total: number; available: number; rented: number; onProject: number; broken: number; pending: number }> = {};
+    const byGroup: Record<string, { total: number; available: number; rented: number; onProject: number; broken: number; pending: number; transferred: number; consumed: number }> = {};
     for (const p of parts) {
       const g = (byGroup[p.groupId] ??= {
         total: 0,
@@ -24,6 +24,8 @@ export const groupStats = query({
         onProject: 0,
         broken: 0,
         pending: 0,
+        transferred: 0,
+        consumed: 0,
       });
       g.total += 1;
       if (p.status === "available") g.available += 1;
@@ -31,6 +33,8 @@ export const groupStats = query({
       else if (p.status === "on_project") g.onProject += 1;
       else if (p.status === "broken") g.broken += 1;
       else if (p.status === "pending") g.pending += 1;
+      else if (p.status === "transferred") g.transferred += 1;
+      else if (p.status === "consumed") g.consumed += 1;
     }
     const out: Record<string, (typeof byGroup)[string]> = {};
     for (const g of groups) {
@@ -41,6 +45,8 @@ export const groupStats = query({
         onProject: 0,
         broken: 0,
         pending: 0,
+        transferred: 0,
+        consumed: 0,
       };
     }
     return out;
