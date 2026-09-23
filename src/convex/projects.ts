@@ -40,14 +40,18 @@ export const upsertProject = mutation({
     description: v.optional(v.string()),
     status: v.optional(v.union(v.literal("active"), v.literal("completed"), v.literal("dismantled"))),
     ownerId: v.optional(v.id("users")),
+    // Cover image (compressed data URL from the client or an external URL).
+    imageUrl: v.optional(v.string()),
   },
-  handler: async (ctx, { id, name, description, status, ownerId }) => {
+  handler: async (ctx, { id, name, description, status, ownerId, imageUrl }) => {
     await requireAdmin(ctx);
     const data = {
       name: name.trim(),
       description: description?.trim(),
       status: status ?? "active",
       ownerId,
+      // "" clears the image; undefined leaves it untouched.
+      ...(imageUrl !== undefined ? { imageUrl: imageUrl.trim() || undefined } : {}),
     };
     if (id) {
       await ctx.db.patch(id, data);

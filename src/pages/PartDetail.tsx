@@ -64,6 +64,8 @@ export default function PartDetail() {
   const [editImageUrl, setEditImageUrl] = useState("");
   const [editProjectId, setEditProjectId] = useState<string>("");
   const [editHolderId, setEditHolderId] = useState<string>("");
+  const [editTakenAt, setEditTakenAt] = useState(""); // date, YYYY-MM-DD
+  const [editDueAt, setEditDueAt] = useState(""); // date, YYYY-MM-DD
   const [busy, setBusy] = useState(false);
   // Print-card projection handed to <RentCardDialog/>.
   const [card, setCard] = useState<CardRow | null>(null);
@@ -167,6 +169,8 @@ export default function PartDetail() {
                   setEditImageUrl(part.imageUrl ?? "");
                   setEditProjectId(part.currentProjectId ?? "");
                   setEditHolderId(part.currentHolderId ?? "");
+                  setEditTakenAt(part.rentedAt ? new Date(part.rentedAt).toISOString().slice(0, 10) : "");
+                  setEditDueAt(part.dueAt ? new Date(part.dueAt).toISOString().slice(0, 10) : "");
                   setEditOpen(true);
                 }}
               >
@@ -211,6 +215,12 @@ export default function PartDetail() {
                   ? ["Minimum kept", bulkLowAt !== undefined ? `${bulkLowAt} ${group?.measureUnit ?? ""}` : "—"]
                   : null,
                 ["Note", part.note ?? "—"],
+                part.status === "rented" && part.rentedAt
+                  ? ["Taken on", new Date(part.rentedAt).toLocaleDateString()]
+                  : null,
+                part.status === "rented" && part.dueAt
+                  ? ["Return by", new Date(part.dueAt).toLocaleDateString()]
+                  : null,
                 ["Description", group?.description ?? "—"],
               ]
                 .filter((row): row is [string, string | undefined] => row !== null)
@@ -284,6 +294,21 @@ export default function PartDetail() {
                     <dt className="text-muted-foreground">Requested</dt>
                     <dd>{fmt(currentRental.requestedAt)}</dd>
                   </div>
+                  {currentRental.status === "active" && currentRental.takenAt && (
+                    <div className="flex items-center justify-between gap-6 px-5 py-3">
+                      <dt className="text-muted-foreground">Taken on</dt>
+                      <dd>{new Date(currentRental.takenAt).toLocaleDateString()}</dd>
+                    </div>
+                  )}
+                  {currentRental.status === "active" && currentRental.dueAt && (
+                    <div className="flex items-center justify-between gap-6 px-5 py-3">
+                      <dt className="text-muted-foreground">Return by</dt>
+                      <dd className={currentRental.dueAt < Date.now() ? "font-semibold text-red-400" : ""}>
+                        {new Date(currentRental.dueAt).toLocaleDateString()}
+                        {currentRental.dueAt < Date.now() ? " · overdue" : ""}
+                      </dd>
+                    </div>
+                  )}
                   {currentRental.projectName && (
                     <div className="flex items-center justify-between gap-6 px-5 py-3">
                       <dt className="text-muted-foreground">Project</dt>
@@ -532,6 +557,30 @@ export default function PartDetail() {
                 </select>
               </div>
             )}
+            {editStatus === "rented" && (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="grid gap-2">
+                  <Label>Taken on</Label>
+                  <Input
+                    type="date"
+                    value={editTakenAt}
+                    onChange={(e) => setEditTakenAt(e.target.value)}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Return by</Label>
+                  <Input
+                    type="date"
+                    value={editDueAt}
+                    onChange={(e) => setEditDueAt(e.target.value)}
+                  />
+                </div>
+                <p className="col-span-2 text-xs text-muted-foreground">
+                  Optional lend dates — when the member got the unit and when it should come back.
+                  Both are shown on the unit page and tracked in the rental ledger.
+                </p>
+              </div>
+            )}
             <div className="grid gap-2">
               <Label>Note</Label>
               <Textarea value={editNote} onChange={(e) => setEditNote(e.target.value)} rows={2} />
@@ -568,6 +617,8 @@ export default function PartDetail() {
                     imageUrl: editImageUrl.trim() || "",
                     projectId: wantsProject ? (editProjectId as any) : null,
                     holderId: wantsHolder ? (editHolderId as any) : null,
+                    rentedAt: wantsHolder && editTakenAt ? new Date(editTakenAt).getTime() : null,
+                    dueAt: wantsHolder && editDueAt ? new Date(editDueAt).getTime() : null,
                   });
                   toast.success("Unit updated");
                   setEditOpen(false);

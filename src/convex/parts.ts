@@ -135,6 +135,9 @@ export const getPartWithRental = query({
         decidedAt: shown.decidedAt,
         pickedUpAt: shown.pickedUpAt,
         returnedAt: shown.returnedAt,
+        // Manual lend dates (admin-set) mirrored from the unit itself.
+        takenAt: part.rentedAt,
+        dueAt: part.dueAt ?? shown.dueAt,
         rentBroken: Boolean(shown.rentBroken),
         returnRequestedAt: shown.returnRequestedAt,
       };
@@ -209,8 +212,12 @@ export const updatePart = mutation({
     // open rental row — if any — is kept in sync so the ledger stays true.
     projectId: v.optional(v.union(v.id("projects"), v.null())),
     holderId: v.optional(v.union(v.id("users"), v.null())),
+    // Lend dates for a manual hand-over: takenAt = when the member got it,
+    // dueAt = when it should come back. Optional; "" clears.
+    rentedAt: v.optional(v.union(v.number(), v.null())),
+    dueAt: v.optional(v.union(v.number(), v.null())),
   },
-  handler: async (ctx, { id, tag, status, note, imageUrl, projectId, holderId }) => {
+  handler: async (ctx, { id, tag, status, note, imageUrl, projectId, holderId, rentedAt, dueAt }) => {
     await requireAdmin(ctx);
     const part = await ctx.db.get(id);
     if (!part) throw new Error("Part not found");
@@ -218,6 +225,10 @@ export const updatePart = mutation({
     if (tag !== undefined) patch.tag = tag.trim().toUpperCase();
     if (note !== undefined) patch.note = note.trim();
     if (imageUrl !== undefined) patch.imageUrl = imageUrl.trim() || undefined;
+
+    // Lend dates only make sense on a rented unit.
+    if (rentedAt !== undefined) patch.rentedAt = rentedAt || undefined;
+    if (dueAt !== undefined) patch.dueAt = dueAt || undefined;
 
     const wantsProject = projectId !== undefined;
     const wantsHolder = holderId !== undefined;
@@ -277,10 +288,14 @@ export const updatePart = mutation({
             userId: toHolder ?? openRental.userId,
             decidedAt: now,
             pickedUpAt: now,
+            dueAt: (patch.dueAt as number | undefined) ?? undefined,
             returnRequestedAt: undefined,
           });
         } else if (toHolder) {
-          await ctx.db.patch(openRental._id, { userId: toHolder });
+          await ctx.db.patch(openRental._id, {
+            userId: toHolder,
+            dueAt: (patch.dueAt as number | undefined) ?? openRental.dueAt,
+          });
         }
       } else if (toHolder) {
         await ctx.db.insert("rentals", {
@@ -289,7 +304,8 @@ export const updatePart = mutation({
           status: "active",
           requestedAt: now,
           decidedAt: now,
-          pickedUpAt: now,
+          pickedUpAt: (patch.rentedAt as number | undefined) ?? now,
+          dueAt: patch.dueAt as number | undefined,
         });
       }
     } else {
@@ -297,6 +313,8 @@ export const updatePart = mutation({
       // rental row unless the status is exactly "pending" (a live request).
       patch.currentHolderId = undefined;
       patch.currentProjectId = undefined;
+      patch.rentedAt = undefined;
+      patch.dueAt = undefined;
       if (openRental && nextStatus !== "pending") {
         await ctx.db.patch(openRental._id, {
           status: "returned",
@@ -959,9 +977,9 @@ export const adminRentalAction = mutation({
           await ctx.db.patch(group!._id, { measureStock: String(stockAfter) });
         }
       } else if (functional === false) {
-        await ctx.db.patch(part._id, { status: "broken", currentHolderId: undefined });
+        await ctx.db.patch(part._id, { status: "broken", currentHolderId: undefined, rentedAt: undefined, dueAt: undefined });
       } else {
-        await ctx.db.patch(part._id, { status: "available", currentHolderId: undefined });
+        await ctx.db.patch(part._id, { status: "available", currentHolderId: undefined, rentedAt: undefined, dueAt: undefined });
       }
       // ONE Telegram message: PDF card + details as its caption (with the
       // acting admin), replacing the previous text+card double post.
@@ -1004,7 +1022,7 @@ export const adminRentalAction = mutation({
         const stock = await sumUnitStock(ctx, group!._id);
         await ctx.db.patch(group!._id, { measureStock: String(stock) });
       } else {
-        await ctx.db.patch(part._id, { status: "on_project", currentProjectId: projectId, currentHolderId: undefined });
+        await ctx.db.patch(part._id, { status: "on_project", currentProjectId: projectId, currentHolderId: undefined, rentedAt: undefined, dueAt: undefined });
       }
       // ONE Telegram message: PDF card + details as its caption.
       await scheduleRentCard(
@@ -1157,6 +1175,8 @@ export const setPartStatusDirect = mutation({
     await ctx.db.patch(part._id, {
       status: functional ? "available" : "broken",
       currentHolderId: undefined,
+      rentedAt: undefined,
+      dueAt: undefined,
     });
     const open = await ctx.db
       .query("rentals")
@@ -1196,6 +1216,8 @@ export const assignPartToProject = mutation({
       status: "on_project",
       currentHolderId: undefined,
       currentProjectId: projectId,
+      rentedAt: undefined,
+      dueAt: undefined,
     });
     const open = await ctx.db
       .query("rentals")

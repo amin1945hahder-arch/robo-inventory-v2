@@ -20,10 +20,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { projectQr } from "@/lib/qr";
+import { compressImageFile } from "@/lib/utils";
 import { toast } from "sonner";
+import type { Doc } from "@/convex/_generated/dataModel";
+
+type ProjectRow = Doc<"projects">;
 import {
   FolderKanban,
   ListChecks,
+  Pencil,
   Plus,
   Users,
   UserCog,
@@ -37,23 +42,64 @@ export default function Projects() {
   const summaries = useQuery(api.projectWorkspace.listSummaries, {});
   const upsert = useMutation(api.projects.upsertProject);
   const [open, setOpen] = useState(false);
+  // Edit state: which project is being edited (null = creating).
+  const [editing, setEditing] = useState<ProjectRow | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
   const [busy, setBusy] = useState(false);
 
   const active = (projects ?? []).filter((p) => p.status === "active");
   const past = (projects ?? []).filter((p) => p.status !== "active");
   const summaryOf = (id: string) => (summaries ?? []).find((s) => s.project._id === id);
 
-  const create = async () => {
+  const openCreate = () => {
+    setEditing(null);
+    setName("");
+    setDescription("");
+    setImageUrl("");
+    setOpen(true);
+  };
+
+  const openEdit = (p: ProjectRow) => {
+    setEditing(p);
+    setName(p.name);
+    setDescription(p.description ?? "");
+    setImageUrl(p.imageUrl ?? "");
+    setOpen(true);
+  };
+
+  const pickImage = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      setImageUrl(await compressImageFile(file, 512));
+    } catch {
+      toast.error("Could not read that image");
+    }
+  };
+
+  const submit = async () => {
     if (!name.trim()) return;
     setBusy(true);
     try {
-      await upsert({ name: name.trim(), description: description.trim() || undefined, status: "active" });
-      toast.success("Project created — its chat group and workspace are live");
+      if (editing) {
+        await upsert({
+          id: editing._id,
+          name: name.trim(),
+          description: description.trim() || undefined,
+          status: editing.status,
+          imageUrl: imageUrl.trim(), // "" clears
+        });
+        toast.success("Project updated");
+      } else {
+        await upsert({ name: name.trim(), description: description.trim() || undefined, status: "active", imageUrl: imageUrl.trim() || undefined });
+        toast.success("Project created — its chat group and workspace are live");
+      }
       setOpen(false);
       setName("");
       setDescription("");
+      setImageUrl("");
+      setEditing(null);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
     } finally {
@@ -73,7 +119,7 @@ export default function Projects() {
             </p>
           </div>
           {isAdmin && (
-            <Button onClick={() => setOpen(true)}>
+            <Button onClick={openCreate}>
               <Plus className="size-4" /> New project
             </Button>
           )}
@@ -89,6 +135,15 @@ export default function Projects() {
                 const pct = s && s.taskTotal > 0 ? Math.round((s.taskDone / s.taskTotal) * 100) : 0;
                 return (
                   <Card key={p._id} className="group relative overflow-hidden border-border/80 shadow-none transition-colors hover:border-primary/40">
+                    {p.imageUrl && (
+                      <Link to={`/projects/${p._id}`} className="block">
+                        <img
+                          src={p.imageUrl}
+                          alt={p.name}
+                          className="h-32 w-full border-b border-border/60 object-cover"
+                        />
+                      </Link>
+                    )}
                     <CardContent className="flex flex-col gap-3 p-5">
                       <div className="flex items-start justify-between gap-3">
                         <Link to={`/projects/${p._id}`} className="min-w-0 flex-1">
@@ -97,7 +152,20 @@ export default function Projects() {
                             {p.description ?? "Club project"}
                           </p>
                         </Link>
-                        <QrChip payload={projectQr(p._id)} label={p.name} />
+                        <div className="flex shrink-0 items-center gap-1">
+                          <QrChip payload={projectQr(p._id)} label={p.name} />
+                          {isAdmin && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7"
+                              title="Edit project"
+                              onClick={() => openEdit(p)}
+                            >
+                              <Pencil className="size-3.5" />
+                            </Button>
+                          )}
+                        </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <StatusBadge status={p.status} />
@@ -132,7 +200,7 @@ export default function Projects() {
                   <FolderKanban className="size-8 text-muted-foreground" />
                   <p className="text-sm text-muted-foreground">No active projects yet.</p>
                   {isAdmin && (
-                    <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+                    <Button size="sm" variant="outline" onClick={openCreate}>
                       <Plus className="size-3.5" /> Create the first one
                     </Button>
                   )}
@@ -161,9 +229,34 @@ export default function Projects() {
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>New project</DialogTitle>
+              <DialogTitle>{editing ? "Edit project" : "New project"}</DialogTitle>
             </DialogHeader>
             <div className="grid gap-3">
+              <div className="grid gap-2">
+                <Label>Cover image</Label>
+                <div className="flex items-center gap-3">
+                  {imageUrl ? (
+                    <img src={imageUrl} alt="Cover" className="size-16 rounded-md border object-cover" />
+                  ) : (
+                    <div className="flex size-16 items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
+                      none
+                    </div>
+                  )}
+                  <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => void pickImage(e.target.files?.[0])}
+                      className="h-9 text-xs"
+                    />
+                    {imageUrl && (
+                      <Button variant="ghost" size="sm" className="h-7 self-start text-xs" onClick={() => setImageUrl("")}>
+                        Remove image
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
               <div className="grid gap-2">
                 <Label>Name</Label>
                 <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Line Follower 2026" />
@@ -175,8 +268,8 @@ export default function Projects() {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-              <Button onClick={create} disabled={busy || !name.trim()}>
-                {busy ? "Creating…" : "Create"}
+              <Button onClick={submit} disabled={busy || !name.trim()}>
+                {busy ? "Saving…" : editing ? "Save changes" : "Create"}
               </Button>
             </DialogFooter>
           </DialogContent>

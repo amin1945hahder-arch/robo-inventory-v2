@@ -139,6 +139,10 @@ const schema = defineSchema(
       lowAt: v.optional(v.string()),
       currentHolderId: v.optional(v.id("users")),
       currentProjectId: v.optional(v.id("projects")),
+      // Manual lend dates (admin hands a unit to a member): when the loan
+      // started and when it should come back. Cleared on return.
+      rentedAt: v.optional(v.number()),
+      dueAt: v.optional(v.number()),
       deleted: v.optional(v.boolean()),
     })
       .index("by_group", ["groupId"])
@@ -147,6 +151,8 @@ const schema = defineSchema(
     projects: defineTable({
       name: v.string(),
       description: v.optional(v.string()),
+      // Project cover image (compressed data URL or URL) shown on cards.
+      imageUrl: v.optional(v.string()),
       status: v.union(
         v.literal("active"),
         v.literal("completed"),
@@ -287,6 +293,8 @@ const schema = defineSchema(
       pickupRemindedDay: v.optional(v.boolean()),
       pickupRemindedHour: v.optional(v.boolean()),
       returnedAt: v.optional(v.number()),
+      // Return-by date when the admin sets lend dates on a manual edit.
+      dueAt: v.optional(v.number()),
       // Weight/length rentals (measure-based groups): amount taken, in the
       // group's measureUnit, e.g. 0.25 (kg) or 120 (cm).
       amount: v.optional(v.number()),

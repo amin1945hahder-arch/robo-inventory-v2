@@ -34,6 +34,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { projectQr, unitQr } from "@/lib/qr";
+import { compressImageFile } from "@/lib/utils";
 import {
   CENTER_META,
   PRIORITIES,
@@ -59,7 +60,6 @@ import {
   UserPlus,
   Users,
 } from "lucide-react";
-
 const CENTER_KEYS = Object.keys(CENTER_META) as CenterKey[];
 
 type Workspace = {
@@ -242,6 +242,21 @@ export default function ProjectDetail() {
   const complete = useMutation(api.projects.completeProject);
   const reactivate = useMutation(api.projects.reactivateProject);
   const deleteProject = useMutation(api.projects.deleteProject);
+  const upsertProject = useMutation(api.projects.upsertProject);
+
+  // Edit-details dialog (admins): name, description and cover image.
+  const [editOpen, setEditOpen] = useState(false);
+  const [eName, setEName] = useState("");
+  const [eDesc, setEDesc] = useState("");
+  const [eImage, setEImage] = useState("");
+  const pickCover = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      setEImage(await compressImageFile(file, 512));
+    } catch {
+      toast.error("Could not read that image");
+    }
+  };
 
   const addMember = useMutation(api.projectWorkspace.addMember);
   const removeMember = useMutation(api.projectWorkspace.removeMember);
@@ -417,6 +432,13 @@ export default function ProjectDetail() {
         <header className="flex flex-col justify-between gap-4 border-b pb-5 sm:flex-row sm:items-end">
           <div className="flex items-start gap-3">
             <QrChip payload={projectQr(project._id)} label={project.name} />
+            {project.imageUrl && (
+              <img
+                src={project.imageUrl}
+                alt={project.name}
+                className="size-16 shrink-0 rounded-md border object-cover"
+              />
+            )}
             <div>
               <h1 className="text-2xl font-semibold tracking-tight">{project.name}</h1>
               <p className="mt-1 max-w-xl text-sm text-muted-foreground">
@@ -434,6 +456,17 @@ export default function ProjectDetail() {
           </div>
           {isAdmin && (
             <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setEName(project.name);
+                  setEDesc(project.description ?? "");
+                  setEImage(project.imageUrl ?? "");
+                  setEditOpen(true);
+                }}
+              >
+                <Pencil className="size-4" /> Edit details
+              </Button>
               {project.status === "active" ? (
                 <>
                   <Button variant="outline" onClick={async () => {
@@ -925,6 +958,76 @@ export default function ProjectDetail() {
             <DialogFooter>
               <Button variant="outline" onClick={() => setNoteOpen(false)}>Cancel</Button>
               <Button onClick={submitNote} disabled={busy || nTitle.trim().length < 2}>
+                {busy ? "Saving…" : "Save"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* ===== Edit details dialog ===== */}
+        <Dialog open={editOpen} onOpenChange={setEditOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Edit project details</DialogTitle>
+            </DialogHeader>
+            <div className="grid gap-3">
+              <div className="grid gap-2">
+                <Label>Cover image</Label>
+                <div className="flex items-center gap-3">
+                  {eImage ? (
+                    <img src={eImage} alt="Cover" className="size-16 rounded-md border object-cover" />
+                  ) : (
+                    <div className="flex size-16 items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
+                      none
+                    </div>
+                  )}
+                  <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => void pickCover(e.target.files?.[0])}
+                      className="h-9 text-xs"
+                    />
+                    {eImage && (
+                      <Button variant="ghost" size="sm" className="h-7 self-start text-xs" onClick={() => setEImage("")}>
+                        Remove image
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <Label>Name</Label>
+                <Input value={eName} onChange={(e) => setEName(e.target.value)} />
+              </div>
+              <div className="grid gap-2">
+                <Label>Description</Label>
+                <Textarea value={eDesc} onChange={(e) => setEDesc(e.target.value)} rows={3} />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
+              <Button
+                disabled={busy || eName.trim().length < 2}
+                onClick={async () => {
+                  setBusy(true);
+                  try {
+                    await upsertProject({
+                      id: project._id,
+                      name: eName.trim(),
+                      description: eDesc.trim() || undefined,
+                      status: project.status,
+                      imageUrl: eImage.trim(), // "" clears
+                    });
+                    toast.success("Project updated");
+                    setEditOpen(false);
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : "Failed");
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
                 {busy ? "Saving…" : "Save"}
               </Button>
             </DialogFooter>

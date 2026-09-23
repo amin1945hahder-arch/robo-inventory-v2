@@ -41,6 +41,35 @@ import {
   Users,
 } from "lucide-react";
 
+// PersonForm: shared fields between "Add person" and the edit dialog so the
+// add flow matches what admins already edit later.
+type AddPersonState = {
+  name: string;
+  email: string;
+  role: "admin" | "member" | "student";
+  studentId: string;
+  phone: string;
+  clubRoles: string[];
+  academicState: string;
+  major: string;
+  dateOfBirth: string;
+  githubUrl: string;
+  telegramChatId: string;
+};
+const EMPTY_ADD: AddPersonState = {
+  name: "",
+  email: "",
+  role: "member",
+  studentId: "",
+  phone: "",
+  clubRoles: [],
+  academicState: "",
+  major: "",
+  dateOfBirth: "",
+  githubUrl: "",
+  telegramChatId: "",
+};
+
 type Person = {
   user: {
     _id: string;
@@ -284,6 +313,47 @@ export default function AdminPeople() {
   const [msgBusy, setMsgBusy] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  // Add-person state (admin pre-provisions a member before they sign in).
+  const addPerson = useMutation(api.users.adminCreatePerson);
+  const [addOpen, setAddOpen] = useState(false);
+  const [add, setAdd] = useState<AddPersonState>(EMPTY_ADD);
+
+  const toggleAddRole = (r: string) =>
+    setAdd((s) => ({
+      ...s,
+      clubRoles: s.clubRoles.includes(r)
+        ? s.clubRoles.filter((x) => x !== r)
+        : [...s.clubRoles, r],
+    }));
+
+  const submitAdd = async () => {
+    setBusy(true);
+    try {
+      await addPerson({
+        name: add.name,
+        email: add.email,
+        role: add.role,
+        studentId: add.studentId.trim() || undefined,
+        phone: add.phone.trim() || undefined,
+        clubRoles: add.clubRoles,
+        academicState: add.academicState || undefined,
+        major: add.major.trim() || undefined,
+        dateOfBirth: add.dateOfBirth || undefined,
+        githubUrl: add.githubUrl.trim() || undefined,
+        telegramChatId: add.telegramChatId.trim() || undefined,
+      });
+      toast.success(
+        `${add.name.trim()} added — when they sign in with ${add.email.trim()} their profile links up automatically`,
+      );
+      setAddOpen(false);
+      setAdd(EMPTY_ADD);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // edit form state
   const [editRole, setEditRole] = useState<"admin" | "member" | "student">("member");
   const [editPrinter, setEditPrinter] = useState(false);
@@ -430,6 +500,9 @@ export default function AdminPeople() {
                   ))}
                 </SelectContent>
               </Select>
+              <Button size="sm" onClick={() => setAddOpen(true)}>
+                <UserPlus className="size-3.5" /> Add person
+              </Button>
             </div>
             <p className="text-xs text-muted-foreground">
               ✏️ edit roles · ➖ ex-member · 🗑 remove (blocked while they hold parts)
@@ -766,6 +839,180 @@ export default function AdminPeople() {
             </Button>
             <Button variant="destructive" onClick={confirmDelete} disabled={busy}>
               <Trash2 className="size-4" /> {busy ? "Removing…" : "Delete permanently"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add person — admin pre-provisions a member before they ever sign in */}
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add person</DialogTitle>
+            <DialogDescription>
+              Creates the profile now — rentals, teams and roles work immediately. When they sign
+              in with this same email, everything links to their account automatically.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-1">
+            <div className="grid gap-2">
+              <Label>Name *</Label>
+              <Input
+                value={add.name}
+                onChange={(e) => setAdd((s) => ({ ...s, name: e.target.value }))}
+                placeholder="Full name"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Email *</Label>
+              <Input
+                type="email"
+                value={add.email}
+                onChange={(e) => setAdd((s) => ({ ...s, email: e.target.value }))}
+                placeholder="they@university.edu — the email they'll sign in with"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Use the email they will actually sign in with — the profiles merge on first login.
+              </p>
+            </div>
+            <div className="grid gap-2">
+              <Label>Access level</Label>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant={add.role === "admin" ? "default" : "outline"}
+                  className="flex-1"
+                  onClick={() => setAdd((s) => ({ ...s, role: "admin" }))}
+                >
+                  <ShieldCheck className="size-4" /> Admin
+                </Button>
+                <Button
+                  type="button"
+                  variant={add.role === "member" ? "default" : "outline"}
+                  className="flex-1"
+                  onClick={() => setAdd((s) => ({ ...s, role: "member" }))}
+                >
+                  Member
+                </Button>
+                <Button
+                  type="button"
+                  variant={add.role === "student" ? "default" : "outline"}
+                  className="flex-1"
+                  onClick={() => setAdd((s) => ({ ...s, role: "student" }))}
+                >
+                  Student
+                </Button>
+              </div>
+              {add.role === "student" && (
+                <p className="text-xs text-muted-foreground">
+                  Students are blocked from inventory, projects and admin settings — they keep
+                  Chat, Courses and Profile access.
+                </p>
+              )}
+            </div>
+            <div className="grid gap-2">
+              <Label>Club position (select all that apply)</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {CLUB_ROLES.map((r) => {
+                  const on = add.clubRoles.includes(r);
+                  return (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => toggleAddRole(r)}
+                      className={`rounded-md border px-3 py-2 text-sm transition-colors ${
+                        on
+                          ? "border-primary/50 bg-primary/10 text-primary"
+                          : "border-border text-muted-foreground hover:border-primary/30"
+                      }`}
+                    >
+                      {r}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-2">
+                <Label>Student ID</Label>
+                <Input
+                  value={add.studentId}
+                  onChange={(e) => setAdd((s) => ({ ...s, studentId: e.target.value }))}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>Phone</Label>
+                <Input
+                  value={add.phone}
+                  onChange={(e) => setAdd((s) => ({ ...s, phone: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-2">
+                <Label>Academic state</Label>
+                <Select
+                  value={add.academicState}
+                  onValueChange={(v) => setAdd((s) => ({ ...s, academicState: v }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="—" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">—</SelectItem>
+                    {ACADEMIC_STATES.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Major</Label>
+                <Input
+                  value={add.major}
+                  onChange={(e) => setAdd((s) => ({ ...s, major: e.target.value }))}
+                  placeholder="ميكاترونيكس"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-2">
+                <Label>Date of birth</Label>
+                <Input
+                  type="date"
+                  value={add.dateOfBirth}
+                  onChange={(e) => setAdd((s) => ({ ...s, dateOfBirth: e.target.value }))}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>GitHub profile</Label>
+                <Input
+                  value={add.githubUrl}
+                  onChange={(e) => setAdd((s) => ({ ...s, githubUrl: e.target.value }))}
+                  placeholder="https://github.com/…"
+                />
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <Label>Telegram chat ID</Label>
+              <Input
+                value={add.telegramChatId}
+                onChange={(e) => setAdd((s) => ({ ...s, telegramChatId: e.target.value }))}
+                placeholder="optional — links automatically when they message the bot"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={submitAdd}
+              disabled={busy || add.name.trim().length < 2 || add.email.trim().length < 5}
+            >
+              {busy ? "Adding…" : "Add person"}
             </Button>
           </DialogFooter>
         </DialogContent>

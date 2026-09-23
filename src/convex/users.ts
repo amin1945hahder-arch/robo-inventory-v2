@@ -164,6 +164,77 @@ export const updatePersonProfile = mutation({
   },
 });
 
+/**
+ * Admin adds a person before they ever sign in: the profile exists immediately
+ * (People page, rental assignment, team rosters) and carries a stable
+ * `studentCode` reference id. When the real person later signs in with the
+ * SAME email, `reconcileProfile` merges the pre-made record into their live
+ * account — roles, positions, Telegram… everything survives; nothing is
+ * duplicated. If they sign in with a different email, the admin can merge or
+ * delete the placeholder from People as usual.
+ */
+export const adminCreatePerson = mutation({
+  args: {
+    name: v.string(),
+    email: v.string(),
+    role: v.optional(v.union(v.literal("admin"), v.literal("member"), v.literal("student"))),
+    studentId: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    clubRoles: v.optional(v.array(v.string())),
+    academicState: v.optional(v.string()),
+    major: v.optional(v.string()),
+    dateOfBirth: v.optional(v.string()),
+    githubUrl: v.optional(v.string()),
+    telegramChatId: v.optional(v.string()),
+  },
+  handler: async (ctx, { name, email, role, studentId, phone, clubRoles, academicState, major, dateOfBirth, githubUrl, telegramChatId }) => {
+    await requireAdmin(ctx);
+    const cleanEmail = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      throw new Error("Enter a valid email address");
+    }
+    if (!name.trim()) throw new Error("Name is required");
+    // Same exact email already in the app?
+    const dupEmail = await ctx.db
+      .query("users")
+      .withIndex("email", (q) => q.eq("email", cleanEmail))
+      .first();
+    if (dupEmail) throw new Error("A person with that email already exists");
+    // Same display name (case-insensitive) already in the app?
+    const cleanName = name.trim();
+    const all = await ctx.db.query("users").collect();
+    if (all.some((u) => (u.name ?? "").trim().toLowerCase() === cleanName.toLowerCase())) {
+      throw new Error(`A person named "${cleanName}" already exists`);
+    }
+    // Next reference-sheet id: STU-0007 style, one past the current max.
+    const maxCode = all.reduce((m, u) => {
+      const match = /^STU-(\d+)$/.exec(u.studentCode ?? "");
+      return match ? Math.max(m, Number(match[1])) : m;
+    }, 0);
+    const doc: Record<string, unknown> = {
+      name: cleanName,
+      email: cleanEmail,
+      role: role ?? "member",
+      studentCode: `STU-${String(maxCode + 1).padStart(4, "0")}`,
+    };
+    if (studentId !== undefined) doc.studentId = studentId.trim() || undefined;
+    if (phone !== undefined) doc.phone = phone.trim() || undefined;
+    if (clubRoles !== undefined) doc.clubRoles = clubRoles;
+    if (academicState !== undefined) doc.academicState = academicState || undefined;
+    if (major !== undefined) doc.major = major.trim() || undefined;
+    if (dateOfBirth !== undefined) {
+      const iso = dateOfBirth.trim();
+      if (iso && !/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+        throw new Error("Date of birth must be in YYYY-MM-DD format");
+      }
+      doc.dateOfBirth = iso || undefined;
+    }
+    if (githubUrl !== undefined) doc.githubUrl = githubUrl.trim() || undefined;
+    if (telegramChatId !== undefined) doc.telegramChatId = telegramChatId.trim() || undefined;
+    return await ctx.db.insert("users", doc);
+  },
+});
+
 // Mark someone as no longer in the club (ex-member). Their history stays;
 // they just stop counting as an active member.
 export const setMembershipStatus = mutation({
