@@ -43,6 +43,9 @@ export const inventory = query({
           name: g.name,
           brand: g.brand,
           model: g.model,
+          // Extra fields for the ID column + printed cards (image left, QR right).
+          description: g.description,
+          imageUrl: g.imageUrl,
         },
         category: category ? { _id: category._id, name: category.name } : null,
         closet: closet ? { _id: closet._id, name: closet.name } : null,
@@ -146,6 +149,46 @@ export const projects = query({
         project,
         owner: owner ? { _id: owner._id, name: owner.name, email: owner.email } : null,
         partCount: parts.filter((p) => p.currentProjectId === project._id).length,
+      });
+    }
+    return out;
+  },
+});
+
+// Storages (for the export sheet + printed cards: image left, QR right).
+export const storages = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+    const rows = await ctx.db.query("closets").collect();
+    return rows.sort((a, b) => a.name.localeCompare(b.name));
+  },
+});
+
+// Every physical unit (tag) with its group/storage names and image — used by
+// the printed cards (each card = one unit sticker) and the units dataset.
+export const units = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+    const parts = await ctx.db
+      .query("parts")
+      .filter((q) => q.neq(q.field("deleted"), true))
+      .collect();
+    const groups = await ctx.db
+      .query("groups")
+      .filter((q) => q.neq(q.field("deleted"), true))
+      .collect();
+    const closets = await ctx.db.query("closets").collect();
+    const out = [];
+    for (const p of parts.sort((a, b) => a.tag.localeCompare(b.tag))) {
+      const g = groups.find((x) => x._id === p.groupId);
+      if (!g) continue;
+      const closet = closets.find((c) => c._id === g.closetId);
+      out.push({
+        part: { _id: p._id, tag: p.tag, status: p.status, imageUrl: p.imageUrl },
+        group: { _id: g._id, name: g.name, brand: g.brand, model: g.model, imageUrl: g.imageUrl },
+        closet: closet ? { _id: closet._id, name: closet.name } : null,
       });
     }
     return out;

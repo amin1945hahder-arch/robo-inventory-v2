@@ -41,8 +41,10 @@ export const upsertCloset = mutation({
     name: v.string(),
     location: v.optional(v.string()),
     note: v.optional(v.string()),
+    // Storage photo (compressed data URL or URL). "" clears; omit to keep.
+    imageUrl: v.optional(v.string()),
   },
-  handler: async (ctx, { id, name, location, note }) => {
+  handler: async (ctx, { id, name, location, note, imageUrl }) => {
     await requireAdmin(ctx);
     const clean = name.trim();
     if (!clean) throw new Error("Name is required");
@@ -61,12 +63,17 @@ export const upsertCloset = mutation({
     if (dupLoose) {
       throw new Error(`A storage named “${dupLoose.name}” already exists`);
     }
-    const data = { name: clean, location: location?.trim(), note: note?.trim() };
+    const data: Record<string, unknown> = {
+      name: clean,
+      location: location?.trim(),
+      note: note?.trim(),
+      ...(imageUrl !== undefined ? { imageUrl: imageUrl.trim() || undefined } : {}),
+    };
     if (id) {
-      await ctx.db.patch(id, data);
+      await ctx.db.patch(id, data as any);
       return id;
     }
-    return await ctx.db.insert("closets", data);
+    return await ctx.db.insert("closets", data as any);
   },
 });
 
@@ -207,12 +214,50 @@ export const getGroup = query({
   },
 });
 
+// Container (group-of-groups) picker options: every active group, shallow.
+// The form filters out the current group's own subtree client-side.
+export const childGroupOptions = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireNonStudent(ctx);
+    return await ctx.db
+      .query("groups")
+      .withIndex("by_category")
+      .filter((q) => q.neq(q.field("deleted"), true))
+      .collect();
+  },
+});
+
+/**
+ * Groups whose NAME matches a storage name (e.g. a group literally called
+ * "Closet 1") are storage aliases: their printed QR resolves to the storage
+ * itself, so lending through them would mislead — block new rentals but keep
+ * editing, unit management and returns fully working.
+ */
+export async function assertGroupLendable(ctx: any, groupId: string): Promise<any> {
+  const group = await ctx.db.get(groupId);
+  if (!group) throw new Error("Group not found");
+  const match = await ctx.db
+    .query("closets")
+    .withIndex("by_name", (q: any) => q.eq("name", group.name))
+    .first();
+  if (match) {
+    throw new Error(
+      `“${group.name}” is a storage alias (its QR opens the storage) — it cannot be lent. Give the group a different name or edit it instead.`,
+    );
+  }
+  return group;
+}
+
 export const upsertGroup = mutation({
   args: {
     id: v.optional(v.id("groups")),
     name: v.string(),
     categoryId: v.id("categories"),
     closetId: v.id("closets"),
+    // Group-of-groups: put this group inside a container group (a box of
+    // mixed components). null clears; omit to keep the current value.
+    parentGroupId: v.optional(v.union(v.id("groups"), v.null())),
     brand: v.optional(v.string()),
     model: v.optional(v.string()),
     description: v.optional(v.string()),
@@ -235,6 +280,7 @@ export const upsertGroup = mutation({
       name,
       categoryId,
       closetId,
+      parentGroupId,
       brand,
       model,
       description,
@@ -264,7 +310,24 @@ export const upsertGroup = mutation({
     if (!id && !isBulk && quantityTotal <= 0) {
       throw new Error("Total quantity must be at least 1");
     }
-    const data = {
+    // Container (parent group) validation: must exist, not be the group
+    // itself, and must not create a cycle (a box inside its own box).
+    if (parentGroupId) {
+      if (id && parentGroupId === id) {
+        throw new Error("A group cannot contain itself");
+      }
+      let cursor: any = await ctx.db.get(parentGroupId);
+      if (!cursor || cursor.deleted) throw new Error("Container group not found");
+      let depth = 0;
+      while (cursor?.parentGroupId && depth < 10) {
+        if (id && cursor.parentGroupId === id) {
+          throw new Error("That container is inside this group — it would create a loop");
+        }
+        cursor = await ctx.db.get(cursor.parentGroupId);
+        depth += 1;
+      }
+    }
+    const data: Record<string, unknown> = {
       name: name.trim(),
       categoryId,
       closetId,
@@ -278,6 +341,9 @@ export const upsertGroup = mutation({
       measureUnit: isBulk ? measureUnit : undefined,
       measureStock: isBulk ? String(Number(measureStock)) : undefined,
       measureLowAt: isBulk && measureLowAt?.trim() ? String(Number(measureLowAt)) : undefined,
+      ...(parentGroupId !== undefined
+        ? { parentGroupId: (parentGroupId || undefined) as any }
+        : {}),
     };
     if (id) {
       await ctx.db.patch(id, data as any);
@@ -555,6 +621,8 @@ export const requestBulkRental = mutation({
     if (group.measure !== "weight" && group.measure !== "length") {
       throw new Error("This group is counted in units, not by weight/length");
     }
+    // Storage-alias groups cannot be lent, not even bulk amounts.
+    await assertGroupLendable(ctx, groupId);
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new Error("Enter the amount you need");
     }

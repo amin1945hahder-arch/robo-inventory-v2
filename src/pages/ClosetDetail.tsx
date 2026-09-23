@@ -37,6 +37,13 @@ export default function ClosetDetail() {
         ) : (
           <>
             <header className="flex flex-wrap items-start gap-3 border-b pb-6">
+              {closet.imageUrl && (
+                <img
+                  src={closet.imageUrl}
+                  alt={closet.name}
+                  className="h-24 w-40 rounded-lg border object-cover"
+                />
+              )}
               <QrChip payload={closetQr(closet._id)} label={closet.name} />
               <div className="min-w-0 flex-1">
                 <h1 className="text-2xl font-semibold tracking-tight">{closet.name}</h1>

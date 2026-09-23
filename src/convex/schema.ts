@@ -78,6 +78,8 @@ const schema = defineSchema(
       name: v.string(),
       location: v.optional(v.string()),
       note: v.optional(v.string()),
+      // Storage photo (compressed data URL or URL) shown on storage cards.
+      imageUrl: v.optional(v.string()),
     })
       .index("by_name", ["name"]),
 
@@ -114,6 +116,10 @@ const schema = defineSchema(
       measureStock: v.optional(v.string()),
       // Stock level considered low — the admin console flags it.
       measureLowAt: v.optional(v.string()),
+      // Group-of-groups: when set, this group is displayed INSIDE a container
+      // group (e.g. a box of mixed components). Containers are normal groups —
+      // they can also hold units, so nothing else changes.
+      parentGroupId: v.optional(v.id("groups")),
       deleted: v.optional(v.boolean()),
     })
       .index("by_category", ["categoryId"])

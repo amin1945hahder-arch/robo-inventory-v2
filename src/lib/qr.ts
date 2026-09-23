@@ -1,8 +1,12 @@
 // QR payload helpers — every entity in the club gets its own scannable code.
-// Payloads:  inv:<group name>   unit:<PART TAG>   cat:<category name>   closet:<closet id>   proj:<project id>
+// Payloads:  g:<group id>   unit:<PART TAG>   cat:<category name>   closet:<closet id>
+//            proj:<project id>   person:<userId>
+// Legacy printed labels may still carry  inv:<group name>  — the backend lookup
+// still resolves those (storages win name collisions, e.g. a group literally
+// named "Closet 1" opens the storage).
 
 export type QrTarget =
-  | { kind: "group"; name: string }
+  | { kind: "group"; id: string }
   | { kind: "unit"; tag: string }
   | { kind: "category"; name: string }
   | { kind: "closet"; id: string }
@@ -14,8 +18,13 @@ export function personQr(id: string) {
   return `person:${id}`;
 }
 
-export function groupQr(name: string) {
-  return `inv:${name}`;
+/**
+ * Group QR: `g:<group id>` — unique per group even when two groups share the
+ * same name ("Arduino Uno" in two storages must scan to different cards).
+ * The old name-based `inv:<name>` payloads stay resolvable via the backend.
+ */
+export function groupQr(id: string) {
+  return `g:${id}`;
 }
 export function unitQr(tag: string) {
   return `unit:${tag}`;

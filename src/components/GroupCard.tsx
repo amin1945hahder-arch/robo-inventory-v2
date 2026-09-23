@@ -66,7 +66,7 @@ export function GroupCard({
             </p>
           </Link>
           <div className="flex items-center gap-1.5">
-            <QrChip payload={groupQr(group.name)} label={group.name} />
+            <QrChip payload={groupQr(group._id)} label={group.name} />
             {isAdmin && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

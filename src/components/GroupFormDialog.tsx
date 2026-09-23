@@ -21,8 +21,17 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
+import { Box, MapPin, PackagePlus } from "lucide-react";
 
-/** Create or edit a component group (the "card" for a type of part). */
+/**
+ * Create or edit a component group (the "card" for a type of part).
+ *
+ * Duplicate/conflict prompt flows (admin choice, never a hard block):
+ *  - name already exists in the SAME storage → "add to existing" or "create new"
+ *  - name exists in a DIFFERENT storage → same question, showing where it lives
+ * The QR payload is unique per group (`g:<id>`), so same-named groups stay
+ * individually scannable — "create new" is always a safe choice.
+ */
 export function GroupFormDialog({
   open,
   onOpenChange,
@@ -36,11 +45,13 @@ export function GroupFormDialog({
 }) {
   const categories = useQuery(api.catalog.listCategories, open ? {} : "skip");
   const closets = useQuery(api.catalog.listClosets, open ? {} : "skip");
+  const allGroups = useQuery(api.catalog.childGroupOptions, open ? {} : "skip");
   const upsert = useMutation(api.catalog.upsertGroup);
 
   const [name, setName] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [closetId, setClosetId] = useState("");
+  const [parentGroupId, setParentGroupId] = useState("");
   const [brand, setBrand] = useState("");
   const [model, setModel] = useState("");
   const [description, setDescription] = useState("");
@@ -54,11 +65,18 @@ export function GroupFormDialog({
   const [measureLowAt, setMeasureLowAt] = useState("");
   const [busy, setBusy] = useState(false);
 
+  // Duplicate/conflict prompt state.
+  const [conflict, setConflict] = useState<{
+    kind: "same-storage" | "other-storage";
+    existing: Doc<"groups">;
+  } | null>(null);
+
   useEffect(() => {
     if (open) {
       setName(group?.name ?? "");
       setCategoryId(group?.categoryId ?? defaults?.categoryId ?? "");
       setClosetId(group?.closetId ?? defaults?.closetId ?? "");
+      setParentGroupId(group?.parentGroupId ?? "");
       setBrand(group?.brand ?? "");
       setModel(group?.model ?? "");
       setDescription(group?.description ?? "");
@@ -66,26 +84,64 @@ export function GroupFormDialog({
       setImageUrl(group?.imageUrl ?? "");
       setQuantityTotal(String(group?.quantityTotal ?? 1));
       setMeasure(group?.measure ?? "count");
-      // New bulk groups start on the unit that fits their kind; edits keep
-      // the stored unit (locked — stock is already ledgered in it).
       setMeasureUnit(group?.measureUnit ?? "kg");
       setMeasureStock(group?.measureStock ?? "0");
       setMeasureLowAt(group?.measureLowAt ?? "");
+      setConflict(null);
     }
   }, [open, group, defaults]);
 
-  const submit = async () => {
+  /** Descendants of a group (for cycle-safe container filtering). */
+  const descendantIds = (rootId: string): string[] => {
+    const out: string[] = [];
+    const walk = (pid: string) => {
+      for (const g of allGroups ?? []) {
+        if (g.parentGroupId === pid) {
+          out.push(g._id);
+          walk(g._id);
+        }
+      }
+    };
+    walk(rootId);
+    return out;
+  };
+
+  const submit = async (forceNew = false) => {
     if (!name.trim() || !categoryId || !closetId) {
       toast.error("Name, category and storage are required");
       return;
     }
     setBusy(true);
     try {
+      const clean = name.trim();
+      const norm = (s: string) => s.trim().toLowerCase();
+      // Duplicate/conflict detection — only when creating, or when the admin
+      // renamed/moved an existing group onto a colliding name.
+      if (!conflict && !forceNew) {
+        const others = (allGroups ?? []).filter((g) => g._id !== group?._id);
+        const sameStorage = others.find(
+          (g) => norm(g.name) === norm(clean) && g.closetId === closetId,
+        );
+        if (sameStorage) {
+          setConflict({ kind: "same-storage", existing: sameStorage });
+          setBusy(false);
+          return;
+        }
+        const otherStorage = others.find(
+          (g) => norm(g.name) === norm(clean) && g.closetId !== closetId,
+        );
+        if (otherStorage) {
+          setConflict({ kind: "other-storage", existing: otherStorage });
+          setBusy(false);
+          return;
+        }
+      }
       const id = await upsert({
         id: group?._id,
-        name: name.trim(),
+        name: clean,
         categoryId: categoryId as any,
         closetId: closetId as any,
+        parentGroupId: (parentGroupId || null) as any,
         brand: brand.trim() || undefined,
         model: model.trim() || undefined,
         description: description.trim() || undefined,
@@ -99,6 +155,7 @@ export function GroupFormDialog({
       });
       toast.success(group ? "Group updated" : "Group created");
       onOpenChange(false);
+      setConflict(null);
       if (!group) window.location.href = `/group/${id}`;
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Something went wrong");
@@ -107,167 +164,247 @@ export function GroupFormDialog({
     }
   };
 
+  const closetName = (id: string) => (closets ?? []).find((c) => c._id === id)?.name ?? "a storage";
+
+  // Container options: every group except this one and its own subtree.
+  const blocked = new Set(group ? [group._id, ...descendantIds(group._id)] : []);
+  const parentOptions = (allGroups ?? []).filter((g) => !blocked.has(g._id));
+  const parentValue = parentGroupId || "none";
+  const chosenParent = (allGroups ?? []).find((g) => g._id === parentGroupId);
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{group ? "Edit group" : "New group"}</DialogTitle>
-        </DialogHeader>
-        <div className="grid gap-4 py-1">
-          <div className="grid gap-2">
-            <Label>Name</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Arduino Uno" />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
+    <>
+      <Dialog open={open} onOpenChange={(v) => { if (!v) setConflict(null); onOpenChange(v); }}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{group ? "Edit group" : "New group"}</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-1">
             <div className="grid gap-2">
-              <Label>Category</Label>
-              <Select value={categoryId} onValueChange={setCategoryId}>
-                <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
-                <SelectContent>
-                  {(categories ?? []).map((c) => (
-                    <SelectItem key={c._id} value={c._id}>{c.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>Name</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Arduino Uno" />
             </div>
-            <div className="grid gap-2">
-              <Label>Storage</Label>
-              <Select value={closetId} onValueChange={setClosetId}>
-                <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
-                <SelectContent>
-                  {(closets ?? []).map((c) => (
-                    <SelectItem key={c._id} value={c._id}>{c.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-2">
-              <Label>Brand</Label>
-              <Input value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="Arduino" />
-            </div>
-            <div className="grid gap-2">
-              <Label>Model</Label>
-              <Input value={model} onChange={(e) => setModel(e.target.value)} placeholder="A000066" />
-            </div>
-          </div>
-          {/* Counting mode */}
-          <div className="grid gap-2">
-            <Label>How is this counted?</Label>
-            <Select
-              value={measure}
-              onValueChange={(v) => {
-                const next = v as "count" | "weight" | "length";
-                setMeasure(next);
-                // Sensible default unit per kind for brand-new groups.
-                if (!group) setMeasureUnit(next === "weight" ? "kg" : "m");
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="count">🔢 Count (discrete units, each with a QR tag)</SelectItem>
-                <SelectItem value="weight">⚖️ Weight (filament, resin… by kg/g)</SelectItem>
-                <SelectItem value="length">📏 Length (wires, tubes… by m/cm/mm)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          {measure === "count" ? (
-            !group && (
+            <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-2">
-                <Label>How many units</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={quantityTotal}
-                  onChange={(e) => setQuantityTotal(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Each unit gets its own QR tag automatically (ARD-001, ARD-002, …).
-                </p>
+                <Label>Category</Label>
+                <Select value={categoryId} onValueChange={setCategoryId}>
+                  <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectContent>
+                    {(categories ?? []).map((c) => (
+                      <SelectItem key={c._id} value={c._id}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-            )
-          ) : (
-            <div className="grid gap-3 rounded-lg border border-dashed p-3">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-2">
+                <Label>Storage</Label>
+                <Select value={closetId} onValueChange={setClosetId}>
+                  <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectContent>
+                    {(closets ?? []).map((c) => (
+                      <SelectItem key={c._id} value={c._id}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            {/* Group-of-groups: place this group inside a container group. */}
+            <div className="grid gap-2 rounded-lg border border-dashed p-3">
+              <Label className="flex items-center gap-1.5">
+                <Box className="size-3.5" /> Place inside another group (optional)
+              </Label>
+              <Select
+                value={parentValue}
+                onValueChange={(v) => setParentGroupId(v === "none" ? "" : v)}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Not inside anything (top level)</SelectItem>
+                  {parentOptions.map((g) => (
+                    <SelectItem key={g._id} value={g._id}>{g.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {chosenParent ? (
+                <p className="text-xs text-muted-foreground">
+                  Will appear inside “{chosenParent.name}” — e.g. groups that live together in one
+                  box. The box itself still has its own QR and can hold units.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Group groups that exist together (a box of mixed components) under one container.
+                </p>
+              )}
+            </div>
+            {conflict && (
+              <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
+                {conflict.kind === "same-storage" ? (
+                  <p className="font-medium">
+                    A group named “{conflict.existing.name}” already exists in{" "}
+                    {closetName(conflict.existing.closetId)}.
+                  </p>
+                ) : (
+                  <p className="font-medium">
+                    A group named “{conflict.existing.name}” already exists in{" "}
+                    {closetName(conflict.existing.closetId)} — different from the storage you picked.
+                  </p>
+                )}
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Every group gets its own unique QR code, so creating another one is safe.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setConflict(null);
+                      window.location.href = `/group/${conflict.existing._id}`;
+                    }}
+                  >
+                    <MapPin className="size-3.5" /> Open the existing one
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setConflict(null);
+                      void submit(true);
+                    }}
+                    disabled={busy}
+                  >
+                    <PackagePlus className="size-3.5" />
+                    {conflict.kind === "same-storage" ? "Create a new group anyway" : "Create new (separate group)"}
+                  </Button>
+                </div>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-2">
+                <Label>Brand</Label>
+                <Input value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="Arduino" />
+              </div>
+              <div className="grid gap-2">
+                <Label>Model</Label>
+                <Input value={model} onChange={(e) => setModel(e.target.value)} placeholder="A000066" />
+              </div>
+            </div>
+            {/* Counting mode */}
+            <div className="grid gap-2">
+              <Label>How is this counted?</Label>
+              <Select
+                value={measure}
+                onValueChange={(v) => {
+                  const next = v as "count" | "weight" | "length";
+                  setMeasure(next);
+                  if (!group) setMeasureUnit(next === "weight" ? "kg" : "m");
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="count">🔢 Count (discrete units, each with a QR tag)</SelectItem>
+                  <SelectItem value="weight">⚖️ Weight (filament, resin… by kg/g)</SelectItem>
+                  <SelectItem value="length">📏 Length (wires, tubes… by m/cm/mm)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {measure === "count" ? (
+              !group && (
                 <div className="grid gap-2">
-                  <Label>Unit</Label>
-                  {group ? (
-                    <Input value={measureUnit} disabled />
-                  ) : (
-                    <Select value={measureUnit} onValueChange={setMeasureUnit}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {(measure === "weight" ? ["kg", "g"] : ["m", "cm", "mm"]).map((u) => (
-                          <SelectItem key={u} value={u}>{u}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                  {group && (
-                    <p className="text-xs text-muted-foreground">
-                      Locked — every unit's stock is ledgered in {measureUnit}.
-                    </p>
-                  )}
+                  <Label>How many units</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={quantityTotal}
+                    onChange={(e) => setQuantityTotal(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Each unit gets its own QR tag automatically (ARD-001, ARD-002, …).
+                  </p>
+                </div>
+              )
+            ) : (
+              <div className="grid gap-3 rounded-lg border border-dashed p-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="grid gap-2">
+                    <Label>Unit</Label>
+                    {group ? (
+                      <Input value={measureUnit} disabled />
+                    ) : (
+                      <Select value={measureUnit} onValueChange={setMeasureUnit}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {(measure === "weight" ? ["kg", "g"] : ["m", "cm", "mm"]).map((u) => (
+                            <SelectItem key={u} value={u}>{u}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    {group && (
+                      <p className="text-xs text-muted-foreground">
+                        Locked — every unit's stock is ledgered in {measureUnit}.
+                      </p>
+                    )}
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Stock on hand</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="any"
+                      value={measureStock}
+                      onChange={(e) => setMeasureStock(e.target.value)}
+                    />
+                  </div>
                 </div>
                 <div className="grid gap-2">
-                  <Label>Stock on hand</Label>
+                  <Label>Low-stock warning at (optional)</Label>
                   <Input
                     type="number"
                     min={0}
                     step="any"
-                    value={measureStock}
-                    onChange={(e) => setMeasureStock(e.target.value)}
+                    value={measureLowAt}
+                    onChange={(e) => setMeasureLowAt(e.target.value)}
+                    placeholder="e.g. 0.5 — flagged when stock drops below"
                   />
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  Bulk groups keep stock per unit (reel, spool, tube…) — each unit gets its own QR
+                  tag and amount. Members request an amount; the system splits it across units
+                  without ever cutting a unit below its minimum.
+                </p>
               </div>
-              <div className="grid gap-2">
-                <Label>Low-stock warning at (optional)</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  step="any"
-                  value={measureLowAt}
-                  onChange={(e) => setMeasureLowAt(e.target.value)}
-                  placeholder="e.g. 0.5 — flagged when stock drops below"
-                />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Bulk groups keep stock per unit (reel, spool, tube…) — each unit gets its own QR
-                tag and amount. Members request an amount; the system splits it across units
-                without ever cutting a unit below its minimum.
-              </p>
+            )}
+            <div className="grid gap-2">
+              <Label>Description</Label>
+              <Textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={2}
+                placeholder="Short description for the card"
+              />
             </div>
-          )}
-          <div className="grid gap-2">
-            <Label>Description</Label>
-            <Textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={2}
-              placeholder="Short description for the card"
-            />
+            <div className="grid gap-2">
+              <Label>Datasheet URL</Label>
+              <Input
+                value={datasheetUrl}
+                onChange={(e) => setDatasheetUrl(e.target.value)}
+                placeholder="https://…"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Image URL</Label>
+              <Input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="https://…" />
+            </div>
           </div>
-          <div className="grid gap-2">
-            <Label>Datasheet URL</Label>
-            <Input
-              value={datasheetUrl}
-              onChange={(e) => setDatasheetUrl(e.target.value)}
-              placeholder="https://…"
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label>Image URL</Label>
-            <Input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="https://…" />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={submit} disabled={busy}>{busy ? "Saving…" : group ? "Save" : "Create"}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button onClick={() => submit()} disabled={busy}>
+              {busy ? "Saving…" : group ? "Save" : "Create"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

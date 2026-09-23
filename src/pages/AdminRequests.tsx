@@ -27,7 +27,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Award, Boxes, Check, PackagePlus, Printer, RotateCcw, ScanLine, X } from "lucide-react";
+import { Award, Boxes, Check, PackagePlus, Pencil, Printer, RotateCcw, ScanLine, X } from "lucide-react";
+import { EditRentalDialog } from "@/components/EditRentalDialog";
 import {
   DocAttachmentField,
   type AttachedDoc,
@@ -85,6 +86,7 @@ export default function AdminRequests() {
   const [busyId, setBusyId] = useState<string | null>(null);
   // Approve flow: pick the pick-up date/time (or reuse a scheduled slot).
   const [approveFor, setApproveFor] = useState<Row | null>(null);
+  const [editRentalFor, setEditRentalFor] = useState<any>(null);
   const [approvePkgFor, setApprovePkgFor] = useState<{ key: string; unitCount: number } | null>(null);
   const [pickupLocal, setPickupLocal] = useState("");
   const [approveBusy, setApproveBusy] = useState(false);
@@ -428,6 +430,14 @@ export default function AdminRequests() {
                     row={row as Row}
                     actions={
                       <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setEditRentalFor(row.rental)}
+                          title="Edit or delete this record"
+                        >
+                          <Pencil className="size-4" />
+                        </Button>
                         <Button
                           size="sm"
                           disabled={busyId === row.key}
@@ -781,7 +791,19 @@ export default function AdminRequests() {
                   <RowCard
                     key={row.rental._id}
                     row={row as Row}
-                    actions={<StatusBadge status={row.rental.status} />}
+                    actions={
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setEditRentalFor(row.rental)}
+                          title="Edit or delete this record"
+                        >
+                          <Pencil className="size-4" />
+                        </Button>
+                        <StatusBadge status={row.rental.status} />
+                      </div>
+                    }
                   />
                 ))}
               </ul>
@@ -963,6 +985,14 @@ export default function AdminRequests() {
             )}
           </TabsContent>
         </Tabs>
+
+        {editRentalFor && (
+          <EditRentalDialog
+            open={Boolean(editRentalFor)}
+            onOpenChange={(v) => !v && setEditRentalFor(null)}
+            rental={editRentalFor}
+          />
+        )}
 
         {/* Admin notifications: newest first; opening this page marks them read
             (bubbles in the sidebar/header decrease), tapping a row marks just

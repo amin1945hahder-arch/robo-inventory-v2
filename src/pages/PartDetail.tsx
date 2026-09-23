@@ -9,6 +9,7 @@ import { QrChip } from "@/components/QrChip";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { RentCardDialog, type CardRow } from "@/components/RentCardDialog";
+import { EditRentalDialog } from "@/components/EditRentalDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,6 +24,7 @@ import {
 import { unitQr } from "@/lib/qr";
 import { toast } from "sonner";
 import { ArrowLeft, History, Pencil, Printer, Trash2 } from "lucide-react";
+import { SquarePen } from "lucide-react";
 
 const fmt = (n?: number) => (n ? new Date(n).toLocaleString() : "—");
 
@@ -58,6 +60,8 @@ export default function PartDetail() {
 
   const [note, setNote] = useState("");
   const [editOpen, setEditOpen] = useState(false);
+  // Admin rental-record editor (dates/status/delete).
+  const [editRentalFor, setEditRentalFor] = useState<any>(null);
   const [editTag, setEditTag] = useState("");
   const [editNote, setEditNote] = useState("");
   const [editStatus, setEditStatus] = useState<string>("available");
@@ -518,6 +522,16 @@ export default function PartDetail() {
                           )}
                       </div>
                       <div className="flex items-center gap-2">
+                        {isAdmin && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setEditRentalFor(row.rental)}
+                            title="Edit or delete this record"
+                          >
+                            <SquarePen className="size-3.5" />
+                          </Button>
+                        )}
                         {row.rental.status !== "pending" && (
                           <Button
                             size="sm"
@@ -553,6 +567,14 @@ export default function PartDetail() {
       </div>
 
       {card && <RentCardDialog r={card} onClose={() => setCard(null)} />}
+
+      {editRentalFor && (
+        <EditRentalDialog
+          open={Boolean(editRentalFor)}
+          onOpenChange={(v) => !v && setEditRentalFor(null)}
+          rental={editRentalFor}
+        />
+      )}
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>          <DialogContent className="sm:max-w-md">
           <DialogHeader>

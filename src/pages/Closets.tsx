@@ -19,6 +19,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { closetQr } from "@/lib/qr";
+import { compressImageFile } from "@/lib/utils";
 import { toast } from "sonner";
 import { Pencil, Plus, Trash2, Warehouse } from "lucide-react";
 type Stats = { total: number; available: number; rented: number; onProject: number; broken: number; pending: number };
@@ -38,6 +39,7 @@ export default function Closets() {
   const [name, setName] = useState("");
   const [location, setLocation] = useState("");
   const [note, setNote] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
   const [busy, setBusy] = useState(false);
 
   const openAdd = () => {
@@ -45,6 +47,7 @@ export default function Closets() {
     setName("");
     setLocation("");
     setNote("");
+    setImageUrl("");
     setOpen(true);
   };
 
@@ -53,7 +56,17 @@ export default function Closets() {
     setName(c.name);
     setLocation(c.location ?? "");
     setNote(c.note ?? "");
+    setImageUrl(c.imageUrl ?? "");
     setOpen(true);
+  };
+
+  const pickImage = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      setImageUrl(await compressImageFile(file, 512));
+    } catch {
+      toast.error("Could not read that image");
+    }
   };
 
   const create = async () => {
@@ -65,6 +78,7 @@ export default function Closets() {
         name: name.trim(),
         location: location.trim() || undefined,
         note: note.trim() || undefined,
+        imageUrl: imageUrl.trim(), // "" clears
       });
       toast.success(editing ? "Storage updated" : "Storage added");
       setOpen(false);
@@ -127,6 +141,13 @@ export default function Closets() {
               return (
                 <Card key={c._id} className="group relative overflow-hidden border-border/80 shadow-none transition-colors hover:border-primary/40">
                   <CardContent className="flex flex-col gap-3 p-5">
+                    {c.imageUrl && (
+                      <img
+                        src={c.imageUrl}
+                        alt={c.name}
+                        className="aspect-[16/9] w-full rounded-md border object-cover"
+                      />
+                    )}
                     <div className="flex items-start justify-between gap-3">
                       <Link to={`/closets/${c._id}`} className="min-w-0 flex-1">
                         <p className="truncate text-base font-semibold">{c.name}</p>
@@ -214,6 +235,31 @@ export default function Closets() {
             <div className="grid gap-2">
               <Label>Note (optional)</Label>
               <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Anything worth remembering" />
+            </div>
+            <div className="grid gap-2">
+              <Label>Image</Label>
+              <div className="flex items-center gap-3">
+                {imageUrl && (
+                  <img
+                    src={imageUrl}
+                    alt="Storage"
+                    className="size-14 rounded-md border object-cover"
+                  />
+                )}
+                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                  <Input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => void pickImage(e.target.files?.[0])}
+                    className="h-9 text-xs"
+                  />
+                  {imageUrl && (
+                    <Button variant="ghost" size="sm" className="h-7 self-start text-xs" onClick={() => setImageUrl("")}>
+                      Remove image
+                    </Button>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
           <DialogFooter>

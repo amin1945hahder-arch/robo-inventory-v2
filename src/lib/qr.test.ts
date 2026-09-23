@@ -11,7 +11,7 @@ import {
 
 describe("QR payloads", () => {
   it("builds a distinct payload for every entity kind", () => {
-    expect(groupQr("Arduino Uno")).toBe("inv:Arduino Uno");
+    expect(groupQr("g123")).toBe("g:g123");
     expect(unitQr("ARD-001")).toBe("unit:ARD-001");
     expect(categoryQr("Boards")).toBe("cat:Boards");
     expect(closetQr("closet123")).toBe("closet:closet123");
@@ -20,13 +20,18 @@ describe("QR payloads", () => {
 
   it("keeps every payload unique per entity kind (unit vs group vs category)", () => {
     const payloads = new Set([
-      groupQr("Arduino Uno"),
+      groupQr("g1"),
       unitQr("ARD-001"),
       categoryQr("Boards"),
       closetQr("c1"),
       projectQr("p1"),
     ]);
     expect(payloads.size).toBe(5);
+  });
+
+  it("gives same-named groups DIFFERENT QR payloads (unique per group)", () => {
+    // Two "Arduino Uno" groups in different storages must scan differently.
+    expect(groupQr("group_aaa")).not.toBe(groupQr("group_bbb"));
   });
 
   it("builds a scan URL with the payload as the p query param", () => {

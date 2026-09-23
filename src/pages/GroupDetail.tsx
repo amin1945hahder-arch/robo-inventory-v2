@@ -43,6 +43,9 @@ export default function GroupDetail() {
   const [consumeFor, setConsumeFor] = useState<Doc<"parts"> | null>(null);
 
   const [returnFor, setReturnFor] = useState<{ rentalId: string; partId: string; tag: string; amount?: number } | null>(null);
+  // QR payload helpers:
+  const closets = useQuery(api.catalog.listClosets, {});
+  const groupsIndex = useQuery(api.catalog.childGroupOptions, {});
   const [busyTag, setBusyTag] = useState<string | null>(null);
   // Quantity picker for the "request N units" flow.
   const [qty, setQty] = useState(1);
@@ -67,6 +70,17 @@ export default function GroupDetail() {
   const isBulk = isBulkGroup(group);
   const stock = Number(group?.measureStock ?? 0);
   const [bulkAmount, setBulkAmount] = useState("");
+
+  // Storage-alias group: its name is exactly a storage's name, so its printed
+  // QR resolves to the storage. It cannot be lent — only edited/managed.
+  const isStorageAlias = Boolean(
+    group && (closets ?? []).some((c) => c.name === group.name),
+  );
+  // Group-of-groups: children that live inside this container group.
+  const childGroups = (groupsIndex ?? []).filter((g) => g.parentGroupId === group?._id);
+  const parentGroup = group?.parentGroupId
+    ? (groupsIndex ?? []).find((g) => g._id === group.parentGroupId)
+    : null;
 
   const requestBulk = async () => {
     if (!group) return;
@@ -130,7 +144,7 @@ export default function GroupDetail() {
 
           <header className="flex flex-col justify-between gap-4 border-b pb-6 sm:flex-row sm:items-end">
             <div className="flex items-start gap-3">
-              <QrChip payload={groupQr(group.name)} label={group.name} />
+              <QrChip payload={groupQr(group._id)} label={group.name} />
               <div>
                 <h1 className="text-2xl font-semibold tracking-tight">{group.name}</h1>
                 <p className="mt-1 text-sm text-muted-foreground">
@@ -139,6 +153,12 @@ export default function GroupDetail() {
               </div>
             </div>
             <div className="flex flex-col items-stretch gap-2 sm:items-end">
+              {isStorageAlias && (
+                <p className="max-w-xs rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-400 sm:text-right">
+                  ⚠️ A storage named “{group.name}" exists — this group's QR opens the storage,
+                  so it cannot be lent. You can still edit it and manage its units.
+                </p>
+              )}
               {isAdmin && (
                 <Button
                   variant="outline"
@@ -175,8 +195,9 @@ export default function GroupDetail() {
                       onChange={(e) => setBulkAmount(e.target.value)}
                       placeholder={`Amount in ${group.measureUnit}`}
                       className="w-36"
+                      disabled={isStorageAlias}
                     />
-                    <Button disabled={qtyBusy || stock <= 0} onClick={requestBulk}>
+                    <Button disabled={qtyBusy || stock <= 0 || isStorageAlias} onClick={requestBulk}>
                       {qtyBusy ? <Loader2 className="size-4 animate-spin" /> : <Scale className="size-4" />}
                       Request amount
                     </Button>
@@ -202,7 +223,7 @@ export default function GroupDetail() {
                       disabled={availableUnits.length === 0}
                     />
                     <Button
-                      disabled={availableUnits.length === 0 || qtyBusy}
+                      disabled={availableUnits.length === 0 || qtyBusy || isStorageAlias}
                       onClick={requestQuantity}
                     >
                       {qtyBusy ? <Loader2 className="size-4 animate-spin" /> : <Package className="size-4" />}
@@ -231,6 +252,34 @@ export default function GroupDetail() {
 
           {group.description && (
             <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{group.description}</p>
+          )}
+
+          {parentGroup && (
+            <p className="text-sm text-muted-foreground">
+              📦 Inside container group{" "}
+              <Link to={`/group/${parentGroup._id}`} className="font-medium underline">
+                {parentGroup.name}
+              </Link>
+            </p>
+          )}
+          {childGroups.length > 0 && (
+            <section className="rounded-lg border border-dashed p-4">
+              <h2 className="text-sm font-semibold">Inside this group ({childGroups.length})</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Groups that live together in this container (box/bag).
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {childGroups.map((g) => (
+                  <Link
+                    key={g._id}
+                    to={`/group/${g._id}`}
+                    className="rounded-full border px-3 py-1 text-xs font-medium hover:border-primary/50 hover:text-primary"
+                  >
+                    {g.name}
+                  </Link>
+                ))}
+              </div>
+            </section>
           )}
 
           {isBulk ? (
@@ -326,7 +375,7 @@ export default function GroupDetail() {
                         <Button
                           size="sm"
                           variant={isAdmin ? "outline" : "default"}
-                          disabled={busyTag === p.tag}
+                          disabled={busyTag === p.tag || isStorageAlias}
                           onClick={() => requestUnit(p._id, p.tag)}
                         >
                           {busyTag === p.tag ? (

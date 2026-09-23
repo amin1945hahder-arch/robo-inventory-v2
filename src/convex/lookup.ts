@@ -4,7 +4,10 @@ import { requireNonStudent } from "./lib";
 
 // Resolve a QR payload to a destination route.
 // Supported payloads:
-//   inv:<groupTagOrSlug>   — group card
+//   g:<group id>           — group card (unique per group, even same-named ones)
+//   inv:<group name>       — legacy name-based group label (still resolves;
+//                            a storage with that name wins — group "Closet 1"
+//                            opens the storage, not the group)
 //   unit:<PART-TAG>        — individual part
 //   cat:<name>             — category view
 //   closet:<id>            — closet view
@@ -85,7 +88,29 @@ export const resolve = query({
       };
     }
 
+    // Unique per-group payload: `g:<id>`.
+    if (scheme === "g") {
+      const group = (await ctx.db.get(value as any)) as any;
+      if (group && !group.deleted) {
+        return { type: "group" as const, id: group._id, url: `/group/${group._id}` };
+      }
+      return null;
+    }
+
     if (scheme === "inv") {
+      // A group named exactly like a storage is a storage alias: its printed
+      // QR must open the STORAGE, not the group (that group cannot be lent).
+      const closetByName = await ctx.db
+        .query("closets")
+        .withIndex("by_name", (q) => q.eq("name", value ?? ""))
+        .first();
+      if (closetByName) {
+        return {
+          type: "closet" as const,
+          id: closetByName._id,
+          url: `/closets/${closetByName._id}`,
+        };
+      }
       const groups = await ctx.db
         .query("groups")
         .filter((q) => q.eq(q.field("name"), value ?? ""))
@@ -104,6 +129,12 @@ export const resolve = query({
     }
     const alt = await byTag();
     if (alt) return alt;
+    // Bare-name fallbacks: a storage name always beats a same-named group
+    // (group "Closet 1" must never shadow the storage's QR when someone
+    // types or scans the bare name).
+    const closetsFirst = await ctx.db.query("closets").collect();
+    const closetAlias = closetsFirst.find((c) => c.name.toLowerCase() === raw.toLowerCase());
+    if (closetAlias) return { type: "closet" as const, id: closetAlias._id, url: `/closets/${closetAlias._id}` };
     const groups = await ctx.db
       .query("groups")
       .filter((q) => q.eq(q.field("name"), raw))

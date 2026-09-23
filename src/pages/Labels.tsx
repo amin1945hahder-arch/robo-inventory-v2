@@ -198,7 +198,14 @@ export default function Labels() {
                   ...data.closets.map((c) => ["storage", c.name, c.location ?? "", closetQr(c._id)]),
                   ...data.categories.map((c) => ["category", c.name, "", categoryQr(c.name)]),
                   ...data.projects.map((p) => ["project", p.name, "", projectQr(p._id)]),
-                  ...data.groups.map(({ group }) => ["group", group.name, "", groupQr(group.name)]),
+                  ...data.groups.map(({ group, closetAlias }) => [
+                    "group",
+                    group.name,
+                    "",
+                    // A group named exactly like a storage is a storage alias:
+                    // its label carries the STORAGE QR so scans open the storage.
+                    closetAlias ? closetQr(closetAlias._id) : groupQr(group._id),
+                  ]),
                   ...data.groups.flatMap(({ group, parts }) =>
                     parts.map((p) => ["unit", p.tag, group.name, unitQr(p.tag)]),
                   ),
@@ -349,9 +356,14 @@ export default function Labels() {
                   Groups
                 </h2>
                 <div style={gridStyle}>
-                  {data.groups.map(({ group }) => (
+                  {data.groups.map(({ group, closetAlias }) => (
                     <div key={group._id} style={gridOverlay} className="print-cell">
-                      <MmLabel value={groupQr(group.name)} title={group.name} sizeMm={sizes.groups} />
+                      <MmLabel
+                        value={closetAlias ? closetQr(closetAlias._id) : groupQr(group._id)}
+                        title={group.name}
+                        sub={closetAlias ? `→ storage: ${closetAlias.name}` : undefined}
+                        sizeMm={sizes.groups}
+                      />
                     </div>
                   ))}
                 </div>

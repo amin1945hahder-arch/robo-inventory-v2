@@ -7,7 +7,7 @@ import { telegramDM, telegramGroup, notifyTelegram } from "./notify";
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { planMeasureTake, describePlan } from "../lib/measure-alloc";
-import { sumUnitStock } from "./catalog";
+import { sumUnitStock, assertGroupLendable } from "./catalog";
 
 /**
  * Per-execution memo for joined docs.
@@ -443,6 +443,9 @@ export const requestRental = mutation({
     if (part.status !== "available") {
       throw new Error("This unit is not available right now");
     }
+    // Storage-alias groups (named exactly like a storage) open the storage
+    // when their QR is scanned — they cannot be lent.
+    await assertGroupLendable(ctx, part.groupId);
     const existing = await ctx.db
       .query("rentals")
       .withIndex("by_part", (q) => q.eq("partId", partId))
@@ -506,6 +509,8 @@ export const requestRentalQuantity = mutation({
     const wanted = Math.max(1, Math.min(50, Math.ceil(count)));
     const group = await ctx.db.get(groupId);
     if (!group || group.deleted) throw new Error("Group not found");
+    // Storage-alias groups cannot be lent (see assertGroupLendable).
+    await assertGroupLendable(ctx, groupId);
     const candidates = await ctx.db
       .query("parts")
       .withIndex("by_group", (q) => q.eq("groupId", groupId))
@@ -1802,6 +1807,8 @@ export const createPackage = mutation({
       if (line.count < 1) throw new Error("Each line needs at least 1 unit");
       if (line.count > MAX_UNITS_PER_LINE) throw new Error(`Max ${MAX_UNITS_PER_LINE} units per item`);
       const group = await ctx.db.get(line.groupId);
+      // Storage-alias groups cannot be lent, also not inside a package.
+      await assertGroupLendable(ctx, line.groupId);
       if (!group || group.deleted) throw new Error(`"${group?.name ?? "item"}" no longer exists`);
       const candidates = await ctx.db
         .query("parts")
@@ -1898,6 +1905,8 @@ export const editPackage = mutation({
       if (line.count < 1) throw new Error("Each line needs at least 1 unit");
       if (line.count > MAX_UNITS_PER_LINE) throw new Error(`Max ${MAX_UNITS_PER_LINE} units per item`);
       const group = await ctx.db.get(line.groupId);
+      // Storage-alias groups cannot be lent, also not inside a package.
+      await assertGroupLendable(ctx, line.groupId);
       if (!group || group.deleted) throw new Error(`"${group?.name ?? "item"}" no longer exists`);
       const candidates = await ctx.db
         .query("parts")
@@ -2221,5 +2230,118 @@ export const pickupReminders = internalMutation({
       }
     }
     return { sent };
+  },
+});
+
+// ===== Admin rental-record maintenance ================================
+
+/**
+ * Admin edit of a rental RECORD (especially the dates): requestedAt,
+ * decidedAt, pickedUpAt, returnedAt, dueAt and pickupAt can all be corrected.
+ * null clears a date; omit to keep. A rented unit's lend dates stay in sync.
+ */
+export const updateRentalRecord = mutation({
+  args: {
+    rentalId: v.id("rentals"),
+    requestedAt: v.optional(v.union(v.number(), v.null())),
+    decidedAt: v.optional(v.union(v.number(), v.null())),
+    pickedUpAt: v.optional(v.union(v.number(), v.null())),
+    returnedAt: v.optional(v.union(v.number(), v.null())),
+    dueAt: v.optional(v.union(v.number(), v.null())),
+    pickupAt: v.optional(v.union(v.number(), v.null())),
+    conditionReport: v.optional(v.string()),
+    // Move the record across statuses (e.g. fix a wrongly-marked return).
+    status: v.optional(
+      v.union(
+        v.literal("pending"),
+        v.literal("approved"),
+        v.literal("active"),
+        v.literal("on_project"),
+        v.literal("returned"),
+        v.literal("denied"),
+        v.literal("canceled"),
+      ),
+    ),
+  },
+  handler: async (
+    ctx,
+    { rentalId, requestedAt, decidedAt, pickedUpAt, returnedAt, dueAt, pickupAt, conditionReport, status },
+  ) => {
+    await requireAdmin(ctx);
+    const rental = await ctx.db.get(rentalId);
+    if (!rental) throw new Error("Rental not found");
+    const patch: Record<string, unknown> = {};
+    if (requestedAt !== undefined) patch.requestedAt = requestedAt || undefined;
+    if (decidedAt !== undefined) patch.decidedAt = decidedAt || undefined;
+    if (pickedUpAt !== undefined) patch.pickedUpAt = pickedUpAt || undefined;
+    if (returnedAt !== undefined) patch.returnedAt = returnedAt || undefined;
+    if (dueAt !== undefined) patch.dueAt = dueAt || undefined;
+    if (pickupAt !== undefined) patch.pickupAt = pickupAt || undefined;
+    if (conditionReport !== undefined) patch.conditionReport = conditionReport.trim() || undefined;
+    if (status !== undefined) patch.status = status;
+    await ctx.db.patch(rentalId, patch);
+
+    // Keep a rented unit's lend dates (shown on cards + dashboards) in sync.
+    const part = rental.partId ? await ctx.db.get(rental.partId) : null;
+    if (part) {
+      if (dueAt !== undefined || pickedUpAt !== undefined) {
+        await ctx.db.patch(part._id, {
+          ...(dueAt !== undefined ? { dueAt: dueAt || undefined } : {}),
+          ...(pickedUpAt !== undefined && part.status === "rented"
+            ? { rentedAt: pickedUpAt || undefined }
+            : {}),
+        });
+      }
+      // Returning/canceling an active record via the editor releases the unit.
+      if ((status === "returned" || status === "canceled") && part.status === "rented") {
+        await ctx.db.patch(part._id, {
+          status: "available",
+          currentHolderId: undefined,
+          rentedAt: undefined,
+          dueAt: undefined,
+        });
+      }
+    }
+    return { ok: true };
+  },
+});
+
+/**
+ * Admin delete of a rental RECORD — a hard ledger correction for duplicates
+ * or mistakes. Never silently deletes a record that still holds a unit
+ * (rented / on project / pending) unless `alsoFreePart` releases it.
+ */
+export const deleteRentalRecord = mutation({
+  args: {
+    rentalId: v.id("rentals"),
+    alsoFreePart: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { rentalId, alsoFreePart }) => {
+    await requireAdmin(ctx);
+    const rental = await ctx.db.get(rentalId);
+    if (!rental) return { ok: true };
+    const part = rental.partId ? await ctx.db.get(rental.partId) : null;
+    if (part) {
+      const holdsUnit =
+        part.status === "rented" ||
+        part.status === "on_project" ||
+        (part.status === "pending" && rental.status === "pending");
+      if (holdsUnit && !alsoFreePart) {
+        throw new Error(
+          "This record still holds the unit (rented / on project / pending). Process a return first, or tick the release option.",
+        );
+      }
+      if (holdsUnit && alsoFreePart) {
+        await ctx.db.patch(part._id, {
+          status: "available",
+          currentHolderId: undefined,
+          currentProjectId: undefined,
+          rentedAt: undefined,
+          dueAt: undefined,
+        });
+      }
+    }
+    await ctx.db.delete(rentalId);
+    return { ok: true };
   },
 });

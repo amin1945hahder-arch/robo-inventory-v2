@@ -22,9 +22,13 @@ export const getLabelData = query({
       .filter((q) => q.neq(q.field("deleted"), true))
       .collect();
 
+    const closetsSorted = closets.sort((a, b) => a.name.localeCompare(b.name));
     const groupsWithParts = groups
       .map((g) => ({
         group: g,
+        // A group named exactly like a storage shares the storage's QR: its
+        // printed label carries the closet payload so scans open the storage.
+        closetAlias: closets.find((c) => c.name === g.name) ?? null,
         parts: parts
           .filter((p) => p.groupId === g._id)
           .sort((a, b) => a.tag.localeCompare(b.tag)),
@@ -44,7 +48,7 @@ export const getLabelData = query({
       .sort((a, b) => a.name.localeCompare(b.name));
 
     return {
-      closets: closets.sort((a, b) => a.name.localeCompare(b.name)),
+      closets: closetsSorted,
       categories: categories.sort((a, b) => a.name.localeCompare(b.name)),
       projects: projects.sort((a, b) => a.name.localeCompare(b.name)),
       groups: groupsWithParts,

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "convex/react";
+import QRCode from "react-qr-code";
 import { api } from "@/convex/_generated/api";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -13,17 +14,27 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Download, FileDown, Grid2x2, Loader2, Printer } from "lucide-react";
+import { Download, FileDown, Grid2x2, IdCard, Loader2, Printer, Table2 } from "lucide-react";
 import { downloadCsv } from "@/lib/csv";
 import { ageFromIso } from "@/lib/utils";
+import { closetQr, groupQr, projectQr, qrUrl, unitQr } from "@/lib/qr";
 
 /**
  * Export studio — pick a dataset, filter it, see the exact sheet you'll get
  * in the live preview, then print (paper/margin/scale controls, A4 mapping)
  * or download as CSV for Excel/Google Sheets.
+ *
+ * Two print modes:
+ *  - Table: the classic data sheet (now with an ID column per dataset).
+ *  - Cards: postcard-sticker cards, one per item — image on the left, QR on
+ *    the right, name + brand/model underneath (closets/projects show their
+ *    description). Card width/height are controllable in mm.
  */
 
-type Dataset = "inventory" | "rentals" | "people" | "projects";
+type Dataset = "inventory" | "rentals" | "people" | "projects" | "storages" | "units";
+type Mode = "table" | "cards";
+// Datasets that map to one printed card per row (image + QR + info).
+const CARD_DATASETS: Dataset[] = ["inventory", "units", "storages", "projects"];
 
 const PAPERS: Record<string, { label: string; w: number; h: number }> = {
   a4: { label: "A4 (210 × 297 mm)", w: 210, h: 297 },
@@ -40,6 +51,7 @@ function useColumns(dataset: Dataset): Col[] {
   return useMemo(() => {
     if (dataset === "inventory")
       return [
+        { key: "id", label: "ID", get: (r) => r.group?._id ?? "" },
         { key: "group", label: "Component", get: (r) => r.group?.name ?? "" },
         { key: "category", label: "Category", get: (r) => r.category?.name ?? "" },
         { key: "closet", label: "Storage", get: (r) => r.closet?.name ?? "" },
@@ -54,6 +66,8 @@ function useColumns(dataset: Dataset): Col[] {
       ];
     if (dataset === "rentals")
       return [
+        { key: "id", label: "ID", get: (r) => r.rental?._id ?? "" },
+        { key: "partId", label: "Unit ID", get: (r) => r.part?._id ?? "" },
         { key: "student", label: "Student", get: (r) => r.student?.name ?? "(removed)" },
         { key: "email", label: "Email", get: (r) => r.student?.email ?? "" },
         { key: "studentId", label: "Student ID", get: (r) => r.student?.studentId ?? "" },
@@ -84,6 +98,7 @@ function useColumns(dataset: Dataset): Col[] {
       ];
     if (dataset === "people")
       return [
+        { key: "id", label: "ID", get: (r) => r.user?._id ?? "" },
         { key: "code", label: "Club code", get: (r) => r.user.studentCode ?? "" },
         { key: "name", label: "Name", get: (r) => r.user.name ?? "" },
         { key: "email", label: "Email", get: (r) => r.user.email ?? "" },
@@ -99,7 +114,23 @@ function useColumns(dataset: Dataset): Col[] {
         { key: "membership", label: "Membership", get: (r) => (r.user?.membershipStatus === "ex" ? "Ex-member" : "Active") },
         { key: "activeRentals", label: "Active rentals", get: (r) => String(r.activeRentals ?? 0) },
       ];
+    if (dataset === "storages")
+      return [
+        { key: "id", label: "ID", get: (r) => r.closet?._id ?? "" },
+        { key: "name", label: "Storage", get: (r) => r.closet?.name ?? "" },
+        { key: "location", label: "Location", get: (r) => r.closet?.location ?? "" },
+        { key: "note", label: "Note", get: (r) => r.closet?.note ?? "" },
+      ];
+    if (dataset === "units")
+      return [
+        { key: "id", label: "ID", get: (r) => r.part?._id ?? "" },
+        { key: "tag", label: "Tag", get: (r) => r.part?.tag ?? "" },
+        { key: "group", label: "Component", get: (r) => r.group?.name ?? "" },
+        { key: "storage", label: "Storage", get: (r) => r.closet?.name ?? "" },
+        { key: "status", label: "Status", get: (r) => r.part?.status ?? "" },
+      ];
     return [
+      { key: "id", label: "ID", get: (r) => r.project?._id ?? "" },
       { key: "name", label: "Project", get: (r) => r.project?.name ?? "" },
       { key: "status", label: "Status", get: (r) => r.project?.status ?? "" },
       { key: "description", label: "Description", get: (r) => r.project?.description ?? "" },
@@ -117,8 +148,66 @@ function toCsv(cols: Col[], rows: any[]) {
   return `\uFEFF${head}\n${body}`; // BOM so Excel opens Arabic correctly
 }
 
+// CSS px per mm at 96dpi — card/QR boxes sized in mm print at real size.
+const MM = 96 / 25.4;
+
+/** One printed postcard-sticker: image left, QR right, info underneath. */
+function PrintCard({
+  image,
+  qrPayload,
+  title,
+  sub,
+  widthMm,
+  heightMm,
+}: {
+  image?: string;
+  qrPayload: string;
+  title: string;
+  sub?: string;
+  widthMm: number;
+  heightMm: number;
+}) {
+  const pad = 2; // mm
+  const innerH = Math.max(10, heightMm - pad * 2);
+  const qrMm = Math.min(innerH * 0.7, widthMm * 0.32);
+  const qrPx = Math.round(Math.max(12, qrMm) * MM);
+  const imgH = Math.round(innerH * MM);
+  const imgW = Math.round((widthMm - pad * 2 - Math.max(12, qrMm) - 2) * MM);
+  return (
+    <div
+      className="print-card flex flex-col break-inside-avoid rounded border border-neutral-300 bg-white text-black"
+      style={{ width: `${widthMm}mm`, height: `${heightMm}mm`, padding: `${pad}mm` }}
+    >
+      <div className="flex min-h-0 flex-1 items-center gap-2">
+        {/* LEFT: the item image */}
+        <div
+          className="flex shrink-0 items-center justify-center overflow-hidden rounded border border-neutral-200 bg-neutral-50"
+          style={{ width: imgW, height: imgH }}
+        >
+          {image ? (
+            <img src={image} alt={title} className="h-full w-full object-cover" />
+          ) : (
+            <span className="text-[8px] uppercase tracking-widest text-neutral-400">no photo</span>
+          )}
+        </div>
+        {/* RIGHT: the QR code */}
+        <div className="ml-auto shrink-0" style={{ width: qrPx, height: qrPx }}>
+          <QRCode value={qrUrl(qrPayload)} size={qrPx} style={{ width: "100%", height: "100%" }} />
+        </div>
+      </div>
+      {/* UNDER: basic info — name + brand/model (or the description for
+          storages/projects, passed as `sub`). */}
+      <div className="mt-1 min-w-0 leading-tight">
+        <p className="truncate text-[10px] font-semibold">{title}</p>
+        {sub && <p className="truncate text-[8px] text-neutral-600">{sub}</p>}
+      </div>
+    </div>
+  );
+}
+
 export default function ExportStudio() {
   const [dataset, setDataset] = useState<Dataset>("inventory");
+  const [mode, setMode] = useState<Mode>("table");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [closetId, setClosetId] = useState("all");
@@ -130,6 +219,9 @@ export default function ExportStudio() {
   const [margin, setMargin] = useState(10); // mm
   const [scale, setScale] = useState(100); // percent
   const [showGrid, setShowGrid] = useState(true);
+  // Printed-card controls (mm)
+  const [cardW, setCardW] = useState(60);
+  const [cardH, setCardH] = useState(40);
 
   const cols = useColumns(dataset);
   const categories = useQuery(api.catalog.listCategories, {});
@@ -138,13 +230,17 @@ export default function ExportStudio() {
   const rentals = useQuery(api.exportData.rentals, {});
   const people = useQuery(api.exportData.people, {});
   const projects = useQuery(api.exportData.projects, {});
+  const storagesQ = useQuery(api.exportData.storages, {});
+  const unitsQ = useQuery(api.exportData.units, {});
 
   const raw = useMemo(() => {
     if (dataset === "inventory") return inventory;
     if (dataset === "rentals") return rentals;
     if (dataset === "people") return people;
+    if (dataset === "storages") return storagesQ?.map((closet: any) => ({ closet }));
+    if (dataset === "units") return unitsQ;
     return projects;
-  }, [dataset, inventory, rentals, people, projects]);
+  }, [dataset, inventory, rentals, people, projects, storagesQ, unitsQ]);
 
   const rows = useMemo(() => {
     let list = (raw ?? []) as any[];
@@ -160,6 +256,9 @@ export default function ExportStudio() {
     }
     if (dataset === "rentals" && statusFilter !== "all") {
       list = list.filter((r) => r.rental?.status === statusFilter);
+    }
+    if (dataset === "units" && statusFilter !== "all") {
+      list = list.filter((r) => r.part?.status === statusFilter);
     }
     if (dataset === "projects" && statusFilter !== "all") {
       list = list.filter((r) => r.project?.status === statusFilter);
@@ -202,16 +301,55 @@ export default function ExportStudio() {
     ["rentals", "Rental history"],
     ["people", "People"],
     ["projects", "Projects"],
+    ["storages", "Storages"],
+    ["units", "Units"],
   ];
 
   const showInventoryFilters = dataset === "inventory";
-  const showStatus = dataset === "rentals" || dataset === "projects" || dataset === "people";
+  const showStatus =
+    dataset === "rentals" || dataset === "projects" || dataset === "people" || dataset === "units";
   const statusOptions =
     dataset === "rentals"
       ? [["all", "All statuses"], ["pending", "Pending"], ["active", "Active"], ["on_project", "On project"], ["returned", "Returned"], ["denied", "Denied"], ["canceled", "Canceled"]]
       : dataset === "projects"
         ? [["all", "All statuses"], ["active", "Active"], ["completed", "Completed"], ["dismantled", "Dismantled"]]
-        : [["all", "Everyone"], ["admins", "Admins only"], ["members", "Members only"], ["active", "Active members"], ["ex", "Ex-members"]];
+        : dataset === "units"
+          ? [["all", "All statuses"], ["available", "Available"], ["rented", "Rented"], ["on_project", "On project"], ["broken", "Broken"], ["pending", "Pending"], ["transferred", "Transferred"], ["consumed", "Consumed"]]
+          : [["all", "Everyone"], ["admins", "Admins only"], ["members", "Members only"], ["active", "Active members"], ["ex", "Ex-members"]];
+
+  const cardsAvailable = CARD_DATASETS.includes(dataset);
+  const activeMode: Mode = cardsAvailable ? mode : "table";
+
+  /** Build the per-row card payload (image, QR, title, sub) per dataset. */
+  const cardFor = (r: any) => {
+    if (dataset === "inventory")
+      return {
+        image: r.group?.imageUrl,
+        qr: groupQr(r.group?._id ?? ""),
+        title: r.group?.name ?? "",
+        sub: [r.group?.brand, r.group?.model].filter(Boolean).join(" · ") || r.group?.description || "",
+      };
+    if (dataset === "units")
+      return {
+        image: r.part?.imageUrl || r.group?.imageUrl,
+        qr: unitQr(r.part?.tag ?? ""),
+        title: r.part?.tag ?? "",
+        sub: r.group?.name ?? "",
+      };
+    if (dataset === "storages")
+      return {
+        image: r.closet?.imageUrl,
+        qr: closetQr(r.closet?._id ?? ""),
+        title: r.closet?.name ?? "",
+        sub: r.closet?.location || r.closet?.note || "",
+      };
+    return {
+      image: r.project?.imageUrl,
+      qr: projectQr(r.project?._id ?? ""),
+      title: r.project?.name ?? "",
+      sub: r.project?.description ?? "",
+    };
+  };
 
   return (
     <AppShell>
@@ -220,7 +358,8 @@ export default function ExportStudio() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Export studio</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Filter any dataset, preview the sheet live, then print with full control or download CSV.
+              Filter any dataset, preview the sheet live, then print with full control, print item
+              cards, or download CSV.
             </p>
           </div>
           <div className="flex gap-2">
@@ -235,7 +374,7 @@ export default function ExportStudio() {
               <FileDown className="size-4" /> Download CSV
             </Button>
             <Button onClick={() => window.print()} disabled={!rows?.length}>
-              <Printer className="size-4" /> Print / save as PDF
+              <Printer className="size-4" /> Print
             </Button>
           </div>
         </header>
@@ -258,6 +397,26 @@ export default function ExportStudio() {
               </Button>
             ))}
           </div>
+
+          {cardsAvailable && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-medium text-muted-foreground">Output</span>
+              <Button
+                size="sm"
+                variant={activeMode === "table" ? "default" : "outline"}
+                onClick={() => setMode("table")}
+              >
+                <Table2 className="size-4" /> Table sheet
+              </Button>
+              <Button
+                size="sm"
+                variant={activeMode === "cards" ? "default" : "outline"}
+                onClick={() => setMode("cards")}
+              >
+                <IdCard className="size-4" /> Printed cards
+              </Button>
+            </div>
+          )}
 
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative min-w-52 flex-1">
@@ -337,22 +496,50 @@ export default function ExportStudio() {
                 className="w-20"
               />
             </div>
-            <div className="grid gap-1">
-              <Label className="text-[11px] text-muted-foreground">Scale {scale}%</Label>
-              <input
-                type="range"
-                min={50}
-                max={150}
-                step={5}
-                value={scale}
-                onChange={(e) => setScale(Number(e.target.value))}
-                className="w-40 accent-[var(--primary)]"
-              />
-            </div>
-            <p className="ml-auto max-w-64 text-[11px] leading-snug text-muted-foreground">
-              The preview mirrors the printed sheet — pick “Save as PDF” in the browser print dialog
-              to get a PDF with exactly this layout.
-            </p>
+            {activeMode === "table" && (
+              <div className="grid gap-1">
+                <Label className="text-[11px] text-muted-foreground">Scale {scale}%</Label>
+                <input
+                  type="range"
+                  min={50}
+                  max={150}
+                  step={5}
+                  value={scale}
+                  onChange={(e) => setScale(Number(e.target.value))}
+                  className="w-40 accent-[var(--primary)]"
+                />
+              </div>
+            )}
+            {activeMode === "cards" && (
+              <>
+                <div className="grid gap-1">
+                  <Label className="text-[11px] text-muted-foreground">Card width (mm)</Label>
+                  <Input
+                    type="number"
+                    min={30}
+                    max={200}
+                    value={cardW}
+                    onChange={(e) => setCardW(Math.max(30, Math.min(200, Number(e.target.value) || 60)))}
+                    className="w-20"
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <Label className="text-[11px] text-muted-foreground">Card height (mm)</Label>
+                  <Input
+                    type="number"
+                    min={20}
+                    max={150}
+                    value={cardH}
+                    onChange={(e) => setCardH(Math.max(20, Math.min(150, Number(e.target.value) || 40)))}
+                    className="w-20"
+                  />
+                </div>
+                <p className="max-w-64 text-[11px] leading-snug text-muted-foreground">
+                  Postcard-sticker cards: item image left, QR right, name + brand/model (or the
+                  storage/project description) underneath. Same filters as the sheet.
+                </p>
+              </>
+            )}
           </div>
         </div>
 
@@ -361,6 +548,42 @@ export default function ExportStudio() {
           <p className="py-16 text-center text-sm text-muted-foreground">
             <Loader2 className="mr-2 inline size-4 animate-spin" /> Loading data…
           </p>
+        ) : activeMode === "cards" ? (
+          <div
+            id="print-area"
+            className="w-full overflow-x-auto rounded-lg border bg-white p-4 text-black shadow-sm"
+          >
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-neutral-500">
+              Robotics Club · item cards · {rows.length} cards · {new Date().toLocaleDateString()}
+            </p>
+            <div
+              className="flex flex-wrap content-start gap-[2mm]"
+              style={{
+                boxShadow: showGrid ? undefined : "none",
+              }}
+            >
+              {rows.map((r, i) => {
+                const c = cardFor(r);
+                return (
+                  <div key={i} className="print-cell" style={showGrid ? { boxShadow: "0 0 0 0.5px #a3a3a3" } : undefined}>
+                    <PrintCard
+                      image={c.image}
+                      qrPayload={c.qr}
+                      title={c.title}
+                      sub={c.sub}
+                      widthMm={cardW}
+                      heightMm={cardH}
+                    />
+                  </div>
+                );
+              })}
+              {rows.length === 0 && (
+                <p className="px-2 py-6 text-center text-sm text-neutral-500">
+                  No rows match the filters.
+                </p>
+              )}
+            </div>
+          </div>
         ) : (
           <div
             id="print-area"
