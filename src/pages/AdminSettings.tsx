@@ -768,6 +768,7 @@ function StructureList({
   const upsert = useMutation(
     isCategory ? api.catalog.upsertCategory : api.catalog.upsertCloset,
   );
+  const setConsumable = useMutation(api.catalog.setCategoryConsumable);
   const remove = useMutation(
     isCategory ? api.catalog.deleteCategory : api.catalog.deleteCloset,
   );
@@ -860,6 +861,28 @@ function StructureList({
             ) : (
               <>
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">{r.name}</span>
+                {isCategory && "consumable" in r && (
+                  <Switch
+                    checked={(r as any).consumable === true}
+                    onCheckedChange={(v) =>
+                      setConsumable({ id: r._id as never, consumable: v })
+                        .then(() =>
+                          toast.success(
+                            v
+                              ? `“${r.name}” marked consumable — returns ask how much came back`
+                              : `“${r.name}” marked non-consumable`,
+                          ),
+                        )
+                        .catch((e) => toast.error(e instanceof Error ? e.message : "Failed"))
+                    }
+                    aria-label="Consumable"
+                  />
+                )}
+                {isCategory && "consumable" in r && (
+                  <span className="w-24 text-[10px] uppercase tracking-wide text-muted-foreground">
+                    {(r as any).consumable ? "consumable" : "returnable"}
+                  </span>
+                )}
                 <Button
                   size="icon"
                   variant="ghost"

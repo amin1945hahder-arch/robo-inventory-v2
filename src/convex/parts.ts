@@ -154,6 +154,8 @@ export const getPartWithRental = query({
         requestedAt: r.requestedAt,
         returnedAt: r.returnedAt,
         returnDestination: r.returnDestination,
+        transferToName: r.transferToName,
+        recoveredAmount: r.recoveredAmount,
         functional: r.functional,
         conditionReport: r.conditionReport,
         holderName: holder?.name ?? holder?.email ?? "—",
@@ -203,6 +205,8 @@ export const updatePart = mutation({
         v.literal("rented"),
         v.literal("on_project"),
         v.literal("broken"),
+        v.literal("transferred"),
+        v.literal("consumed"),
       ),
     ),
     note: v.optional(v.string()),
@@ -238,7 +242,14 @@ export const updatePart = mutation({
     // Resolve the effective next status when the caller didn't set one
     // explicitly: project assignment wins, then a holder, then the chosen
     // status (or the current one).
-    let nextStatus: "available" | "pending" | "rented" | "on_project" | "broken" =
+    let nextStatus:
+      | "available"
+      | "pending"
+      | "rented"
+      | "on_project"
+      | "broken"
+      | "transferred"
+      | "consumed" =
       status ?? (part.status as typeof nextStatus);
     if (wantsProject && toProject) {
       const project = await ctx.db.get(toProject);
@@ -319,7 +330,9 @@ export const updatePart = mutation({
         await ctx.db.patch(openRental._id, {
           status: "returned",
           returnedAt: now,
-          returnDestination: "shelf",
+          // Terminal admin edits keep the truth on the ledger too.
+          returnDestination:
+            nextStatus === "transferred" ? ("transferred" as const) : ("shelf" as const),
           returnRequestedAt: undefined,
         });
       }
@@ -715,15 +728,47 @@ export const adminRentalAction = mutation({
       v.literal("assign_project"),
       v.literal("mark_taken"),
       v.literal("mark_broken"),
+      // Return → hand the unit over to another department / lab / person.
+      v.literal("transfer"),
     ),
     projectId: v.optional(v.id("projects")),
     functional: v.optional(v.boolean()),
     conditionReport: v.optional(v.string()),
+    // Transfer: destination name, details and an optional documentation
+    // file/image (small data URL) attached to the return record.
+    transferToName: v.optional(v.string()),
+    transferDetails: v.optional(v.string()),
+    transferDoc: v.optional(
+      v.object({
+        name: v.string(),
+        mime: v.string(),
+        size: v.number(),
+        dataUrl: v.string(),
+      }),
+    ),
+    // Bulk (weight/length) consumable returns: how much of the taken amount
+    // physically came back and is re-shelved. The remainder is logged as
+    // consumed on each affected unit. Defaults to the full taken amount.
+    recoveredAmount: v.optional(v.number()),
     // Approvals: when the member should come pick the unit up. The approving
     // admin picks a date+time (or reuses an existing scheduled pickup).
     pickupAt: v.optional(v.number()),
   },
-  handler: async (ctx, { rentalId, action, projectId, functional, conditionReport, pickupAt }) => {
+  handler: async (
+    ctx,
+    {
+      rentalId,
+      action,
+      projectId,
+      functional,
+      conditionReport,
+      transferToName,
+      transferDetails,
+      transferDoc,
+      recoveredAmount,
+      pickupAt,
+    },
+  ) => {
     const admin = await requireAdmin(ctx);
     const rental = await ctx.db.get(rentalId);
     if (!rental) throw new Error("Rental not found");
@@ -939,43 +984,74 @@ export const adminRentalAction = mutation({
       );
     } else if (action === "mark_returned") {
       if (rental.status !== "active") throw new Error("Rental is not active");
+      const isBulk = group?.measure === "weight" || group?.measure === "length";
+      // Bulk consumable returns: the admin re-measures what physically came
+      // back; the taken-but-not-returned remainder is consumed stock. Only
+      // consumable categories can report "nothing came back".
+      let recovered = Math.round((recoveredAmount ?? NaN) * 10000) / 10000;
+      const takenTotal = (rental.allocations ?? []).reduce(
+        (s: number, a: any) => s + Number(a.amount),
+        0,
+      );
+      if (isBulk) {
+        if (recoveredAmount === undefined) {
+          recovered = takenTotal;
+        }
+        if (!Number.isFinite(recovered) || recovered < 0) {
+          throw new Error("Recovered amount must be ≥ 0");
+        }
+        if (recovered > takenTotal + 1e-9) {
+          throw new Error(
+            `Recovered (${recovered}) cannot exceed the taken amount (${takenTotal} ${group?.measureUnit ?? ""})`,
+          );
+        }
+      }
       await ctx.db.patch(rentalId, {
         status: "returned",
         returnedAt: now,
         returnDestination: "shelf",
+        recoveredAmount: isBulk ? recovered : undefined,
         functional,
         conditionReport: conditionReport?.trim(),
         returnRequestedAt: undefined,
       });
-      const isBulk = group?.measure === "weight" || group?.measure === "length";
       if (isBulk) {
-        // Bulk return: restore every cut unit from the rental's allocation
-        // list. The member physically returns the leftover pieces to the
-        // lab — the admin records the actual recovered amount per unit
-        // (re-measured), defaulting to what was taken out.
+        // Distribute the recovered amount across the taken units in take
+        // order; whatever a unit doesn't get back is logged as consumed.
+        let leftToRestore = recovered;
         for (const alloc of rental.allocations ?? []) {
           const unit = await ctx.db.get(alloc.partId);
           if (!unit) continue;
-          const recovered = Math.max(0, Number(alloc.amount));
+          const restore = Math.min(Number(alloc.amount), Math.max(0, leftToRestore));
+          leftToRestore = Math.round((leftToRestore - restore) * 10000) / 10000;
+          const consumedHere = Math.round((Number(alloc.amount) - restore) * 10000) / 10000;
+          const base = Number(unit.amountRemaining ?? 0);
           await ctx.db.patch(unit._id, {
-            amountRemaining: String(Number((Number(unit.amountRemaining ?? 0) + recovered).toFixed(4))),
+            amountRemaining: String(
+              Math.round((base + restore) * 10000) / 10000,
+            ),
             status: "available",
             currentHolderId: undefined,
+            consumedAt: undefined,
+            ...(consumedHere > 0
+              ? {
+                  consumptionLog: [
+                    ...(unit.consumptionLog ?? []).slice(-49),
+                    {
+                      amount: -consumedHere,
+                      at: now,
+                      byId: admin._id,
+                      byName: admin.name ?? admin.email,
+                      via: "return" as const,
+                      note: `Return of rental: ${recovered} of ${takenTotal} ${group?.measureUnit ?? ""} came back`,
+                    },
+                  ],
+                }
+              : {}),
           });
         }
         const stock = await sumUnitStock(ctx, group!._id);
         await ctx.db.patch(group!._id, { measureStock: String(stock) });
-        if (functional === false) {
-          // Broken bulk stock: whatever came back is unusable — drop it.
-          for (const alloc of rental.allocations ?? []) {
-            const unit = await ctx.db.get(alloc.partId);
-            if (!unit) continue;
-            const left = Math.max(0, Number(unit.amountRemaining ?? 0) - Number(alloc.amount));
-            await ctx.db.patch(unit._id, { amountRemaining: String(left) });
-          }
-          const stockAfter = await sumUnitStock(ctx, group!._id);
-          await ctx.db.patch(group!._id, { measureStock: String(stockAfter) });
-        }
       } else if (functional === false) {
         await ctx.db.patch(part._id, { status: "broken", currentHolderId: undefined, rentedAt: undefined, dueAt: undefined });
       } else {
@@ -983,6 +1059,10 @@ export const adminRentalAction = mutation({
       }
       // ONE Telegram message: PDF card + details as its caption (with the
       // acting admin), replacing the previous text+card double post.
+      const bulkNote =
+        isBulk && recovered < takenTotal
+          ? ` — recovered ${recovered} ${group?.measureUnit ?? ""}, ${Math.round((takenTotal - recovered) * 10000) / 10000} ${group?.measureUnit ?? ""} logged as consumed`
+          : "";
       await scheduleRentCard(
         ctx,
         { ...rental, returnedAt: now, conditionReport: conditionReport?.trim() },
@@ -990,7 +1070,69 @@ export const adminRentalAction = mutation({
         group,
         student,
         functional === false ? "returned · marked broken" : "returned to shelf",
-        `↩️ ${admin.name ?? admin.email} processed the return of ${group?.name ?? "part"} (${part.tag}) from ${student?.name ?? student?.email ?? "a member"}${functional === false ? " — marked BROKEN" : " — back on the shelf"}.`,
+        `↩️ ${admin.name ?? admin.email} processed the return of ${group?.name ?? "part"} (${part.tag}) from ${student?.name ?? student?.email ?? "a member"}${bulkNote}${functional === false ? " — marked BROKEN" : " — back on the shelf"}.`,
+      );
+    } else if (action === "transfer") {
+      // The unit does NOT come back to the club: it is handed over to another
+      // department / lab / person. Requires a destination name; details and a
+      // documentation file/photo are optional. Kept on the ledger so the QR
+      // still resolves and the audit trail shows where it went.
+      if (rental.status !== "active") throw new Error("Rental is not active");
+      const destName = transferToName?.trim();
+      if (!destName) throw new Error("Enter the transfer destination name");
+      await ctx.db.patch(rentalId, {
+        status: "returned",
+        returnedAt: now,
+        returnDestination: "transferred",
+        transferToName: destName,
+        transferDetails: transferDetails?.trim() || undefined,
+        transferDoc: transferDoc ?? undefined,
+        functional: functional ?? true,
+        conditionReport: conditionReport?.trim(),
+        returnRequestedAt: undefined,
+      });
+      const isBulkTransfer = group?.measure === "weight" || group?.measure === "length";
+      if (isBulkTransfer) {
+        // Transferred bulk stock is gone from the club — drop the taken
+        // amount from every affected unit and log it as transferred out.
+        for (const alloc of rental.allocations ?? []) {
+          const unit = await ctx.db.get(alloc.partId);
+          if (!unit) continue;
+          const base = Number(unit.amountRemaining ?? 0);
+          const left = Math.max(0, base - Number(alloc.amount));
+          await ctx.db.patch(unit._id, {
+            amountRemaining: String(left),
+            currentHolderId: undefined,
+            consumedAt: left <= 0 ? now : undefined,
+            consumptionLog: [
+              ...(unit.consumptionLog ?? []).slice(-49),
+              {
+                amount: -Number(alloc.amount),
+                at: now,
+                byId: admin._id,
+                byName: admin.name ?? admin.email,
+                via: "return" as const,
+                note: `Transferred to ${destName}`,
+              },
+            ],
+          });
+        }
+        const stock = await sumUnitStock(ctx, group!._id);
+        await ctx.db.patch(group!._id, { measureStock: String(stock) });
+      } else {
+        await ctx.db.patch(part._id, {
+          status: "transferred",
+          currentHolderId: undefined,
+          currentProjectId: undefined,
+          rentedAt: undefined,
+          dueAt: undefined,
+        });
+      }
+      await telegramGroup(
+        ctx,
+        `📤 ${admin.name ?? admin.email} transferred ${group?.name ?? "part"} (${part.tag}) from ${student?.name ?? student?.email ?? "a member"} to “${destName}”${transferDetails?.trim() ? ` — ${transferDetails.trim()}` : ""}. The unit stays on record with its QR.`,
+        undefined,
+        "inventory",
       );
     } else if (action === "assign_project") {
       if (rental.status !== "active") throw new Error("Rental is not active");
@@ -1074,12 +1216,18 @@ export const adminRentalAction = mutation({
 export const returnWholePackage = mutation({
   args: {
     packageId: v.id("rentalPackages"),
-    destination: v.union(v.literal("shelf"), v.literal("project")),
+    destination: v.union(v.literal("shelf"), v.literal("project"), v.literal("transferred")),
     projectId: v.optional(v.id("projects")),
     functional: v.boolean(),
     conditionReport: v.optional(v.string()),
+    transferToName: v.optional(v.string()),
+    transferDetails: v.optional(v.string()),
+    recoveredAmount: v.optional(v.number()),
   },
-  handler: async (ctx, { packageId, destination, projectId, functional, conditionReport }) => {
+  handler: async (
+    ctx,
+    { packageId, destination, projectId, functional, conditionReport, transferToName, transferDetails, recoveredAmount },
+  ) => {
     const admin = await requireAdmin(ctx);
     const pkg = await ctx.db.get(packageId);
     if (!pkg) throw new Error("Package not found");
@@ -1096,6 +1244,9 @@ export const returnWholePackage = mutation({
       project = await ctx.db.get(projectId);
       if (!project || project.status !== "active") throw new Error("Project must be active");
     }
+    if (destination === "transferred" && !transferToName?.trim()) {
+      throw new Error("Enter the transfer destination name");
+    }
 
     const now = Date.now();
     const member = await ctx.db.get(pkg.userId);
@@ -1105,7 +1256,53 @@ export const returnWholePackage = mutation({
       if (!part) continue;
       const group = await ctx.db.get(part.groupId);
       units.push({ tag: part.tag, groupName: group?.name ?? "Part" });
-      if (destination === "shelf") {
+      if (destination === "transferred") {
+        // Every unit of the bundle goes to the same external destination.
+        await ctx.db.patch(r._id, {
+          status: "returned",
+          returnedAt: now,
+          returnDestination: "transferred",
+          transferToName: transferToName!.trim(),
+          transferDetails: transferDetails?.trim() || undefined,
+          functional,
+          conditionReport: conditionReport?.trim(),
+          returnRequestedAt: undefined,
+        });
+        const isBulkX = group?.measure === "weight" || group?.measure === "length";
+        if (isBulkX) {
+          for (const alloc of r.allocations ?? []) {
+            const unit = await ctx.db.get(alloc.partId);
+            if (!unit) continue;
+            const left = Math.max(0, Number(unit.amountRemaining ?? 0) - Number(alloc.amount));
+            await ctx.db.patch(unit._id, {
+              amountRemaining: String(left),
+              currentHolderId: undefined,
+              consumedAt: left <= 0 ? now : undefined,
+              consumptionLog: [
+                ...(unit.consumptionLog ?? []).slice(-49),
+                {
+                  amount: -Number(alloc.amount),
+                  at: now,
+                  byId: admin._id,
+                  byName: admin.name ?? admin.email,
+                  via: "return" as const,
+                  note: `Transferred to ${transferToName!.trim()}`,
+                },
+              ],
+            });
+          }
+          const stock = await sumUnitStock(ctx, group!._id);
+          await ctx.db.patch(group!._id, { measureStock: String(stock) });
+        } else {
+          await ctx.db.patch(part._id, {
+            status: "transferred",
+            currentHolderId: undefined,
+            currentProjectId: undefined,
+            rentedAt: undefined,
+            dueAt: undefined,
+          });
+        }
+      } else if (destination === "shelf") {
         await ctx.db.patch(r._id, {
           status: "returned",
           returnedAt: now,
@@ -1150,8 +1347,14 @@ export const returnWholePackage = mutation({
       firstPart,
       firstGroup,
       member,
-      destination === "project" ? "assigned to project (package)" : functional ? "returned to shelf (package)" : "returned · marked broken (package)",
-      `↩️ ${admin.name ?? admin.email} processed the package return of ${member?.name ?? member?.email ?? "a member"} (${summaryText}) — ${units.length} unit${units.length === 1 ? "" : "s"} ${destination === "shelf" ? (functional ? "back on the shelf" : "marked BROKEN") : `assigned to “${project?.name}”`}.`,
+      destination === "project"
+        ? "assigned to project (package)"
+        : destination === "transferred"
+          ? "transferred (package)"
+          : functional
+            ? "returned to shelf (package)"
+            : "returned · marked broken (package)",
+      `↩️ ${admin.name ?? admin.email} processed the package return of ${member?.name ?? member?.email ?? "a member"} (${summaryText}) — ${units.length} unit${units.length === 1 ? "" : "s"} ${destination === "transferred" ? `transferred to “${transferToName!.trim()}”` : destination === "shelf" ? (functional ? "back on the shelf" : "marked BROKEN") : `assigned to “${project?.name}”`}.`,
       project?.name,
       units,
     );

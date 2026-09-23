@@ -23,8 +23,15 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/StatusBadge";
+import {
+  DocAttachmentField,
+  type AttachedDoc,
+} from "@/components/DocAttachmentField";
+import type { Doc } from "@/convex/_generated/dataModel";
 
-/** Admin-only flow for handling an active rental: return to shelf, or assign to a project. */
+export type ReturnDestination = "shelf" | "project" | "transferred";
+
+/** Admin-only flow: return to shelf, assign to a project, or transfer out. */
 export function ReturnDialog({
   open,
   onOpenChange,
@@ -32,6 +39,7 @@ export function ReturnDialog({
   partTag,
   groupName,
   partId,
+  rentalAmount,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -39,15 +47,28 @@ export function ReturnDialog({
   partTag: string;
   groupName: string;
   partId: string;
+  /** Bulk rentals: the amount taken (kg/m), when present. */
+  rentalAmount?: number;
 }) {
   const projects = useQuery(api.projects.listProjects, { status: "active" });
-  const markReturned = useMutation(api.parts.adminRentalAction);
-  const [destination, setDestination] = useState<"shelf" | "project">("shelf");
+  const act = useMutation(api.parts.adminRentalAction);
+  // Group + category of the unit: drives the consumable recovered-amount form.
+  const partData = useQuery(api.parts.getPartWithRental, { id: partId as any });
+  const group = partData?.group;
+  const isBulk = group?.measure === "weight" || group?.measure === "length";
+
+  const [destination, setDestination] = useState<ReturnDestination>("shelf");
   const [functional, setFunctional] = useState<boolean | null>(null);
   const [report, setReport] = useState("");
   const [projectId, setProjectId] = useState<string>("");
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
+  // Transfer fields.
+  const [transferName, setTransferName] = useState("");
+  const [transferDetails, setTransferDetails] = useState("");
+  const [transferDoc, setTransferDoc] = useState<AttachedDoc | null>(null);
+  // Bulk consumable return: how much of the taken amount physically came back.
+  const [recovered, setRecovered] = useState("");
   const [busy, setBusy] = useState(false);
 
   const createProject = useMutation(api.projects.upsertProject);
@@ -60,8 +81,16 @@ export function ReturnDialog({
       setProjectId("");
       setCreating(false);
       setNewName("");
+      setTransferName("");
+      setTransferDetails("");
+      setTransferDoc(null);
+      setRecovered("");
     }
   }, [open]);
+
+  const unitLabel = group?.measureUnit ?? "";
+  const taken = rentalAmount ?? 0;
+  const consumableForm = isBulk && rentalAmount !== undefined;
 
   const valid = useMemo(() => {
     if (functional === null) return false;
@@ -69,19 +98,22 @@ export function ReturnDialog({
       if (creating) return newName.trim().length > 1;
       return Boolean(projectId);
     }
+    if (destination === "transferred") {
+      return transferName.trim().length > 1;
+    }
     return true;
-  }, [functional, destination, creating, newName, projectId]);
+  }, [functional, destination, creating, newName, projectId, transferName]);
 
   const submit = async () => {
     if (!valid || busy) return;
     setBusy(true);
     try {
-      let target = projectId;
       if (destination === "project") {
+        let target = projectId;
         if (creating) {
           target = await createProject({ name: newName.trim(), status: "active" });
         }
-        await markReturned({
+        await act({
           rentalId: rentalId as any,
           action: "assign_project",
           projectId: target as any,
@@ -89,12 +121,40 @@ export function ReturnDialog({
           conditionReport: report.trim() || undefined,
         });
         toast.success(`Assigned to ${creating ? newName.trim() : "project"}`);
+      } else if (destination === "transferred") {
+        await act({
+          rentalId: rentalId as any,
+          action: "transfer",
+          transferToName: transferName.trim(),
+          transferDetails: transferDetails.trim() || undefined,
+          transferDoc: transferDoc ?? undefined,
+          functional: functional ?? true,
+          conditionReport: report.trim() || undefined,
+        });
+        toast.success(`Transferred to “${transferName.trim()}” — kept on record`);
       } else {
-        await markReturned({
+        const recoveredNum =
+          consumableForm && recovered.trim() !== "" ? Number(recovered) : undefined;
+        if (consumableForm && recovered.trim() !== "") {
+          if (!Number.isFinite(recoveredNum) || (recoveredNum as number) < 0) {
+            toast.error(`Enter the recovered amount in ${unitLabel}`);
+            setBusy(false);
+            return;
+          }
+          if ((recoveredNum as number) > taken + 1e-9) {
+            toast.error(`Recovered cannot exceed the taken ${taken} ${unitLabel}`);
+            setBusy(false);
+            return;
+          }
+        }
+        await act({
           rentalId: rentalId as any,
           action: "mark_returned",
           functional: functional ?? true,
           conditionReport: report.trim() || undefined,
+          ...(consumableForm && recoveredNum !== undefined
+            ? { recoveredAmount: recoveredNum }
+            : {}),
         });
         toast.success(functional ? "Returned to shelf" : "Marked broken and shelved");
       }
@@ -108,7 +168,7 @@ export function ReturnDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Process return</DialogTitle>
           <DialogDescription>
@@ -119,7 +179,7 @@ export function ReturnDialog({
         <div className="flex flex-col gap-5">
           <RadioGroup
             value={destination}
-            onValueChange={(v) => setDestination(v as "shelf" | "project")}
+            onValueChange={(v) => setDestination(v as ReturnDestination)}
             className="grid grid-cols-1 gap-2 sm:grid-cols-2"
           >
             <label
@@ -138,6 +198,15 @@ export function ReturnDialog({
               <div>
                 <p className="text-sm font-medium">Assign to project</p>
                 <p className="text-xs text-muted-foreground">Stays checked out until the project is dismantled.</p>
+              </div>
+            </label>
+            <label
+              className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors ${destination === "transferred" ? "border-foreground" : ""}`}
+            >
+              <RadioGroupItem value="transferred" className="mt-0.5" />
+              <div>
+                <p className="text-sm font-medium">Transferred to</p>
+                <p className="text-xs text-muted-foreground">Handed to another department/lab — kept on record.</p>
               </div>
             </label>
           </RadioGroup>
@@ -175,6 +244,45 @@ export function ReturnDialog({
                   </Button>
                 </div>
               )}
+            </div>
+          )}
+
+          {destination === "transferred" && (
+            <div className="flex flex-col gap-2">
+              <Label>Transfer destination name</Label>
+              <Input
+                value={transferName}
+                onChange={(e) => setTransferName(e.target.value)}
+                placeholder="e.g. Mechatronics dept., Al-Amal school lab…"
+              />
+              <Label>Details</Label>
+              <Textarea
+                value={transferDetails}
+                onChange={(e) => setTransferDetails(e.target.value)}
+                placeholder="Who received it, why, reference number…"
+                rows={2}
+              />
+              <DocAttachmentField doc={transferDoc} onChange={setTransferDoc} />
+            </div>
+          )}
+
+          {consumableForm && destination === "shelf" && (
+            <div className="flex flex-col gap-2 rounded-lg border bg-muted/30 p-3">
+              <Label>
+                Amount recovered ({unitLabel}) — taken: {taken} {unitLabel}
+              </Label>
+              <Input
+                type="number"
+                min={0}
+                step="any"
+                value={recovered}
+                onChange={(e) => setRecovered(e.target.value)}
+                placeholder={`What physically came back (≤ ${taken} ${unitLabel})`}
+              />
+              <p className="text-xs text-muted-foreground">
+                Leave empty to shelve all of it. The difference is logged as consumed on the unit —
+                e.g. take 2 kg, recover 1.4 kg → 0.6 kg consumed.
+              </p>
             </div>
           )}
 

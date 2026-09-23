@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ReturnDialog } from "@/components/ReturnDialog";
 import { PackageBuilderDialog } from "@/components/PackageBuilderDialog";
-import { GroupDetailUnits, isBulkGroup } from "@/components/GroupDetailUnits";
+import { GroupDetailUnits, isBulkGroup, ConsumeBulkDialog } from "@/components/GroupDetailUnits";
 import { BulkUnitDialog } from "@/components/BulkUnitDialog";
 import { groupQr, unitQr } from "@/lib/qr";
 import { toast } from "sonner";
@@ -39,8 +39,10 @@ export default function GroupDetail() {
   // Bulk-unit add/edit dialog state (weight/length groups).
   const [bulkUnitOpen, setBulkUnitOpen] = useState(false);
   const [bulkUnitEdit, setBulkUnitEdit] = useState<Doc<"parts"> | null>(null);
+  // Routine-consumption dialog state (weight/length groups).
+  const [consumeFor, setConsumeFor] = useState<Doc<"parts"> | null>(null);
 
-  const [returnFor, setReturnFor] = useState<{ rentalId: string; partId: string; tag: string } | null>(null);
+  const [returnFor, setReturnFor] = useState<{ rentalId: string; partId: string; tag: string; amount?: number } | null>(null);
   const [busyTag, setBusyTag] = useState<string | null>(null);
   // Quantity picker for the "request N units" flow.
   const [qty, setQty] = useState(1);
@@ -280,6 +282,7 @@ export default function GroupDetail() {
                 setBulkUnitEdit(u);
                 setBulkUnitOpen(true);
               }}
+              onConsume={(u) => setConsumeFor(u)}
             />
           )}
 
@@ -342,7 +345,7 @@ export default function GroupDetail() {
                           onClick={() => {
                             const hit = (activeRentals ?? []).find((r) => r.part?._id === p._id);
                             if (hit) {
-                              setReturnFor({ rentalId: hit.rental._id, partId: p._id, tag: p.tag });
+                              setReturnFor({ rentalId: hit.rental._id, partId: p._id, tag: p.tag, amount: hit.rental.amount });
                             } else {
                               toast.info("No active rental found for this unit");
                             }
@@ -372,6 +375,7 @@ export default function GroupDetail() {
           partId={returnFor.partId}
           partTag={returnFor.tag}
           groupName={group?.name ?? ""}
+          rentalAmount={returnFor.amount}
         />
       )}
 
@@ -381,6 +385,15 @@ export default function GroupDetail() {
           onOpenChange={setBulkUnitOpen}
           group={group}
           unit={bulkUnitEdit}
+        />
+      )}
+
+      {group && consumeFor && (
+        <ConsumeBulkDialog
+          open={Boolean(consumeFor)}
+          onOpenChange={(v) => !v && setConsumeFor(null)}
+          group={group}
+          unit={consumeFor}
         />
       )}
 

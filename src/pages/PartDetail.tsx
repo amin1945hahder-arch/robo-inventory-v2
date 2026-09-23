@@ -396,6 +396,18 @@ export default function PartDetail() {
                     This unit is checked out to a project until the project is dismantled.
                   </p>
                 )}
+                {part.status === "transferred" && (
+                  <p className="text-sm text-muted-foreground">
+                    📤 Transferred out of the club inventory — kept on record with its QR. An admin
+                    can bring it back via Edit → available.
+                  </p>
+                )}
+                {part.status === "consumed" && (
+                  <p className="text-sm text-muted-foreground">
+                    Fully consumed — written off during routine inventory. An admin can restock it
+                    via Edit → available.
+                  </p>
+                )}
                 {part.status === "broken" && (
                   <div className="flex flex-col gap-2">
                     <p className="text-sm text-muted-foreground">
@@ -465,6 +477,21 @@ export default function PartDetail() {
                           {new Date(row.rental.requestedAt).toLocaleDateString()}
                           {row.rental.conditionReport ? ` · ${row.rental.conditionReport}` : ""}
                         </p>
+                        {row.rental.returnDestination === "transferred" && (
+                          <p className="text-xs font-medium text-orange-400">
+                            📤 Transferred to {row.rental.transferToName ?? "—"}
+                            {row.rental.recoveredAmount !== undefined
+                              ? ` · recovered ${row.rental.recoveredAmount}`
+                              : ""}
+                          </p>
+                        )}
+                        {row.rental.recoveredAmount !== undefined &&
+                          row.rental.returnDestination === "shelf" && (
+                            <p className="text-xs text-muted-foreground">
+                              Recovered {row.rental.recoveredAmount} of the taken amount — the
+                              difference was consumed.
+                            </p>
+                          )}
                       </div>
                       <div className="flex items-center gap-2">
                         {row.rental.status !== "pending" && (
@@ -519,7 +546,7 @@ export default function PartDetail() {
                 value={editStatus}
                 onChange={(e) => setEditStatus(e.target.value)}
               >
-                {["available", "rented", "on_project", "broken"].map((s) => (
+                {["available", "rented", "on_project", "broken", "transferred", "consumed"].map((s) => (
                   <option key={s} value={s}>{s}</option>
                 ))}
               </select>

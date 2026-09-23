@@ -102,8 +102,11 @@ export const upsertCategory = mutation({
     id: v.optional(v.id("categories")),
     name: v.string(),
     description: v.optional(v.string()),
+    // Consumables (filament, wire…) get consumption logging + recovered-amount
+    // returns instead of strict unit returns. Omit to keep the current value.
+    consumable: v.optional(v.boolean()),
   },
-  handler: async (ctx, { id, name, description }) => {
+  handler: async (ctx, { id, name, description, consumable }) => {
     await requireAdmin(ctx);
     const clean = name.trim();
     if (!clean) throw new Error("Name is required");
@@ -122,12 +125,26 @@ export const upsertCategory = mutation({
     if (dupLoose) {
       throw new Error(`A category named “${dupLoose.name}” already exists`);
     }
-    const data = { name: clean, description: description?.trim() };
+    const data = {
+      name: clean,
+      description: description?.trim(),
+      ...(consumable !== undefined ? { consumable } : {}),
+    };
     if (id) {
       await ctx.db.patch(id, data);
       return id;
     }
     return await ctx.db.insert("categories", data);
+  },
+});
+
+/** Toggle a category's consumable flag (Settings / Inventory structure). */
+export const setCategoryConsumable = mutation({
+  args: { id: v.id("categories"), consumable: v.boolean() },
+  handler: async (ctx, { id, consumable }) => {
+    await requireAdmin(ctx);
+    await ctx.db.patch(id, { consumable });
+    return { ok: true };
   },
 });
 
@@ -400,7 +417,7 @@ export const updateBulkUnit = mutation({
     note: v.optional(v.string()),
   },
   handler: async (ctx, { partId, amountRemaining, lowAt, note }) => {
-    await requireAdmin(ctx);
+    const admin = await requireAdmin(ctx);
     const part = await ctx.db.get(partId);
     if (!part) throw new Error("Unit not found");
     const group = await ctx.db.get(part.groupId);
@@ -410,14 +427,111 @@ export const updateBulkUnit = mutation({
     if (!Number.isFinite(amountRemaining) || amountRemaining < 0) {
       throw new Error("Amount must be ≥ 0");
     }
+    const previous = Number(part.amountRemaining ?? 0);
+    const delta = Math.round((amountRemaining - previous) * 10000) / 10000;
     await ctx.db.patch(partId, {
       amountRemaining: String(amountRemaining),
+      // Stock came back → the unit is no longer "fully consumed".
+      ...(amountRemaining > 0 ? { consumedAt: undefined } : {}),
       ...(lowAt !== undefined ? { lowAt: String(lowAt) } : {}),
       ...(note !== undefined ? { note: note.trim() } : {}),
+      ...(delta !== 0
+        ? {
+            consumptionLog: [
+              ...(part.consumptionLog ?? []).slice(-49),
+              {
+                amount: delta,
+                at: Date.now(),
+                byId: admin._id,
+                byName: admin.name ?? admin.email,
+                via: "adjust" as const,
+              },
+            ],
+          }
+        : {}),
     });
     const stock = await sumUnitStock(ctx, part.groupId);
     await ctx.db.patch(group._id, { measureStock: String(stock) });
     return { ok: true };
+  },
+});
+
+/**
+ * Routine-consumption writes for weight/length units (NOT rentals): log that
+ * some amount was used up in the lab and deduct it from the unit, or mark the
+ * unit FULLY consumed in one click. The minimum (lowAt) does not apply here —
+ * that guard only protects rental cuts.
+ */
+export const consumeBulkUnit = mutation({
+  args: {
+    partId: v.id("parts"),
+    // Amount consumed now; omit when `fully` is set (the whole remainder).
+    amount: v.optional(v.number()),
+    fully: v.optional(v.boolean()),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, { partId, amount, fully, note }) => {
+    const admin = await requireAdmin(ctx);
+    const part = await ctx.db.get(partId);
+    if (!part) throw new Error("Unit not found");
+    const group = await ctx.db.get(part.groupId);
+    if (!group || (group.measure !== "weight" && group.measure !== "length")) {
+      throw new Error("Only weight/length group units carry amounts");
+    }
+    const remaining = Number(part.amountRemaining ?? 0);
+    const entry = {
+      at: Date.now(),
+      byId: admin._id,
+      byName: admin.name ?? admin.email,
+      via: (fully ? "full" : "manual") as "full" | "manual",
+      note: note?.trim() || undefined,
+    };
+    if (fully) {
+      // Fully consumed: everything still on the unit is written off.
+      if (remaining <= 0) throw new Error("This unit is already empty");
+      await ctx.db.patch(partId, {
+        amountRemaining: "0",
+        consumedAt: Date.now(),
+        consumptionLog: [
+          ...(part.consumptionLog ?? []).slice(-49),
+          { ...entry, amount: -remaining },
+        ],
+      });
+      const stock = await sumUnitStock(ctx, part.groupId);
+      await ctx.db.patch(group._id, { measureStock: String(stock) });
+      return { consumed: remaining };
+    }
+    if (!Number.isFinite(amount) || (amount ?? 0) <= 0) {
+      throw new Error(`Enter the consumed amount (in ${group.measureUnit ?? "units"})`);
+    }
+    if (amount! > remaining + 1e-9) {
+      throw new Error(
+        `Only ${remaining} ${group.measureUnit ?? "units"} left on this unit — use “Fully consumed” to write it all off`,
+      );
+    }
+    const left = Math.max(0, Math.round((remaining - amount!) * 10000) / 10000);
+    await ctx.db.patch(partId, {
+      amountRemaining: String(left),
+      // Emptied by hand == fully consumed as well.
+      consumedAt: left <= 0 ? Date.now() : undefined,
+      consumptionLog: [
+        ...(part.consumptionLog ?? []).slice(-49),
+        { ...entry, amount: -Math.round(amount! * 10000) / 10000 },
+      ],
+    });
+    const stock = await sumUnitStock(ctx, part.groupId);
+    await ctx.db.patch(group._id, { measureStock: String(stock) });
+    return { consumed: amount };
+  },
+});
+
+/** The consumption audit trail of one unit (for the detail dialog). */
+export const consumptionLog = query({
+  args: { partId: v.id("parts") },
+  handler: async (ctx, { partId }) => {
+    await requireNonStudent(ctx);
+    const part = await ctx.db.get(partId);
+    return (part?.consumptionLog ?? []).slice().reverse();
   },
 });
 

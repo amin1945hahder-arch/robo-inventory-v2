@@ -28,6 +28,10 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Award, Boxes, Check, PackagePlus, Printer, RotateCcw, ScanLine, X } from "lucide-react";
+import {
+  DocAttachmentField,
+  type AttachedDoc,
+} from "@/components/DocAttachmentField";
 
 type Row = {
   rental: any;
@@ -85,12 +89,18 @@ export default function AdminRequests() {
   const [pickupLocal, setPickupLocal] = useState("");
   const [approveBusy, setApproveBusy] = useState(false);
   const [returnFor, setReturnFor] = useState<Row | null>(null);
-  const [destination, setDestination] = useState<"shelf" | "project">("shelf");
+  const [destination, setDestination] = useState<"shelf" | "project" | "transferred">("shelf");
   const [functional, setFunctional] = useState(true);
   const [report, setReport] = useState("");
   const [projectId, setProjectId] = useState("");
   const [creatingProject, setCreatingProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
+  // Transfer-out fields (destination name + details + doc file).
+  const [transferName, setTransferName] = useState("");
+  const [transferDetails, setTransferDetails] = useState("");
+  const [transferDoc, setTransferDoc] = useState<AttachedDoc | null>(null);
+  // Bulk consumable return: how much of the taken amount came back.
+  const [recovered, setRecovered] = useState("");
 
   // Package units are decided as a bundle in the Packages tab (all-or-nothing).
   // The grouped pending query already collapses them into package rows.
@@ -100,20 +110,24 @@ export default function AdminRequests() {
   // Whole-package return from the Packages tab (admin one-click).
   const [wholeFor, setWholeFor] = useState<any | null>(null);
   const [wholeBusy, setWholeBusy] = useState(false);
-  const [wholeDestination, setWholeDestination] = useState<"shelf" | "project">("shelf");
+  const [wholeDestination, setWholeDestination] = useState<"shelf" | "project" | "transferred">("shelf");
   const [wholeFunctional, setWholeFunctional] = useState(true);
   const [wholeReport, setWholeReport] = useState("");
   const [wholeProjectId, setWholeProjectId] = useState("");
   const [wholeCreatingProject, setWholeCreatingProject] = useState(false);
   const [wholeNewProjectName, setWholeNewProjectName] = useState("");
+  const [wholeTransferName, setWholeTransferName] = useState("");
+  const [wholeTransferDetails, setWholeTransferDetails] = useState("");
   const createProject = useMutation(api.projects.upsertProject);
 
   const wholeValid =
     wholeDestination === "shelf"
       ? true
-      : wholeCreatingProject
-        ? wholeNewProjectName.trim().length > 1
-        : Boolean(wholeProjectId);
+      : wholeDestination === "transferred"
+        ? wholeTransferName.trim().length > 1
+        : wholeCreatingProject
+          ? wholeNewProjectName.trim().length > 1
+          : Boolean(wholeProjectId);
 
   const submitWholeReturn = async () => {
     if (!wholeFor || !wholeValid) return;
@@ -129,15 +143,23 @@ export default function AdminRequests() {
         projectId: wholeDestination === "project" ? (target as any) : undefined,
         functional: wholeFunctional,
         conditionReport: wholeReport.trim() || undefined,
+        ...(wholeDestination === "transferred"
+          ? {
+              transferToName: wholeTransferName.trim(),
+              transferDetails: wholeTransferDetails.trim() || undefined,
+            }
+          : {}),
       });
       toast.success(
-        `${res.processed} unit(s) ${wholeDestination === "project" ? "assigned to the project" : wholeFunctional ? "back on the shelf" : "marked broken"}`,
+        `${res.processed} unit(s) ${wholeDestination === "transferred" ? `transferred to “${wholeTransferName.trim()}”` : wholeDestination === "project" ? "assigned to the project" : wholeFunctional ? "back on the shelf" : "marked broken"}`,
       );
       setWholeFor(null);
       setWholeReport("");
       setWholeProjectId("");
       setWholeCreatingProject(false);
       setWholeNewProjectName("");
+      setWholeTransferName("");
+      setWholeTransferDetails("");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
     } finally {
@@ -236,12 +258,40 @@ export default function AdminRequests() {
           conditionReport: report.trim() || undefined,
         });
         toast.success("Assigned to project — checked out until dismantled");
+      } else if (destination === "transferred") {
+        await act({
+          rentalId: returnFor.rental._id,
+          action: "transfer",
+          transferToName: transferName.trim(),
+          transferDetails: transferDetails.trim() || undefined,
+          transferDoc: transferDoc ?? undefined,
+          functional,
+          conditionReport: report.trim() || undefined,
+        });
+        toast.success(`Transferred to “${transferName.trim()}” — kept on record`);
       } else {
+        const taken = returnFor.rental.amount;
+        const isBulkRow = returnFor.group?.measure === "weight" || returnFor.group?.measure === "length";
+        const recoveredNum =
+          isBulkRow && taken !== undefined && recovered.trim() !== "" ? Number(recovered) : undefined;
+        if (recoveredNum !== undefined) {
+          if (!Number.isFinite(recoveredNum) || recoveredNum < 0) {
+            toast.error(`Enter the recovered amount in ${returnFor.group?.measureUnit ?? "units"}`);
+            setBusyId(null);
+            return;
+          }
+          if (recoveredNum > taken + 1e-9) {
+            toast.error(`Recovered cannot exceed the taken ${taken} ${returnFor.group?.measureUnit ?? ""}`);
+            setBusyId(null);
+            return;
+          }
+        }
         await act({
           rentalId: returnFor.rental._id,
           action: "mark_returned",
           functional,
           conditionReport: report.trim() || undefined,
+          ...(recoveredNum !== undefined ? { recoveredAmount: recoveredNum } : {}),
         });
         toast.success(functional ? "Returned to shelf" : "Marked broken");
       }
@@ -250,6 +300,10 @@ export default function AdminRequests() {
       setProjectId("");
       setCreatingProject(false);
       setNewProjectName("");
+      setTransferName("");
+      setTransferDetails("");
+      setTransferDoc(null);
+      setRecovered("");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
     } finally {
@@ -587,6 +641,10 @@ export default function AdminRequests() {
                                     setProjectId("");
                                     setCreatingProject(false);
                                     setNewProjectName("");
+                                    setTransferName("");
+                                    setTransferDetails("");
+                                    setTransferDoc(null);
+                                    setRecovered("");
                                   }}
                                 >
                                   <RotateCcw className="size-3" /> Return
@@ -661,6 +719,16 @@ export default function AdminRequests() {
                     actions={
                       <Button size="sm" variant="outline" onClick={() => {
                         setReturnFor(row as Row);
+                        setDestination("shelf");
+                        setFunctional(true);
+                        setReport("");
+                        setProjectId("");
+                        setCreatingProject(false);
+                        setNewProjectName("");
+                        setTransferName("");
+                        setTransferDetails("");
+                        setTransferDoc(null);
+                        setRecovered("");
                         setDestination("shelf");
                         setFunctional(true);
                         setReport("");
@@ -957,8 +1025,8 @@ export default function AdminRequests() {
           <div className="flex flex-col gap-4">
             <RadioGroup
               value={destination}
-              onValueChange={(v) => setDestination(v as "shelf" | "project")}
-              className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+              onValueChange={(v) => setDestination(v as "shelf" | "project" | "transferred")}
+              className="grid grid-cols-1 gap-2 sm:grid-cols-3"
             >
               <label className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${destination === "shelf" ? "border-foreground" : ""}`}>
                 <RadioGroupItem value="shelf" className="mt-0.5" />
@@ -974,7 +1042,55 @@ export default function AdminRequests() {
                   <p className="text-xs text-muted-foreground">Stays checked out until dismantled.</p>
                 </div>
               </label>
+              <label className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${destination === "transferred" ? "border-foreground" : ""}`}>
+                <RadioGroupItem value="transferred" className="mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium">Transferred to</p>
+                  <p className="text-xs text-muted-foreground">Handed to another dept/lab — kept on record.</p>
+                </div>
+              </label>
             </RadioGroup>
+
+            {destination === "transferred" && (
+              <div className="flex flex-col gap-2">
+                <Label>Transfer destination name</Label>
+                <Input
+                  value={transferName}
+                  onChange={(e) => setTransferName(e.target.value)}
+                  placeholder="e.g. Mechatronics dept., Al-Amal school lab…"
+                />
+                <Label>Details</Label>
+                <Textarea
+                  value={transferDetails}
+                  onChange={(e) => setTransferDetails(e.target.value)}
+                  placeholder="Who received it, why, reference number…"
+                  rows={2}
+                />
+                <DocAttachmentField doc={transferDoc} onChange={setTransferDoc} />
+              </div>
+            )}
+
+            {destination === "shelf" &&
+              (returnFor?.group?.measure === "weight" || returnFor?.group?.measure === "length") &&
+              returnFor?.rental?.amount !== undefined && (
+                <div className="flex flex-col gap-2 rounded-lg border bg-muted/30 p-3">
+                  <Label>
+                    Amount recovered ({returnFor.group.measureUnit ?? ""}) — taken: {returnFor.rental.amount}{" "}
+                    {returnFor.group.measureUnit ?? ""}
+                  </Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={recovered}
+                    onChange={(e) => setRecovered(e.target.value)}
+                    placeholder={`What physically came back (≤ ${returnFor.rental.amount})`}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Leave empty to shelve all of it. The difference is logged as consumed.
+                  </p>
+                </div>
+              )}
 
             {destination === "project" && (
               <div className="flex flex-col gap-2">
@@ -1061,8 +1177,8 @@ export default function AdminRequests() {
           <div className="flex flex-col gap-4">
             <RadioGroup
               value={wholeDestination}
-              onValueChange={(v) => setWholeDestination(v as "shelf" | "project")}
-              className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+              onValueChange={(v) => setWholeDestination(v as "shelf" | "project" | "transferred")}
+              className="grid grid-cols-1 gap-2 sm:grid-cols-3"
             >
               <label className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${wholeDestination === "shelf" ? "border-foreground" : ""}`}>
                 <RadioGroupItem value="shelf" className="mt-0.5" />
@@ -1078,7 +1194,32 @@ export default function AdminRequests() {
                   <p className="text-xs text-muted-foreground">Everything stays checked out until dismantled.</p>
                 </div>
               </label>
+              <label className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${wholeDestination === "transferred" ? "border-foreground" : ""}`}>
+                <RadioGroupItem value="transferred" className="mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium">Transferred to</p>
+                  <p className="text-xs text-muted-foreground">All units handed to another dept/lab.</p>
+                </div>
+              </label>
             </RadioGroup>
+
+            {wholeDestination === "transferred" && (
+              <div className="flex flex-col gap-2">
+                <Label>Transfer destination name</Label>
+                <Input
+                  value={wholeTransferName}
+                  onChange={(e) => setWholeTransferName(e.target.value)}
+                  placeholder="e.g. Mechatronics dept., Al-Amal school lab…"
+                />
+                <Label>Details</Label>
+                <Textarea
+                  value={wholeTransferDetails}
+                  onChange={(e) => setWholeTransferDetails(e.target.value)}
+                  placeholder="Who received everything, why, reference number…"
+                  rows={2}
+                />
+              </div>
+            )}
 
             {wholeDestination === "project" && (
               <div className="flex flex-col gap-2">

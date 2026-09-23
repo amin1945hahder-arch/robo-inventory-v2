@@ -84,6 +84,10 @@ const schema = defineSchema(
     categories: defineTable({
       name: v.string(),
       description: v.optional(v.string()),
+      // Consumables (filament, wire, resin…) are used up rather than returned:
+      // returns of such groups record how much actually came back and the
+      // group can take routine "consumption" writes without a rental.
+      consumable: v.optional(v.boolean()),
     }).index("by_name", ["name"]),
 
     groups: defineTable({
@@ -124,6 +128,12 @@ const schema = defineSchema(
         v.literal("rented"),
         v.literal("on_project"),
         v.literal("broken"),
+        // Terminal states that keep the record (QR still resolves) but take
+        // the unit out of circulating stock: handed over to another
+        // department/lab ("transferred") or written off as used up
+        // ("consumed", consumables only).
+        v.literal("transferred"),
+        v.literal("consumed"),
       ),
       note: v.optional(v.string()),
       // Optional per-unit photo (URL) shown next to the unit's QR chip and on
@@ -137,6 +147,23 @@ const schema = defineSchema(
       // Per-unit minimum: a partial take may never leave the unit below this
       // amount (inherited from the group's measureLowAt when created).
       lowAt: v.optional(v.string()),
+      // When the unit was marked FULLY consumed (routine inventory write-off
+      // or the last cut emptied it). Cleared automatically when stock returns.
+      consumedAt: v.optional(v.number()),
+      // Consumption audit trail for routine inventory writes: every manual
+      // "consumed X" / "fully consumed" / returned-consumption entry.
+      consumptionLog: v.optional(
+        v.array(
+          v.object({
+            amount: v.number(), // negative = stock removed, positive = added back
+            at: v.number(),
+            byId: v.optional(v.id("users")),
+            byName: v.optional(v.string()),
+            via: v.string(), // "manual" | "full" | "return"
+            note: v.optional(v.string()),
+          }),
+        ),
+      ),
       currentHolderId: v.optional(v.id("users")),
       currentProjectId: v.optional(v.id("projects")),
       // Manual lend dates (admin hands a unit to a member): when the loan
@@ -306,8 +333,24 @@ const schema = defineSchema(
       ),
       projectId: v.optional(v.id("projects")),
       returnDestination: v.optional(
-        v.union(v.literal("shelf"), v.literal("project")),
+        v.union(v.literal("shelf"), v.literal("project"), v.literal("transferred")),
       ),
+      // Transfer: where the unit went (free name, e.g. another department,
+      // a donated school lab…), free-text details and an optional doc/photo
+      // (small data URL) kept as the official record.
+      transferToName: v.optional(v.string()),
+      transferDetails: v.optional(v.string()),
+      transferDoc: v.optional(
+        v.object({
+          name: v.string(),
+          mime: v.string(),
+          size: v.number(),
+          dataUrl: v.string(),
+        }),
+      ),
+      // Bulk (weight/length) consumable returns: the amount actually recovered
+      // and re-shelved; the rest of the taken amount is recorded as consumed.
+      recoveredAmount: v.optional(v.number()),
       conditionReport: v.optional(v.string()),
       functional: v.optional(v.boolean()),
       // Timestamp of the member's most recent "I want to return this" request.

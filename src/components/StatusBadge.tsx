@@ -7,6 +7,8 @@ const MAP: Record<string, { label: string; className: string }> = {
   rented: { label: "Rented", className: "border-sky-500/40 bg-sky-500/10 text-sky-400" },
   on_project: { label: "On project", className: "border-violet-500/40 bg-violet-500/10 text-violet-400" },
   broken: { label: "Broken", className: "border-rose-500/40 bg-rose-500/10 text-rose-400" },
+  transferred: { label: "Transferred", className: "border-orange-500/40 bg-orange-500/10 text-orange-400" },
+  consumed: { label: "Consumed", className: "border-zinc-500/40 bg-zinc-500/10 text-zinc-400" },
   active: { label: "Active", className: "border-sky-500/40 bg-sky-500/10 text-sky-400" },
   on_project_rental: { label: "On project", className: "border-violet-500/40 bg-violet-500/10 text-violet-400" },
   returned: { label: "Returned", className: "border-zinc-500/40 bg-zinc-500/10 text-zinc-400" },
