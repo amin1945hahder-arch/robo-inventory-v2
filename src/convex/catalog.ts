@@ -249,6 +249,40 @@ export async function assertGroupLendable(ctx: any, groupId: string): Promise<an
   return group;
 }
 
+/** Does this group have child groups (i.e. is it a master container)? */
+export async function hasChildGroups(ctx: any, groupId: string): Promise<boolean> {
+  const all = await ctx.db
+    .query("groups")
+    .withIndex("by_category")
+    .filter((q: any) => q.neq(q.field("deleted"), true))
+    .collect();
+  return all.some((g: any) => g.parentGroupId === groupId);
+}
+
+/**
+ * A master container holds GROUPS only, never units. The moment a container
+ * gains its first child group it is converted: its stray auto-created
+ * available units are removed; units that are lent out/broken etc. block the
+ * conversion until the admin deals with them.
+ */
+async function becomeMasterContainer(ctx: any, containerId: string): Promise<void> {
+  if (await hasChildGroups(ctx, containerId)) return; // already a master
+  const units = await ctx.db
+    .query("parts")
+    .withIndex("by_group", (q: any) => q.eq("groupId", containerId))
+    .filter((q: any) => q.neq(q.field("deleted"), true))
+    .collect();
+  const name = (await ctx.db.get(containerId))?.name ?? "This container";
+  for (const u of units) {
+    if (u.status !== "available") {
+      throw new Error(
+        `“${name}” still has units that are not available — deal with them first. Master containers hold groups only, not units.`,
+      );
+    }
+    await ctx.db.delete(u._id);
+  }
+}
+
 export const upsertGroup = mutation({
   args: {
     id: v.optional(v.id("groups")),
@@ -318,6 +352,9 @@ export const upsertGroup = mutation({
       }
       let cursor: any = await ctx.db.get(parentGroupId);
       if (!cursor || cursor.deleted) throw new Error("Container group not found");
+      if (cursor.measure === "weight" || cursor.measure === "length") {
+        throw new Error("Weight/length stock groups hold material, not groups — pick a different container");
+      }
       let depth = 0;
       while (cursor?.parentGroupId && depth < 10) {
         if (id && cursor.parentGroupId === id) {
@@ -345,6 +382,10 @@ export const upsertGroup = mutation({
         ? { parentGroupId: (parentGroupId || undefined) as any }
         : {}),
     };
+    // Gaining its first child turns the container into a master (groups only).
+    if (parentGroupId) {
+      await becomeMasterContainer(ctx, parentGroupId);
+    }
     if (id) {
       await ctx.db.patch(id, data as any);
       return id;
@@ -381,10 +422,53 @@ export const upsertGroup = mutation({
   },
 });
 
+/**
+ * Move a group into a container group (or out to the top level with
+ * parentGroupId = null). Validates cycles and converts the container into a
+ * master (groups only) when it gains its first child.
+ */
+export const moveGroupToContainer = mutation({
+  args: {
+    groupId: v.id("groups"),
+    // Target container; null moves the group to the top level.
+    parentGroupId: v.optional(v.union(v.id("groups"), v.null())),
+  },
+  handler: async (ctx, { groupId, parentGroupId }) => {
+    await requireAdmin(ctx);
+    const group = await ctx.db.get(groupId);
+    if (!group || group.deleted) throw new Error("Group not found");
+    if (parentGroupId) {
+      if (parentGroupId === groupId) {
+        throw new Error("A group cannot contain itself");
+      }
+      let cursor: any = await ctx.db.get(parentGroupId);
+      if (!cursor || cursor.deleted) throw new Error("Container group not found");
+      if (cursor.measure === "weight" || cursor.measure === "length") {
+        throw new Error("Weight/length stock groups hold material, not groups — pick a different container");
+      }
+      let depth = 0;
+      while (cursor?.parentGroupId && depth < 10) {
+        if (cursor.parentGroupId === groupId) {
+          throw new Error("That container is inside this group — it would create a loop");
+        }
+        cursor = await ctx.db.get(cursor.parentGroupId);
+        depth += 1;
+      }
+      // Gaining its first child turns the container into a master.
+      await becomeMasterContainer(ctx, parentGroupId);
+    }
+    await ctx.db.patch(groupId, { parentGroupId: (parentGroupId || undefined) as any });
+    return { ok: true };
+  },
+});
+
 export const deleteGroup = mutation({
   args: { id: v.id("groups") },
   handler: async (ctx, { id }) => {
     await requireAdmin(ctx);
+    if (await hasChildGroups(ctx, id)) {
+      throw new Error("This container holds groups — move or delete them first.");
+    }
     const parts = await ctx.db
       .query("parts")
       .withIndex("by_group", (q: any) => q.eq("groupId", id))
@@ -415,6 +499,10 @@ export const addPartToGroup = mutation({
     await requireAdmin(ctx);
     const group = await ctx.db.get(groupId);
     if (!group) throw new Error("Group not found");
+    // Master containers hold groups, not units.
+    if (await hasChildGroups(ctx, groupId)) {
+      throw new Error("Master containers hold groups, not units — add groups inside it instead");
+    }
     const isBulk = group.measure === "weight" || group.measure === "length";
     const n = Math.max(1, Math.min(count ?? 1, 50));
     if (isBulk && n > 1) {
@@ -620,6 +708,10 @@ export const requestBulkRental = mutation({
     if (!group || group.deleted) throw new Error("Group not found");
     if (group.measure !== "weight" && group.measure !== "length") {
       throw new Error("This group is counted in units, not by weight/length");
+    }
+    // Master containers hold groups, not material to lend.
+    if (await hasChildGroups(ctx, groupId)) {
+      throw new Error("Master containers hold groups, not material — request from the groups inside it");
     }
     // Storage-alias groups cannot be lent, not even bulk amounts.
     await assertGroupLendable(ctx, groupId);

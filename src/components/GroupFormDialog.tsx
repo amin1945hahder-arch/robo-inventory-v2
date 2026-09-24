@@ -167,8 +167,11 @@ export function GroupFormDialog({
   const closetName = (id: string) => (closets ?? []).find((c) => c._id === id)?.name ?? "a storage";
 
   // Container options: every group except this one and its own subtree.
+  // Weight/length (bulk) groups hold material, not groups — never containers.
   const blocked = new Set(group ? [group._id, ...descendantIds(group._id)] : []);
-  const parentOptions = (allGroups ?? []).filter((g) => !blocked.has(g._id));
+  const parentOptions = (allGroups ?? []).filter(
+    (g) => !blocked.has(g._id) && (!g.measure || g.measure === "count"),
+  );
   const parentValue = parentGroupId || "none";
   const chosenParent = (allGroups ?? []).find((g) => g._id === parentGroupId);
 
@@ -228,7 +231,8 @@ export function GroupFormDialog({
               {chosenParent ? (
                 <p className="text-xs text-muted-foreground">
                   Will appear inside “{chosenParent.name}” — e.g. groups that live together in one
-                  box. The box itself still has its own QR and can hold units.
+                  box. The box becomes a master container: it shows the groups inside it, and no
+                  units can be added to the box itself.
                 </p>
               ) : (
                 <p className="text-xs text-muted-foreground">

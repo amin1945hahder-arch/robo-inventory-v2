@@ -7,12 +7,36 @@ import { Button } from "@/components/ui/button";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { Link } from "react-router";
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { useMutation, useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { toast } from "sonner";
+import {
+  FolderInput,
+  MoreHorizontal,
+  Package,
+  Pencil,
+  Trash2,
+} from "lucide-react";
+import { useEffect, useState } from "react";
 
 export interface GroupStats {
   total: number;
@@ -43,6 +67,61 @@ export function GroupCard({
   const s: GroupStats =
     stats ?? { total: 0, available: 0, rented: 0, onProject: 0, broken: 0, pending: 0, transferred: 0, consumed: 0 };
   const total = Math.max(s.total, 1);
+
+  // "Move to inside group" dialog: pick a container group to place this
+  // group's card inside (its own subtree is filtered out to avoid loops).
+  const move = useMutation(api.catalog.moveGroupToContainer);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [moveTarget, setMoveTarget] = useState("");
+  const [moveBusy, setMoveBusy] = useState(false);
+  const allGroups = useQuery(api.catalog.childGroupOptions, moveOpen ? {} : "skip");
+
+  const descendantIds = (rootId: string): string[] => {
+    const out: string[] = [];
+    const walk = (pid: string) => {
+      for (const g of allGroups ?? []) {
+        if (g.parentGroupId === pid) {
+          out.push(g._id);
+          walk(g._id);
+        }
+      }
+    };
+    walk(rootId);
+    return out;
+  };
+
+  useEffect(() => {
+    if (moveOpen) {
+      setMoveTarget(group.parentGroupId ?? "");
+    }
+  }, [moveOpen, group.parentGroupId]);
+
+  // Bulk (weight/length) groups hold material, not groups — never containers.
+  const moveOptions = (allGroups ?? []).filter(
+    (g) =>
+      g._id !== group._id &&
+      !descendantIds(group._id).includes(g._id) &&
+      (!g.measure || g.measure === "count"),
+  );
+  const chosenMoveTarget = (allGroups ?? []).find((g) => g._id === moveTarget);
+
+  const submitMove = async () => {
+    setMoveBusy(true);
+    try {
+      await move({ groupId: group._id, parentGroupId: (moveTarget || null) as any });
+      toast.success(
+        moveTarget
+          ? `Moved “${group.name}” inside “${chosenMoveTarget?.name ?? "container"}”`
+          : `“${group.name}” moved to the top level`,
+      );
+      setMoveOpen(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to move group");
+    } finally {
+      setMoveBusy(false);
+    }
+  };
+
   return (
     <Card className="group relative overflow-hidden border-border/80 shadow-none transition-colors hover:border-primary/40">
       <CardContent className="flex flex-col gap-3 p-5">
@@ -78,6 +157,9 @@ export function GroupCard({
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem onClick={onEdit}>
                     <Pencil className="size-4" /> Edit
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setMoveOpen(true)}>
+                    <FolderInput className="size-4" /> Move to inside group
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     className="text-destructive focus:text-destructive"
@@ -116,6 +198,38 @@ export function GroupCard({
           </div>
         </Link>
       </CardContent>
+
+      <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Move “{group.name}” inside a group</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-2 py-1">
+            <Select value={moveTarget || "none"} onValueChange={(v) => setMoveTarget(v === "none" ? "" : v)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Pick a container group" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Not inside anything (top level)</SelectItem>
+                {moveOptions.map((g) => (
+                  <SelectItem key={g._id} value={g._id}>{g.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {chosenMoveTarget
+                ? `Its card will appear inside “${chosenMoveTarget.name}”. Containers hold groups only — no units are added to them.`
+                : "Pick a container (box/bag) — its page will show this group's card. You can also move it back to the top level."}
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMoveOpen(false)}>Cancel</Button>
+            <Button onClick={submitMove} disabled={moveBusy}>
+              <Package className="size-4" /> {moveBusy ? "Moving…" : "Move"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

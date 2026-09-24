@@ -10,6 +10,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ReturnDialog } from "@/components/ReturnDialog";
+import { GroupCard } from "@/components/GroupCard";
 import { PackageBuilderDialog } from "@/components/PackageBuilderDialog";
 import { GroupDetailUnits, isBulkGroup, ConsumeBulkDialog } from "@/components/GroupDetailUnits";
 import { BulkUnitDialog } from "@/components/BulkUnitDialog";
@@ -45,10 +46,13 @@ export default function GroupDetail() {
 
   const [returnFor, setReturnFor] = useState<{ rentalId: string; partId: string; tag: string; amount?: number } | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  // Editing a child group's card from inside a master container.
+  const [editGroup, setEditGroup] = useState<Doc<"groups"> | null>(null);
+  const removeGroup = useMutation(api.catalog.deleteGroup);
   // New groups created from a container's page start inside it.
   const [insideDefaults, setInsideDefaults] = useState<{ parentGroupId?: string }>({});
-  // QR payload helpers:
   const closets = useQuery(api.catalog.listClosets, {});
+  const categories = useQuery(api.catalog.listCategories, {});
   const groupsIndex = useQuery(api.catalog.childGroupOptions, {});
   const [busyTag, setBusyTag] = useState<string | null>(null);
   // Quantity picker for the "request N units" flow.
@@ -85,6 +89,9 @@ export default function GroupDetail() {
   const parentGroup = group?.parentGroupId
     ? (groupsIndex ?? []).find((g) => g._id === group.parentGroupId)
     : null;
+  // Master containers hold GROUPS only: the moment a container has child
+  // groups it stops offering unit/lending UI entirely.
+  const isMaster = childGroups.length > 0 && !isBulk;
 
   const requestBulk = async () => {
     if (!group) return;
@@ -163,7 +170,7 @@ export default function GroupDetail() {
                   so it cannot be lent. You can still edit it and manage its units.
                 </p>
               )}
-              {isAdmin && (
+              {isAdmin && !isMaster && (
                 <Button
                   variant="outline"
                   onClick={() => {
@@ -183,13 +190,14 @@ export default function GroupDetail() {
                     }
                   }}
                 >
-                  <PackagePlus className="size-4" /> {isBulk ? "Add unit" : "Add unit"}
+                  <PackagePlus className="size-4" /> Add unit
                 </Button>
               )}
               {isAdmin && (
                 <Button
                   variant="outline"
                   onClick={() => {
+                    setEditGroup(null); // create mode
                     setInsideDefaults({ parentGroupId: group._id });
                     setAddOpen(true);
                   }}
@@ -198,8 +206,9 @@ export default function GroupDetail() {
                 </Button>
               )}
               {/* Rental requests are available to every signed-in member —
-                  admins included (they often demo or reserve units too). */}
-              {isBulk ? (
+                  admins included (they often demo or reserve units too).
+                  Masters hold groups only — no lending UI. */}
+              {isMaster ? null : isBulk ? (
                 <div className="flex flex-col items-stretch gap-2 sm:items-end">
                   <div className="flex items-center gap-2">
                     <Input
@@ -278,26 +287,67 @@ export default function GroupDetail() {
             </p>
           )}
           {childGroups.length > 0 && (
-            <section className="rounded-lg border border-dashed p-4">
-              <h2 className="text-sm font-semibold">Inside this group ({childGroups.length})</h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Groups that live together in this container (box/bag).
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {childGroups.map((g) => (
-                  <Link
-                    key={g._id}
-                    to={`/group/${g._id}`}
-                    className="rounded-full border px-3 py-1 text-xs font-medium hover:border-primary/50 hover:text-primary"
-                  >
-                    {g.name}
-                  </Link>
-                ))}
+            <section className={isMaster ? "flex flex-col gap-3" : "rounded-lg border border-dashed p-4"}>
+              <div>
+                <h2 className="text-sm font-semibold">
+                  {isMaster
+                    ? `Groups inside this master container (${childGroups.length})`
+                    : `Inside this group (${childGroups.length})`}
+                </h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {isMaster
+                    ? "Lend or manage items from each group's own page — the container itself holds no units."
+                    : "Groups that live together in this container (box/bag)."}
+                </p>
               </div>
+              {isMaster ? (
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {childGroups.map((g) => (
+                    <GroupCard
+                      key={g._id}
+                      group={g}
+                      stats={stats?.[g._id]}
+                      categoryName={categories?.find((c) => c._id === g.categoryId)?.name}
+                      isAdmin={isAdmin}
+                      onEdit={() => {
+                        setInsideDefaults({});
+                        setEditGroup(g);
+                        setAddOpen(true);
+                      }}
+                      onDelete={async () => {
+                        if (!confirm(`Delete ${g.name} and all its units?`)) return;
+                        try {
+                          await removeGroup({ id: g._id });
+                          toast.success("Group deleted");
+                        } catch (e) {
+                          toast.error(e instanceof Error ? e.message : "Failed");
+                        }
+                      }}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {childGroups.map((g) => (
+                    <Link
+                      key={g._id}
+                      to={`/group/${g._id}`}
+                      className="rounded-full border px-3 py-1 text-xs font-medium hover:border-primary/50 hover:text-primary"
+                    >
+                      {g.name}
+                    </Link>
+                  ))}
+                </div>
+              )}
             </section>
           )}
 
-          {isBulk ? (
+          {isMaster ? (
+            <p className="max-w-2xl rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
+              📦 Master container — holds <b className="text-foreground">groups</b>, not units.
+              Lend out items from the individual groups inside it.
+            </p>
+          ) : isBulk ? (
             <section className="grid grid-cols-3 gap-px overflow-hidden rounded-lg border bg-border">
               {[
                 ["Stock", `${stock} ${group.measureUnit}`, ""],
@@ -352,7 +402,7 @@ export default function GroupDetail() {
             />
           )}
 
-          {!isBulk && (
+          {!isBulk && !isMaster && (
           <section className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold">Units · each with its own QR</h2>
@@ -470,11 +520,12 @@ export default function GroupDetail() {
         onDone={() => playSound("rental_request")}
       />
 
-      {/* New-group dialog: when opened from a container, the group is created
-          inside it (defaults.parentGroupId). */}
+      {/* Group dialog: create-inside (defaults.parentGroupId) or edit a
+          child group's card from within the master container. */}
       <GroupFormDialog
         open={addOpen}
         onOpenChange={setAddOpen}
+        group={editGroup}
         defaults={{
           categoryId: group?.categoryId,
           closetId: group?.closetId,
