@@ -84,6 +84,9 @@ export default function Inventory() {
     const s = search.trim().toLowerCase();
     let list = (groups ?? []).filter(
       (g) =>
+        // Groups inside a master container live on the container's page —
+        // the inventory grid shows top-level groups only.
+        !g.parentGroupId &&
         !s ||
         g.name.toLowerCase().includes(s) ||
         (g.brand ?? "").toLowerCase().includes(s) ||
