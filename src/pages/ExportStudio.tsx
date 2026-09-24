@@ -7,6 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -14,7 +20,18 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Download, FileDown, Grid2x2, IdCard, Loader2, Printer, Table2 } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  Columns3,
+  Download,
+  FileDown,
+  Grid2x2,
+  IdCard,
+  Loader2,
+  Printer,
+  Table2,
+} from "lucide-react";
 import { downloadCsv } from "@/lib/csv";
 import { ageFromIso } from "@/lib/utils";
 import { closetQr, groupQr, projectQr, qrUrl, unitQr } from "@/lib/qr";
@@ -55,6 +72,7 @@ function useColumns(dataset: Dataset): Col[] {
         { key: "group", label: "Component", get: (r) => r.group?.name ?? "" },
         { key: "category", label: "Category", get: (r) => r.category?.name ?? "" },
         { key: "closet", label: "Storage", get: (r) => r.closet?.name ?? "" },
+        { key: "container", label: "Container", get: (r) => r.parent?.name ?? "" },
         { key: "brand", label: "Brand", get: (r) => r.group.brand ?? "" },
         { key: "model", label: "Model", get: (r) => r.group.model ?? "" },
         { key: "total", label: "Total", get: (r) => String(r.s?.total ?? 0) },
@@ -73,6 +91,7 @@ function useColumns(dataset: Dataset): Col[] {
         { key: "studentId", label: "Student ID", get: (r) => r.student?.studentId ?? "" },
         { key: "part", label: "Part tag", get: (r) => r.part?.tag ?? "" },
         { key: "group", label: "Component", get: (r) => r.group?.name ?? "" },
+        { key: "container", label: "Container", get: (r) => r.parent?.name ?? "" },
         { key: "status", label: "Status", get: (r) => r.rental?.status ?? "" },
         { key: "project", label: "Project", get: (r) => r.project?.name ?? "" },
         {
@@ -126,6 +145,7 @@ function useColumns(dataset: Dataset): Col[] {
         { key: "id", label: "ID", get: (r) => r.part?._id ?? "" },
         { key: "tag", label: "Tag", get: (r) => r.part?.tag ?? "" },
         { key: "group", label: "Component", get: (r) => r.group?.name ?? "" },
+        { key: "container", label: "Container", get: (r) => r.parent?.name ?? "" },
         { key: "storage", label: "Storage", get: (r) => r.closet?.name ?? "" },
         { key: "status", label: "Status", get: (r) => r.part?.status ?? "" },
       ];
@@ -151,12 +171,21 @@ function toCsv(cols: Col[], rows: any[]) {
 // CSS px per mm at 96dpi — card/QR boxes sized in mm print at real size.
 const MM = 96 / 25.4;
 
-/** One printed postcard-sticker: image left, QR right, info underneath. */
+/**
+ * One printed postcard-sticker, clipped to the exact width × height box:
+ *  - LEFT: the item image, object-contain so the whole photo stays inside.
+ *  - RIGHT: the QR code on top, with the basic info (name, brand/model —
+ *    plus the container name for groups inside a container) stacked
+ *    UNDERNEATH the QR.
+ * Nothing may overflow the card: the root is overflow-hidden and the two
+ * columns are height-constrained to the card's inner box.
+ */
 function PrintCard({
   image,
   qrPayload,
   title,
   sub,
+  container,
   widthMm,
   heightMm,
 }: {
@@ -164,42 +193,67 @@ function PrintCard({
   qrPayload: string;
   title: string;
   sub?: string;
+  /** Name of the container group this item lives inside (optional line). */
+  container?: string;
   widthMm: number;
   heightMm: number;
 }) {
   const pad = 2; // mm
-  const innerH = Math.max(10, heightMm - pad * 2);
-  const qrMm = Math.min(innerH * 0.7, widthMm * 0.32);
-  const qrPx = Math.round(Math.max(12, qrMm) * MM);
+  const gap = 2; // mm between the image and the QR column
+  // Image keeps the full inner height on the left; the right column is a
+  // flex column: QR square (capped to the width share) + info lines under it.
+  const innerH = Math.max(8, heightMm - pad * 2);
+  const innerW = Math.max(20, widthMm - pad * 2);
+  // The QR never takes more than 45% of the card width so the photo keeps
+  // room, and never more than ~70% of the inner height (info needs the rest).
+  const qrMm = Math.min(innerH * 0.7, innerW * 0.45);
+  const qrPx = Math.max(12, Math.round(qrMm * MM));
+  const imgW = Math.max(8, Math.round((innerW - qrMm - gap) * MM));
   const imgH = Math.round(innerH * MM);
-  const imgW = Math.round((widthMm - pad * 2 - Math.max(12, qrMm) - 2) * MM);
+
+  // Info text sizes scale gently with the card so small stickers stay sane.
+  const namePx = widthMm >= 70 ? 11 : widthMm >= 45 ? 10 : 8.5;
+  const subPx = widthMm >= 70 ? 8.5 : 7.5;
+
   return (
     <div
-      className="print-card flex flex-col break-inside-avoid rounded border border-neutral-300 bg-white text-black"
+      className="print-card flex break-inside-avoid overflow-hidden rounded border border-neutral-300 bg-white text-black"
       style={{ width: `${widthMm}mm`, height: `${heightMm}mm`, padding: `${pad}mm` }}
     >
-      <div className="flex min-h-0 flex-1 items-center gap-2">
-        {/* LEFT: the item image */}
-        <div
-          className="flex shrink-0 items-center justify-center overflow-hidden rounded border border-neutral-200 bg-neutral-50"
-          style={{ width: imgW, height: imgH }}
-        >
-          {image ? (
-            <img src={image} alt={title} className="h-full w-full object-cover" />
-          ) : (
-            <span className="text-[8px] uppercase tracking-widest text-neutral-400">no photo</span>
-          )}
-        </div>
-        {/* RIGHT: the QR code */}
-        <div className="ml-auto shrink-0" style={{ width: qrPx, height: qrPx }}>
+      {/* LEFT: the item image — object-contain keeps it fully inside the box. */}
+      <div
+        className="flex shrink-0 items-center justify-center overflow-hidden rounded border border-neutral-200 bg-neutral-50"
+        style={{ width: imgW, height: imgH }}
+      >
+        {image ? (
+          <img src={image} alt={title} className="h-full w-full object-contain" />
+        ) : (
+          <span className="text-[8px] uppercase tracking-widest text-neutral-400">no photo</span>
+        )}
+      </div>
+      {/* RIGHT: QR on top, info underneath it — all inside a fixed column. */}
+      <div
+        className="flex min-w-0 flex-1 flex-col items-center justify-start"
+        style={{ marginLeft: `${gap}mm`, maxHeight: imgH }}
+      >
+        <div style={{ width: qrPx, height: qrPx }} className="shrink-0">
           <QRCode value={qrUrl(qrPayload)} size={qrPx} style={{ width: "100%", height: "100%" }} />
         </div>
-      </div>
-      {/* UNDER: basic info — name + brand/model (or the description for
-          storages/projects, passed as `sub`). */}
-      <div className="mt-1 min-w-0 leading-tight">
-        <p className="truncate text-[10px] font-semibold">{title}</p>
-        {sub && <p className="truncate text-[8px] text-neutral-600">{sub}</p>}
+        <div className="mt-[1mm] w-full min-w-0 overflow-hidden text-center leading-tight">
+          <p className="truncate font-semibold" style={{ fontSize: `${namePx}px` }}>
+            {title}
+          </p>
+          {sub && (
+            <p className="truncate text-neutral-600" style={{ fontSize: `${subPx}px` }}>
+              {sub}
+            </p>
+          )}
+          {container && (
+            <p className="truncate text-neutral-600" style={{ fontSize: `${subPx}px` }}>
+              📦 {container}
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -222,8 +276,28 @@ export default function ExportStudio() {
   // Printed-card controls (mm)
   const [cardW, setCardW] = useState(60);
   const [cardH, setCardH] = useState(40);
+  // Which table columns the admin wants printed/exported (per dataset, all on
+  // by default — tick them off in the Columns menu).
+  const [hiddenCols, setHiddenCols] = useState<Record<string, Set<string>>>({});
 
-  const cols = useColumns(dataset);
+  const allCols = useColumns(dataset);
+  const hidden = useMemo(
+    () => hiddenCols[dataset] ?? new Set<string>(),
+    [hiddenCols, dataset],
+  );
+  const cols = useMemo(
+    () => allCols.filter((c) => !hidden.has(c.key)),
+    [allCols, hidden],
+  );
+  const toggleCol = (key: string) => {
+    setHiddenCols((prev) => {
+      const next = new Set(prev[dataset] ?? []);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return { ...prev, [dataset]: next };
+    });
+  };
+  const restoreCols = () => setHiddenCols((prev) => ({ ...prev, [dataset]: new Set() }));
   const categories = useQuery(api.catalog.listCategories, {});
   const closets = useQuery(api.catalog.listClosets, {});
   const inventory = useQuery(api.exportData.inventory, {});
@@ -320,7 +394,7 @@ export default function ExportStudio() {
   const cardsAvailable = CARD_DATASETS.includes(dataset);
   const activeMode: Mode = cardsAvailable ? mode : "table";
 
-  /** Build the per-row card payload (image, QR, title, sub) per dataset. */
+  /** Build the per-row card payload (image, QR, title, sub, container) per dataset. */
   const cardFor = (r: any) => {
     if (dataset === "inventory")
       return {
@@ -328,6 +402,7 @@ export default function ExportStudio() {
         qr: groupQr(r.group?._id ?? ""),
         title: r.group?.name ?? "",
         sub: [r.group?.brand, r.group?.model].filter(Boolean).join(" · ") || r.group?.description || "",
+        container: r.parent?.name,
       };
     if (dataset === "units")
       return {
@@ -335,6 +410,7 @@ export default function ExportStudio() {
         qr: unitQr(r.part?.tag ?? ""),
         title: r.part?.tag ?? "",
         sub: r.group?.name ?? "",
+        container: r.parent?.name,
       };
     if (dataset === "storages")
       return {
@@ -363,6 +439,42 @@ export default function ExportStudio() {
             </p>
           </div>
           <div className="flex gap-2">
+            {/* Columns settings — pick exactly which columns print/export. */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" title="Choose which columns to show">
+                  <Columns3 className="size-4" /> Columns
+                  {hidden.size > 0 && (
+                    <span className="ml-1 rounded bg-primary/15 px-1.5 text-[10px] font-semibold text-primary">
+                      {allCols.length - hidden.size}/{allCols.length}
+                    </span>
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <div className="px-2 py-1.5">
+                  <p className="text-xs font-semibold">Columns to show</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Applies to the table sheet, the CSV and the preview.
+                  </p>
+                </div>
+                {allCols.map((c) => (
+                  <DropdownMenuCheckboxItem
+                    key={c.key}
+                    checked={!hidden.has(c.key)}
+                    onCheckedChange={() => toggleCol(c.key)}
+                    onSelect={(e) => e.preventDefault()}
+                  >
+                    {c.label}
+                  </DropdownMenuCheckboxItem>
+                ))}
+                <div className="border-t p-1">
+                  <Button variant="ghost" size="sm" className="w-full" onClick={restoreCols}>
+                    Show all columns
+                  </Button>
+                </div>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button
               variant={showGrid ? "default" : "outline"}
               onClick={() => setShowGrid((g) => !g)}
@@ -512,31 +624,78 @@ export default function ExportStudio() {
             )}
             {activeMode === "cards" && (
               <>
+                {/* Width/height steppers: type a value or tap the up/down arrows. */}
                 <div className="grid gap-1">
                   <Label className="text-[11px] text-muted-foreground">Card width (mm)</Label>
-                  <Input
-                    type="number"
-                    min={30}
-                    max={200}
-                    value={cardW}
-                    onChange={(e) => setCardW(Math.max(30, Math.min(200, Number(e.target.value) || 60)))}
-                    className="w-20"
-                  />
+                  <div className="flex items-stretch">
+                    <Input
+                      type="number"
+                      min={30}
+                      max={200}
+                      step={1}
+                      value={cardW}
+                      onChange={(e) =>
+                        setCardW(Math.max(30, Math.min(200, Number(e.target.value) || 60)))
+                      }
+                      className="w-16 rounded-r-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                    />
+                    <div className="flex flex-col">
+                      <button
+                        type="button"
+                        aria-label="Increase width"
+                        onClick={() => setCardW((w) => Math.min(200, w + 1))}
+                        className="flex h-1/2 items-center justify-center rounded-tr-md border border-l-0 px-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                      >
+                        <ChevronUp className="size-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Decrease width"
+                        onClick={() => setCardW((w) => Math.max(30, w - 1))}
+                        className="flex h-1/2 items-center justify-center rounded-br-md border border-l-0 px-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                      >
+                        <ChevronDown className="size-3.5" />
+                      </button>
+                    </div>
+                  </div>
                 </div>
                 <div className="grid gap-1">
                   <Label className="text-[11px] text-muted-foreground">Card height (mm)</Label>
-                  <Input
-                    type="number"
-                    min={20}
-                    max={150}
-                    value={cardH}
-                    onChange={(e) => setCardH(Math.max(20, Math.min(150, Number(e.target.value) || 40)))}
-                    className="w-20"
-                  />
+                  <div className="flex items-stretch">
+                    <Input
+                      type="number"
+                      min={20}
+                      max={150}
+                      step={1}
+                      value={cardH}
+                      onChange={(e) =>
+                        setCardH(Math.max(20, Math.min(150, Number(e.target.value) || 40)))
+                      }
+                      className="w-16 rounded-r-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                    />
+                    <div className="flex flex-col">
+                      <button
+                        type="button"
+                        aria-label="Increase height"
+                        onClick={() => setCardH((h) => Math.min(150, h + 1))}
+                        className="flex h-1/2 items-center justify-center rounded-tr-md border border-l-0 px-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                      >
+                        <ChevronUp className="size-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Decrease height"
+                        onClick={() => setCardH((h) => Math.max(20, h - 1))}
+                        className="flex h-1/2 items-center justify-center rounded-br-md border border-l-0 px-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                      >
+                        <ChevronDown className="size-3.5" />
+                      </button>
+                    </div>
+                  </div>
                 </div>
                 <p className="max-w-64 text-[11px] leading-snug text-muted-foreground">
-                  Postcard-sticker cards: item image left, QR right, name + brand/model (or the
-                  storage/project description) underneath. Same filters as the sheet.
+                  Postcard-sticker cards: item image left, QR right with the name + brand/model
+                  (plus the container name) underneath it. Same filters as the sheet.
                 </p>
               </>
             )}
@@ -571,6 +730,7 @@ export default function ExportStudio() {
                       qrPayload={c.qr}
                       title={c.title}
                       sub={c.sub}
+                      container={c.container}
                       widthMm={cardW}
                       heightMm={cardH}
                     />
