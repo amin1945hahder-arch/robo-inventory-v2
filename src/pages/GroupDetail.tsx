@@ -302,29 +302,35 @@ export default function GroupDetail() {
               </div>
               {isMaster ? (
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {childGroups.map((g) => (
-                    <GroupCard
-                      key={g._id}
-                      group={g}
-                      stats={stats?.[g._id]}
-                      categoryName={categories?.find((c) => c._id === g.categoryId)?.name}
-                      isAdmin={isAdmin}
-                      onEdit={() => {
-                        setInsideDefaults({});
-                        setEditGroup(g);
-                        setAddOpen(true);
-                      }}
-                      onDelete={async () => {
-                        if (!confirm(`Delete ${g.name} and all its units?`)) return;
-                        try {
-                          await removeGroup({ id: g._id });
-                          toast.success("Group deleted");
-                        } catch (e) {
-                          toast.error(e instanceof Error ? e.message : "Failed");
-                        }
-                      }}
-                    />
-                  ))}
+                  {childGroups.map((g) => {
+                    const contained = (groupsIndex ?? []).filter(
+                      (x) => x.parentGroupId === g._id,
+                    );
+                    return (
+                      <GroupCard
+                        key={g._id}
+                        group={g}
+                        stats={stats?.[g._id]}
+                        categoryName={categories?.find((c) => c._id === g.categoryId)?.name}
+                        isAdmin={isAdmin}
+                        containedGroups={contained.length > 0 ? contained : undefined}
+                        onEdit={() => {
+                          setInsideDefaults({});
+                          setEditGroup(g);
+                          setAddOpen(true);
+                        }}
+                        onDelete={async () => {
+                          if (!confirm(`Delete ${g.name} and all its units?`)) return;
+                          try {
+                            await removeGroup({ id: g._id });
+                            toast.success("Group deleted");
+                          } catch (e) {
+                            toast.error(e instanceof Error ? e.message : "Failed");
+                          }
+                        }}
+                      />
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="mt-3 flex flex-wrap gap-2">

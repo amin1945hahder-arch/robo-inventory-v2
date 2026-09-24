@@ -62,6 +62,9 @@ export default function Inventory() {
     search: "",
     categoryId: (categoryFilter || undefined) as any,
   });
+  // Master containers show their contained groups on the card (outside =
+  // inside), so the grid needs the full group index, not just top-level rows.
+  const allGroups = useQuery(api.catalog.childGroupOptions, {});
   const [search, setSearch] = useState("");
   const [closetFilter, setClosetFilter] = useState("all");
   const [availFilter, setAvailFilter] = useState("all");
@@ -85,13 +88,14 @@ export default function Inventory() {
     let list = (groups ?? []).filter(
       (g) =>
         // Groups inside a master container live on the container's page —
-        // the inventory grid shows top-level groups only.
+        // the inventory grid shows top-level groups only. The container
+        // filter must apply BEFORE the search match (and its fallback).
         !g.parentGroupId &&
-        !s ||
-        g.name.toLowerCase().includes(s) ||
-        (g.brand ?? "").toLowerCase().includes(s) ||
-        (g.model ?? "").toLowerCase().includes(s) ||
-        (g.description ?? "").toLowerCase().includes(s),
+        (!s ||
+          g.name.toLowerCase().includes(s) ||
+          (g.brand ?? "").toLowerCase().includes(s) ||
+          (g.model ?? "").toLowerCase().includes(s) ||
+          (g.description ?? "").toLowerCase().includes(s)),
     );
     if (closetFilter !== "all") list = list.filter((g) => g.closetId === closetFilter);
     if (availFilter !== "all") {
@@ -126,6 +130,18 @@ export default function Inventory() {
     }
     return map;
   }, [filtered]);
+
+  // parent id -> groups directly inside it (for master container cards).
+  const childrenByParent = useMemo(() => {
+    const map = new Map<string, Doc<"groups">[]>();
+    for (const g of allGroups ?? []) {
+      if (!g.parentGroupId) continue;
+      const list = map.get(g.parentGroupId) ?? [];
+      list.push(g);
+      map.set(g.parentGroupId, list);
+    }
+    return map;
+  }, [allGroups]);
 
   const visibleCategories = (categories ?? []).filter(
     (c) => !categoryFilter || c._id === categoryFilter,
@@ -332,28 +348,32 @@ export default function Inventory() {
                     )}
                   </div>
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {catGroups.map((g) => (
-                      <GroupCard
-                        key={g._id}
-                        group={g}
-                        stats={stats?.[g._id]}
-                        categoryName={cat.name}
-                        isAdmin={isAdmin}
-                        onEdit={() => {
-                          setEditingGroup(g);
-                          setGroupFormOpen(true);
-                        }}
-                        onDelete={async () => {
-                          if (!confirm(`Delete ${g.name} and all its units?`)) return;
-                          try {
-                            await deleteGroup({ id: g._id });
-                            toast.success("Group deleted");
-                          } catch (e) {
-                            toast.error(e instanceof Error ? e.message : "Failed");
-                          }
-                        }}
-                      />
-                    ))}
+                    {catGroups.map((g) => {
+                      const contained = childrenByParent.get(g._id);
+                      return (
+                        <GroupCard
+                          key={g._id}
+                          group={g}
+                          stats={stats?.[g._id]}
+                          categoryName={cat.name}
+                          isAdmin={isAdmin}
+                          containedGroups={contained}
+                          onEdit={() => {
+                            setEditingGroup(g);
+                            setGroupFormOpen(true);
+                          }}
+                          onDelete={async () => {
+                            if (!confirm(`Delete ${g.name} and all its units?`)) return;
+                            try {
+                              await deleteGroup({ id: g._id });
+                              toast.success("Group deleted");
+                            } catch (e) {
+                              toast.error(e instanceof Error ? e.message : "Failed");
+                            }
+                          }}
+                        />
+                      );
+                    })}
                   </div>
                 </motion.section>
               );

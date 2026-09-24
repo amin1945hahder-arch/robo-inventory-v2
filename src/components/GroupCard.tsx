@@ -56,6 +56,7 @@ export function GroupCard({
   isAdmin,
   onEdit,
   onDelete,
+  containedGroups,
 }: {
   group: Doc<"groups">;
   stats?: GroupStats;
@@ -63,10 +64,16 @@ export function GroupCard({
   isAdmin: boolean;
   onEdit?: () => void;
   onDelete?: () => void;
+  /** Master containers: the groups inside — shown on the card instead of
+      unit stats, so the outside view matches the inside view. */
+  containedGroups?: Doc<"groups">[];
 }) {
   const s: GroupStats =
     stats ?? { total: 0, available: 0, rented: 0, onProject: 0, broken: 0, pending: 0, transferred: 0, consumed: 0 };
   const total = Math.max(s.total, 1);
+  // A card that was handed the list of groups it contains renders as a
+  // master container (outside view mirrors the inside view).
+  const isMasterView = Boolean(containedGroups?.length);
 
   // "Move to inside group" dialog: pick a container group to place this
   // group's card inside (its own subtree is filtered out to avoid loops).
@@ -173,30 +180,51 @@ export function GroupCard({
           </div>
         </div>
 
-        <Link to={`/group/${group._id}`} className="block">
-          <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-muted">
-            <div className="bg-emerald-500/80" style={{ width: `${(s.available / total) * 100}%` }} />
-            <div className="bg-sky-500/80" style={{ width: `${(s.rented / total) * 100}%` }} />
-            <div className="bg-violet-500/80" style={{ width: `${(s.onProject / total) * 100}%` }} />
-            <div className="bg-amber-500/80" style={{ width: `${(s.pending / total) * 100}%` }} />
-            <div className="bg-rose-500/80" style={{ width: `${(s.broken / total) * 100}%` }} />
-            <div className="bg-orange-500/80" style={{ width: `${((s.transferred ?? 0) / total) * 100}%` }} />
-            <div className="bg-zinc-500/80" style={{ width: `${((s.consumed ?? 0) / total) * 100}%` }} />
+        {isMasterView ? (
+          <div className="flex flex-col gap-2">
+            <p className="text-xs text-muted-foreground">
+              📦 Master container ·{" "}
+              <b className="text-foreground">{containedGroups!.length}</b>{" "}
+              group{containedGroups!.length === 1 ? "" : "s"} inside
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {containedGroups!.map((child) => (
+                <Link
+                  key={child._id}
+                  to={`/group/${child._id}`}
+                  className="rounded-full border px-2.5 py-1 text-xs font-medium hover:border-primary/50 hover:text-primary"
+                >
+                  {child.name}
+                </Link>
+              ))}
+            </div>
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
-            <span><b className="text-foreground">{s.available}</b> available</span>
-            <span><b className="text-foreground">{s.rented}</b> rented</span>
-            <span><b className="text-foreground">{s.onProject}</b> on project</span>
-            <span><b className="text-foreground">{s.broken}</b> broken</span>
-            {(s.transferred ?? 0) > 0 && (
-              <span className="text-orange-400"><b>{s.transferred}</b> transferred</span>
-            )}
-            {(s.consumed ?? 0) > 0 && (
-              <span><b className="text-foreground">{s.consumed}</b> consumed</span>
-            )}
-            <span className="ml-auto font-medium text-foreground">{s.total} total</span>
-          </div>
-        </Link>
+        ) : (
+          <Link to={`/group/${group._id}`} className="block">
+            <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-muted">
+              <div className="bg-emerald-500/80" style={{ width: `${(s.available / total) * 100}%` }} />
+              <div className="bg-sky-500/80" style={{ width: `${(s.rented / total) * 100}%` }} />
+              <div className="bg-violet-500/80" style={{ width: `${(s.onProject / total) * 100}%` }} />
+              <div className="bg-amber-500/80" style={{ width: `${(s.pending / total) * 100}%` }} />
+              <div className="bg-rose-500/80" style={{ width: `${(s.broken / total) * 100}%` }} />
+              <div className="bg-orange-500/80" style={{ width: `${((s.transferred ?? 0) / total) * 100}%` }} />
+              <div className="bg-zinc-500/80" style={{ width: `${((s.consumed ?? 0) / total) * 100}%` }} />
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+              <span><b className="text-foreground">{s.available}</b> available</span>
+              <span><b className="text-foreground">{s.rented}</b> rented</span>
+              <span><b className="text-foreground">{s.onProject}</b> on project</span>
+              <span><b className="text-foreground">{s.broken}</b> broken</span>
+              {(s.transferred ?? 0) > 0 && (
+                <span className="text-orange-400"><b>{s.transferred}</b> transferred</span>
+              )}
+              {(s.consumed ?? 0) > 0 && (
+                <span><b className="text-foreground">{s.consumed}</b> consumed</span>
+              )}
+              <span className="ml-auto font-medium text-foreground">{s.total} total</span>
+            </div>
+          </Link>
+        )}
       </CardContent>
 
       <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
