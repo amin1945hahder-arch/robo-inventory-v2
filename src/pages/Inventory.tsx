@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
+import { matchesSearch } from "@/lib/searchText";
 import { AppShell } from "@/components/AppShell";
 import { GroupCard } from "@/components/GroupCard";
 import { BulkGroupDialog } from "@/components/BulkGroupDialog";
@@ -73,6 +74,9 @@ export default function Inventory() {
   // Master containers show their contained groups on the card (outside =
   // inside), so the grid needs the full group index, not just top-level rows.
   const allGroups = useQuery(api.catalog.childGroupOptions, {});
+  // Every unit of the listed groups: the search also matches unit tags and
+  // per-unit notes, so "whatever you type" finds the right group.
+  const unitRows = useQuery(api.parts.listPartsByGroups, {});
   const [search, setSearch] = useState(qFilter);
   const [closetFilter, setClosetFilter] = useState(closetParam || "all");
   const [availFilter, setAvailFilter] = useState(availParam || "all");
@@ -125,18 +129,22 @@ export default function Inventory() {
   }, [qFilter, closetParam, availParam]);
 
   const filtered = useMemo(() => {
-    const s = search.trim().toLowerCase();
     let list = (groups ?? []).filter(
       (g) =>
         // Groups inside a master container live on the container's page —
         // the inventory grid shows top-level groups only. The container
         // filter must apply BEFORE the search match (and its fallback).
         !g.parentGroupId &&
-        (!s ||
-          g.name.toLowerCase().includes(s) ||
-          (g.brand ?? "").toLowerCase().includes(s) ||
-          (g.model ?? "").toLowerCase().includes(s) ||
-          (g.description ?? "").toLowerCase().includes(s)),
+        matchesSearch(
+          g,
+          search,
+          // Units of this group: matching a unit tag or unit note surfaces
+          // the group in the results.
+          (unitRows ?? [])
+            .filter((p) => p.groupId === g._id)
+            .map((p) => [p.tag, p.note].filter(Boolean).join(" "))
+            .join(" "),
+        ),
     );
     if (closetFilter !== "all") list = list.filter((g) => g.closetId === closetFilter);
     if (availFilter !== "all") {
@@ -160,7 +168,7 @@ export default function Inventory() {
       return a.name.localeCompare(b.name);
     });
     return sorted;
-  }, [groups, search, qFilter, closetFilter, availFilter, sortKey, stats]);
+  }, [groups, unitRows, search, qFilter, closetFilter, availFilter, sortKey, stats]);
 
   const byCategory = useMemo(() => {
     const map = new Map<string, Doc<"groups">[]>();

@@ -68,7 +68,9 @@ export default function ClosetDetail() {
   return (
     <AppShell>
       <NavArrows
-        items={(allClosets ?? []).map((c) => c._id)}
+        items={[...(allClosets ?? [])]
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map((c) => c._id)}
         currentId={closet?._id}
         onNavigate={(nid) => navigate(`/closets/${nid}`)}
       />

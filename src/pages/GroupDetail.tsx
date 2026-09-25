@@ -233,7 +233,10 @@ export default function GroupDetail() {
       {/* ← → flip through the groups of the same storage (storage view order). */}
       <NavArrows
         items={(groupsIndex ?? [])
-          .filter((g) => !g.parentGroupId && g.closetId === group?.closetId)
+          // ← → flips through the groups of the same storage — including
+          // groups nested inside master containers, not just top-level ones.
+          .filter((g) => g.closetId === group?.closetId && !isContainer(g))
+          .sort((a, b) => a.name.localeCompare(b.name))
           .map((g) => g._id)}
         currentId={group?._id}
         onNavigate={(nid) => navigate(`/group/${nid}`)}
@@ -815,4 +818,8 @@ function UnitRow({
 
 function cnUnitRow(selected: boolean) {
   return `flex flex-wrap items-center gap-3 px-4 py-3${selected ? " bg-primary/5" : ""}`;
+}
+/** A group is a container while it has children (it may gain/lose them over time). */
+function isContainer(g: Doc<"groups">): boolean {
+  return g.quantityTotal === 0 && !g.measure;
 }

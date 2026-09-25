@@ -98,6 +98,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
 
+  // Every route change starts at the top of the content column (React Router
+  // keeps the old scroll offset otherwise).
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, [location.pathname]);
+
   const handleScan = (text: string) => {
     setScanOpen(false);
     playSound("scan");
@@ -105,8 +112,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div className="flex min-h-screen bg-background">
-      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r bg-card/50 px-4 py-6 md:flex">
+    <div className="flex h-dvh overflow-hidden bg-background">
+      <aside className="hidden h-dvh w-60 shrink-0 flex-col overflow-y-auto border-r bg-card/50 px-4 py-6 md:flex">
         <Link to="/dashboard" className="mb-8 flex items-center gap-2 px-2">
           <div className="flex size-8 items-center justify-center rounded-lg bg-primary/15 text-primary neon-ring">
             <Boxes className="size-4" />
@@ -117,7 +124,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </Link>
 
-        <nav className="flex flex-1 flex-col gap-1">
+        <nav className="flex flex-1 flex-col gap-1 overflow-y-auto">
           {NAV.filter(({ studentBlocked }) => !studentBlocked || !isStudent).map(
             ({ to, label, icon: Icon }) => {
             const active = location.pathname.startsWith(to);
@@ -250,7 +257,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </Button>
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div ref={scrollRef} className="flex h-dvh min-w-0 flex-1 flex-col overflow-y-auto">
         <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b bg-background/80 px-4 backdrop-blur md:px-8">
           <div className="flex items-center gap-1 md:hidden">
             {NAV.filter(({ studentBlocked }) => !studentBlocked || !isStudent)

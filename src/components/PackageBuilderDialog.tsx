@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import { QrScanDialog } from "@/components/QrScanDialog";
 import { normalizeScan } from "@/lib/qr";
+import { matchesSearch } from "@/lib/searchText";
 import {
   groupAllowedByFilter,
   scanOutcome,
@@ -52,6 +53,8 @@ export function PackageBuilderDialog({
   onDone?: () => void;
 }) {
   const groups = useQuery(api.catalog.listGroups, open ? {} : "skip");
+  // Unit tags/notes join into the search: typing a unit tag finds its group.
+  const unitRows = useQuery(api.parts.listPartsByGroups, open ? {} : "skip");
   const availability = useQuery(api.parts.availabilityByGroup, open ? {} : "skip");
   const existing = useQuery(
     api.parts.getPackage,
@@ -107,13 +110,16 @@ export function PackageBuilderDialog({
   // Dropdown content: groups filtered by the scanned category/storage (and the
   // free-text search), each with its live availability count.
   const dropdownGroups = useMemo(() => {
-    const q = scanQuery.trim().toLowerCase();
+    const unitsByGroup = new Map<string, string>();
+    for (const p of unitRows ?? []) {
+      unitsByGroup.set(p.groupId, [unitsByGroup.get(p.groupId), p.tag, p.note].filter(Boolean).join(" "));
+    }
     return (groups ?? []).filter(
       (g: any) =>
         groupAllowedByFilter({ categoryId: g.categoryId, closetId: g.closetId }, scanFilter) &&
-        (q === "" || g.name.toLowerCase().includes(q)),
+        matchesSearch(g, scanQuery, unitsByGroup.get(g._id)),
     );
-  }, [groups, scanFilter, scanQuery]);
+  }, [groups, unitRows, scanFilter, scanQuery]);
 
   // QR scans resolve through the server lookup query (same resolver the QR
   // route uses): set the payload, the query resolves, the effect applies it.

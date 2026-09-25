@@ -53,7 +53,29 @@ export const listPartsOfGroup = query({
       .withIndex("by_group", (q) => q.eq("groupId", groupId))
       .filter((q) => q.neq(q.field("deleted"), true))
       .collect();
-    return parts.sort((a, b) => a.tag.localeCompare(b.tag));
+    // Natural tag order so the ← → unit navigation follows the printed tags.
+    return parts.sort((a, b) => a.tag.localeCompare(b.tag, undefined, { numeric: true }));
+  },
+});
+
+/**
+ * Units of every group in one query (search support): the inventory grid and
+ * the package builder join these client-side so searching matches unit tags
+ * and per-unit notes too, not just the group fields. Heavy fields that no
+ * search needs (the consumption audit trail) are stripped to keep the
+ * payload small.
+ */
+export const listPartsByGroups = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireUser(ctx);
+    const parts = await ctx.db
+      .query("parts")
+      .filter((q) => q.neq(q.field("deleted"), true))
+      .collect();
+    return parts
+      .map(({ consumptionLog: _log, ...rest }) => rest)
+      .sort((a, b) => a.tag.localeCompare(b.tag, undefined, { numeric: true }));
   },
 });
 

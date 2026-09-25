@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { AppShell } from "@/components/AppShell";
+import { NavArrows } from "@/components/NavArrows";
 import { QrChip } from "@/components/QrChip";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -237,6 +238,8 @@ export default function ProjectDetail() {
     | null
     | undefined;
   const people = useQuery(api.chat.listPeople, {});
+  // ← → to flip through the active projects.
+  const projects = useQuery(api.projects.listProjects, { status: "active" });
 
   const dismantle = useMutation(api.projects.dismantleProject);
   const complete = useMutation(api.projects.completeProject);
@@ -421,6 +424,11 @@ export default function ProjectDetail() {
 
   return (
     <AppShell>
+      <NavArrows
+        items={(projects ?? []).map((p) => p._id)}
+        currentId={projectId}
+        onNavigate={(nid) => navigate(`/projects/${nid}`)}
+      />
       <div className="flex flex-col gap-6">
         <div>
           <Button variant="ghost" size="sm" onClick={() => navigate("/projects")}>

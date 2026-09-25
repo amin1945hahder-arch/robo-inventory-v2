@@ -69,8 +69,8 @@ export function InventorySearchDialog({
         <DialogHeader>
           <DialogTitle>Search inventory</DialogTitle>
           <DialogDescription>
-            Search anything by name, brand, model or description — groups inside
-            containers are found too.
+            Search anything by name, brand, model, description, unit tag or
+            note — groups inside containers are found too.
           </DialogDescription>
         </DialogHeader>
         <form

@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { matchesSearch } from "../lib/searchText";
 import { mutation, query } from "./_generated/server";
 import { requireAdmin, requireInteractingMember, requireNonStudent } from "./lib";
 import { telegramGroup } from "./notify";
@@ -193,14 +194,9 @@ export const listGroups = query({
       rows = rows.filter((g) => g.categoryId === categoryId);
     }
     if (search && search.trim()) {
-      const s = search.trim().toLowerCase();
-      rows = rows.filter(
-        (g) =>
-          g.name.toLowerCase().includes(s) ||
-          (g.brand ?? "").toLowerCase().includes(s) ||
-          (g.model ?? "").toLowerCase().includes(s) ||
-          (g.description ?? "").toLowerCase().includes(s),
-      );
+      // Deep match: any string field counts — including datasheet URLs and
+      // every field added to groups in the future.
+      rows = rows.filter((g) => matchesSearch(g, search));
     }
     return rows.sort((a, b) => a.name.localeCompare(b.name));
   },
