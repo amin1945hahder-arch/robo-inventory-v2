@@ -41,6 +41,20 @@ export const inventory = query({
       // export sheet and printed under the QR on item cards.
       const parent = g.parentGroupId ? (byId.get(g.parentGroupId) ?? null) : null;
       const mine = parts.filter((p) => p.groupId === g._id);
+      // Container-chain label ("Box A > Box B") — a same-named group inside a
+      // container must never merge with a loose one of the same name.
+      let chain = "";
+      {
+        let cur: any = parent;
+        const parts2: string[] = [];
+        let depth = 0;
+        while (cur && depth < 10) {
+          parts2.unshift(cur.name);
+          cur = cur.parentGroupId ? byId.get(cur.parentGroupId) : null;
+          depth += 1;
+        }
+        chain = parts2.join(" > ");
+      }
       out.push({
         group: {
           _id: g._id,
@@ -50,10 +64,23 @@ export const inventory = query({
           // Extra fields for the ID column + printed cards (image left, QR right).
           description: g.description,
           imageUrl: g.imageUrl,
+          // Container chain ("Box A > Box B") — same-named groups in different
+          // containers must not merge in the export's merge-same-name view.
+          containerChain: chain,
         },
         parent: parent ? { _id: parent._id, name: parent.name } : null,
         category: category ? { _id: category._id, name: category.name } : null,
         closet: closet ? { _id: closet._id, name: closet.name } : null,
+        // Full status split per unit — merged rows sum these across locations.
+        counts: {
+          available: mine.filter((p) => p.status === "available").length,
+          rented: mine.filter((p) => p.status === "rented").length,
+          onProject: mine.filter((p) => p.status === "on_project").length,
+          broken: mine.filter((p) => p.status === "broken").length,
+          pending: mine.filter((p) => p.status === "pending").length,
+          transferred: mine.filter((p) => p.status === "transferred").length,
+          consumed: mine.filter((p) => p.status === "consumed").length,
+        },
         s: {
           total: mine.length,
           available: mine.filter((p) => p.status === "available").length,

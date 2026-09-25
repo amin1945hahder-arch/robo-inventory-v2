@@ -29,6 +29,7 @@ import {
   Grid2x2,
   IdCard,
   Loader2,
+  Merge,
   Printer,
   Table2,
 } from "lucide-react";
@@ -68,13 +69,29 @@ function useColumns(dataset: Dataset): Col[] {
   return useMemo(() => {
     if (dataset === "inventory")
       return [
-        { key: "id", label: "ID", get: (r) => r.group?._id ?? "" },
+        {
+          key: "id",
+          label: "ID",
+          // Merged rows carry every member group's ID, one per line.
+          get: (r) => (r.mergedIds ? (r.mergedIds as string[]).join("\n") : (r.group?._id ?? "")),
+        },
         { key: "group", label: "Component", get: (r) => r.group?.name ?? "" },
         { key: "category", label: "Category", get: (r) => r.category?.name ?? "" },
-        { key: "closet", label: "Storage", get: (r) => r.closet?.name ?? "" },
+        {
+          key: "closet",
+          label: "Storage",
+          // Merged rows list every place with its sub-total, one per line:
+          // "Closet 1 (4 pcs)\nCloset 2 (5 pcs)".
+          get: (r) =>
+            r.merged
+              ? (r.places ?? [])
+                  .map((pl: any) => `${pl.name} (${pl.count})`)
+                  .join("\n")
+              : (r.closet?.name ?? ""),
+        },
         { key: "container", label: "Container", get: (r) => r.parent?.name ?? "" },
-        { key: "brand", label: "Brand", get: (r) => r.group.brand ?? "" },
-        { key: "model", label: "Model", get: (r) => r.group.model ?? "" },
+        { key: "brand", label: "Brand", get: (r) => r.group?.brand ?? "" },
+        { key: "model", label: "Model", get: (r) => r.group?.model ?? "" },
         { key: "total", label: "Total", get: (r) => String(r.s?.total ?? 0) },
         { key: "available", label: "Available", get: (r) => String(r.s?.available ?? 0) },
         { key: "rented", label: "Rented", get: (r) => String(r.s?.rented ?? 0) },
@@ -267,6 +284,9 @@ export default function ExportStudio() {
   const [closetId, setClosetId] = useState("all");
   const [categoryId, setCategoryId] = useState("all");
 
+  // Merge same-named groups (not containers) into one totals row; the Storage
+  // cell then lists every location with its sub-total, one per line.
+  const [mergeSameName, setMergeSameName] = useState(false);
   // print controls
   const [paper, setPaper] = useState("a4");
   const [orientation, setOrientation] = useState("landscape");
@@ -351,6 +371,67 @@ export default function ExportStudio() {
       if (closetId !== "all") list = list.filter((r) => r.closet?._id === closetId);
       if (categoryId !== "all") list = list.filter((r) => r.category?._id === categoryId);
     }
+    // Merging runs AFTER the filters so the totals reflect exactly what is on
+    // screen (e.g. filter to Closet 1 and you get that closet's row only).
+    if (dataset === "inventory" && mergeSameName) {
+      const keyOf = (r: any) =>
+        `${(r.group?.name ?? "").trim().toLowerCase()}|${r.group?.containerChain ?? ""}`;
+      const buckets = new Map<string, any[]>();
+      for (const r of list) {
+        const k = keyOf(r);
+        const arr = buckets.get(k) ?? [];
+        arr.push(r);
+        buckets.set(k, arr);
+      }
+      const merged: any[] = [];
+      const seen = new Set<string>();
+      for (const r of list) {
+        const k = keyOf(r);
+        if (seen.has(k)) continue;
+        seen.add(k);
+        const bucket = buckets.get(k)!;
+        const isContainerish = Boolean(r.group?.containerChain) || Boolean(r.parent?._id);
+        if (bucket.length === 1 || isContainerish) {
+          merged.push(r);
+          continue;
+        }
+        const zero = { available: 0, rented: 0, onProject: 0, broken: 0, pending: 0, transferred: 0, consumed: 0 };
+        const t = bucket.reduce((acc: typeof zero, x: any) => ({
+          available: acc.available + (x.counts?.available ?? x.s?.available ?? 0),
+          rented: acc.rented + (x.counts?.rented ?? x.s?.rented ?? 0),
+          onProject: acc.onProject + (x.counts?.onProject ?? x.s?.onProject ?? 0),
+          broken: acc.broken + (x.counts?.broken ?? x.s?.broken ?? 0),
+          pending: acc.pending + (x.counts?.pending ?? x.s?.pending ?? 0),
+          transferred: acc.transferred + (x.counts?.transferred ?? 0),
+          consumed: acc.consumed + (x.counts?.consumed ?? 0),
+        }), zero);
+        merged.push({
+          ...r,
+          merged: true,
+          mergedCount: bucket.length,
+          mergedIds: bucket.map((x: any) => x.group?._id).filter(Boolean),
+          // Every place with its sub-total, one per line in the Storage cell:
+          // "Closet 1 (4)\nCloset 2 (5)".
+          places: bucket.map((x: any) => ({
+            name: x.closet?.name ?? "—",
+            count: x.s?.total ?? 0,
+          })),
+          counts: t,
+          s: {
+            total: t.available + t.rented + t.onProject + t.broken + t.pending + t.transferred + t.consumed,
+            available: t.available,
+            rented: t.rented,
+            onProject: t.onProject,
+            broken: t.broken,
+            pending: t.pending,
+          },
+          // Ambiguous fields collapse to "—" when the members disagree.
+          category: bucket.every((x: any) => x.category?._id === r.category?._id) ? r.category : null,
+          closet: null,
+        });
+      }
+      list = merged;
+    }
     if (dataset === "rentals" && statusFilter !== "all") {
       list = list.filter((r) => r.rental?.status === statusFilter);
     }
@@ -367,7 +448,7 @@ export default function ExportStudio() {
       else if (statusFilter === "ex") list = list.filter((r) => r.user?.membershipStatus === "ex");
     }
     return list;
-  }, [raw, search, cols, dataset, closetId, categoryId, statusFilter]);
+  }, [raw, search, cols, dataset, closetId, categoryId, statusFilter, mergeSameName]);
 
   const csv = useMemo(() => (rows ? toCsv(cols, rows) : ""), [rows, cols]);
 
@@ -567,6 +648,26 @@ export default function ExportStudio() {
               </Button>
             ))}
           </div>
+
+          {dataset === "inventory" && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-medium text-muted-foreground">Merge</span>
+              <Button
+                size="sm"
+                variant={mergeSameName ? "default" : "outline"}
+                onClick={() => setMergeSameName((m) => !m)}
+                title="Combine same-named component groups from different storages into one totals row"
+              >
+                <Merge className="size-4" />
+                {mergeSameName ? "Merging same-named groups" : "Same-named groups separate"}
+              </Button>
+              {mergeSameName && raw && (rows?.length ?? 0) !== (raw as any[]).length && (
+                <span className="text-xs text-muted-foreground">
+                  {(raw as any[]).length} rows → {rows?.length ?? 0} merged rows
+                </span>
+              )}
+            </div>
+          )}
 
           {cardsAvailable && (
             <div className="flex flex-wrap items-center gap-2">
@@ -832,7 +933,7 @@ export default function ExportStudio() {
                     {cols.map((c) => (
                       <td
                         key={c.key}
-                        className={`px-2 py-1 align-top ${showGrid ? "border border-neutral-200" : ""}`}
+                        className={`whitespace-pre-line px-2 py-1 align-top ${showGrid ? "border border-neutral-200" : ""}`}
                       >
                         {c.get(r) || "—"}
                       </td>
