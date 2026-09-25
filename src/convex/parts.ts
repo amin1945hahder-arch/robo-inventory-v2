@@ -65,6 +65,43 @@ export const listPartsOfGroup = query({
  * search needs (the consumption audit trail) are stripped to keep the
  * payload small.
  */
+/**
+ * All rental records of ONE unit (with the same student join as
+ * listAllRentals). The unit detail page used to subscribe to the whole
+ * rentals table just to show one part's history — this keeps that page
+ * proportional to the unit's own history instead of the entire ledger.
+ */
+export const rentalsOfPart = query({
+  args: { partId: v.id("parts") },
+  handler: async (ctx, { partId }) => {
+    await requireUser(ctx);
+    const rows = await ctx.db
+      .query("rentals")
+      .withIndex("by_part", (q) => q.eq("partId", partId))
+      .collect();
+    const cache = docCache();
+    const out = [];
+    for (const r of rows.sort((a, b) => b.requestedAt - a.requestedAt)) {
+      const student = await cache.get(ctx, r.userId);
+      out.push({
+        rental: r,
+        part: await cache.get(ctx, partId),
+        group: null,
+        student: student
+          ? {
+              _id: student._id,
+              name: student.name,
+              email: student.email,
+              studentId: student.studentId,
+              image: safeImage(student.image),
+            }
+          : null,
+      });
+    }
+    return out;
+  },
+});
+
 export const listPartsByGroups = query({
   args: {},
   handler: async (ctx) => {

@@ -51,7 +51,12 @@ export default function PartDetail() {
     part ? { groupId: part.groupId } : "skip",
   );
   const detail = useQuery(api.parts.getPartWithRental, id ? { id: id as any } : "skip");
-  const rentals = useQuery(api.parts.listAllRentals, isAdmin ? {} : "skip");
+  // This unit's rental history only — subscribing to the entire ledger here
+  // made every rental anywhere re-render the unit page.
+  const rentals = useQuery(
+    api.parts.rentalsOfPart,
+    part ? { partId: part._id } : "skip",
+  );
   const myRentals = useQuery(api.parts.listMyRentals, {});
   // Full-control editing: pick an active project and/or a holder member.
   const activeProjects = useQuery(api.projects.listProjects, isAdmin ? { status: "active" } : "skip");

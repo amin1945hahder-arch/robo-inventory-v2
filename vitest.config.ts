@@ -9,6 +9,8 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
+    // One jsdom per worker instead of one per file (~8s faster runs).
+    pool: "vmThreads",
   },
   resolve: {
     alias: {

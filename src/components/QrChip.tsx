@@ -28,7 +28,15 @@ export function QrChip({ payload, label }: { payload: string; label?: string }) 
         }}
         className="shrink-0 rounded border bg-white p-0.5 hover:opacity-80 transition-opacity"
       >
-        <QRCode value={value} size={22} />
+        {/* The QR SVG renders only when opened — pages with dozens of chips
+            (unit lists, inventory grids) save one QR matrix each. */}
+        {open ? (
+          <QRCode value={value} size={22} />
+        ) : (
+          <span className="flex size-[22px] items-center justify-center font-mono text-[8px] font-semibold leading-none text-black/70">
+            QR
+          </span>
+        )}
       </button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-sm" onClick={(e) => e.stopPropagation()}>

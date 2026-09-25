@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/StatusBadge";
 import { QrChip } from "@/components/QrChip";
@@ -49,7 +50,7 @@ export interface GroupStats {
   consumed?: number;
 }
 
-export function GroupCard({
+function GroupCardBase({
   group,
   stats,
   categoryName,
@@ -261,3 +262,20 @@ export function GroupCard({
     </Card>
   );
 }
+
+/**
+ * Memoized: the inventory grid re-renders on every search keystroke and stats
+ * update live — skip re-rendering cards whose inputs did not change. Callback
+ * props are deliberately not compared: they are recreated per parent render
+ * but behave identically for the same group (they use stable setters and
+ * functional state updates).
+ */
+export const GroupCard = memo(
+  GroupCardBase,
+  (a, b) =>
+    a.group === b.group &&
+    a.stats === b.stats &&
+    a.categoryName === b.categoryName &&
+    a.isAdmin === b.isAdmin &&
+    a.containedGroups === b.containedGroups,
+);

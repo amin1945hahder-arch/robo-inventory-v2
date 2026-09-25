@@ -128,6 +128,16 @@ export default function Inventory() {
     setAvailFilter(availParam || "all");
   }, [qFilter, closetParam, availParam]);
 
+  // Unit tags/notes per group, pre-joined once — the search filter consults
+  // this map instead of re-scanning every unit row on every keystroke.
+  const unitsBlobByGroup = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of unitRows ?? []) {
+      m.set(p.groupId, [m.get(p.groupId), p.tag, p.note].filter(Boolean).join(" "));
+    }
+    return m;
+  }, [unitRows]);
+
   const filtered = useMemo(() => {
     let list = (groups ?? []).filter(
       (g) =>
@@ -135,16 +145,9 @@ export default function Inventory() {
         // the inventory grid shows top-level groups only. The container
         // filter must apply BEFORE the search match (and its fallback).
         !g.parentGroupId &&
-        matchesSearch(
-          g,
-          search,
-          // Units of this group: matching a unit tag or unit note surfaces
-          // the group in the results.
-          (unitRows ?? [])
-            .filter((p) => p.groupId === g._id)
-            .map((p) => [p.tag, p.note].filter(Boolean).join(" "))
-            .join(" "),
-        ),
+        // Units of this group: matching a unit tag or unit note surfaces
+        // the group in the results.
+        matchesSearch(g, search, unitsBlobByGroup.get(g._id)),
     );
     if (closetFilter !== "all") list = list.filter((g) => g.closetId === closetFilter);
     if (availFilter !== "all") {
@@ -168,7 +171,7 @@ export default function Inventory() {
       return a.name.localeCompare(b.name);
     });
     return sorted;
-  }, [groups, unitRows, search, qFilter, closetFilter, availFilter, sortKey, stats]);
+  }, [groups, unitsBlobByGroup, search, qFilter, closetFilter, availFilter, sortKey, stats]);
 
   const byCategory = useMemo(() => {
     const map = new Map<string, Doc<"groups">[]>();
@@ -368,9 +371,6 @@ export default function Inventory() {
               return (
                 <motion.section
                   key={cat._id}
-                  initial={{ opacity: 0, y: 14 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.4, delay: i * 0.06, ease: "easeOut" }}
                   className="flex flex-col gap-3"
                 >
                   <div className="flex items-center gap-2">
