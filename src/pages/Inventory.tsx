@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -7,6 +7,7 @@ import { AppShell } from "@/components/AppShell";
 import { GroupCard } from "@/components/GroupCard";
 import { GroupFormDialog } from "@/components/GroupFormDialog";
 import { QrScanDialog } from "@/components/QrScanDialog";
+import { InventorySearchDialog } from "@/components/InventorySearchDialog";
 import { QrChip } from "@/components/QrChip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,6 +55,11 @@ export default function Inventory() {
   const isAdmin = user?.role === "admin";
   const [searchParams, setSearchParams] = useSearchParams();
   const categoryFilter = searchParams.get("category") ?? "";
+  // Search-button filters live in the URL so they survive navigation and can
+  // be deep-linked (?q=&closet=&avail=); the bar controls below edit them too.
+  const qFilter = searchParams.get("q") ?? "";
+  const closetParam = searchParams.get("closet") ?? "";
+  const availParam = searchParams.get("avail") ?? "";
 
   const categories = useQuery(api.catalog.listCategories, {});
   const closets = useQuery(api.catalog.listClosets, {});
@@ -65,11 +71,12 @@ export default function Inventory() {
   // Master containers show their contained groups on the card (outside =
   // inside), so the grid needs the full group index, not just top-level rows.
   const allGroups = useQuery(api.catalog.childGroupOptions, {});
-  const [search, setSearch] = useState("");
-  const [closetFilter, setClosetFilter] = useState("all");
-  const [availFilter, setAvailFilter] = useState("all");
+  const [search, setSearch] = useState(qFilter);
+  const [closetFilter, setClosetFilter] = useState(closetParam || "all");
+  const [availFilter, setAvailFilter] = useState(availParam || "all");
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [scanOpen, setScanOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [groupFormOpen, setGroupFormOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<Doc<"groups"> | null>(null);
   const [catDialogOpen, setCatDialogOpen] = useState(false);
@@ -82,6 +89,14 @@ export default function Inventory() {
   const upsertCategory = useMutation(api.catalog.upsertCategory);
   const deleteCategory = useMutation(api.catalog.deleteCategory);
   const deleteGroup = useMutation(api.catalog.deleteGroup);
+
+  // Re-sync the bar controls when URL-driven filters change (e.g. from the
+  // Search dialog, which navigates with ?q=&closet=&avail=).
+  useEffect(() => {
+    setSearch(qFilter);
+    setClosetFilter(closetParam || "all");
+    setAvailFilter(availParam || "all");
+  }, [qFilter, closetParam, availParam]);
 
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
@@ -119,7 +134,7 @@ export default function Inventory() {
       return a.name.localeCompare(b.name);
     });
     return sorted;
-  }, [groups, search, closetFilter, availFilter, sortKey, stats]);
+  }, [groups, search, qFilter, closetFilter, availFilter, sortKey, stats]);
 
   const byCategory = useMemo(() => {
     const map = new Map<string, Doc<"groups">[]>();
@@ -177,6 +192,9 @@ export default function Inventory() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setSearchOpen(true)}>
+              <Search className="size-4" /> Search
+            </Button>
             <Button variant="outline" onClick={() => setScanOpen(true)}>
               <ScanLine className="size-4" /> Scan QR
             </Button>
@@ -383,6 +401,12 @@ export default function Inventory() {
       </div>
 
       <QrScanDialog open={scanOpen} onOpenChange={setScanOpen} onResult={handleScan} />
+      <InventorySearchDialog
+        open={searchOpen}
+        onOpenChange={setSearchOpen}
+        categories={categories}
+        closets={closets}
+      />
       <GroupFormDialog
         open={groupFormOpen}
         onOpenChange={setGroupFormOpen}

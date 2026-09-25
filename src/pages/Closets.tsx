@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -29,9 +29,27 @@ export default function Closets() {
   const isAdmin = user?.role === "admin";
   const closets = useQuery(api.catalog.listClosets, {});
   const groups = useQuery(api.catalog.listGroups, {});
+  const allGroups = useQuery(api.catalog.childGroupOptions, {});
   const stats = useQuery(api.stats.groupStats, {});
   const remove = useMutation(api.catalog.deleteCloset);
   const upsertCloset = useMutation(api.catalog.upsertCloset);
+
+  // Master containers (group-of-groups) per storage. A container is a group
+  // that has children; groups inside containers live on the container's page.
+  const containersByCloset = useMemo(() => {
+    const childIds = new Set<string>();
+    for (const g of allGroups ?? []) {
+      if (g.parentGroupId) childIds.add(g.parentGroupId);
+    }
+    const map = new Map<string, number>();
+    for (const g of allGroups ?? []) {
+      if (childIds.has(g._id) && g.closetId) {
+        map.set(g.closetId, (map.get(g.closetId) ?? 0) + 1);
+      }
+    }
+    return map;
+  }, [allGroups]);
+
 
   // Add/edit dialog: editing === null → closed; {id?} → open for add or edit.
   const [open, setOpen] = useState(false);
@@ -126,7 +144,12 @@ export default function Closets() {
         ) : (
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {closets.map((c) => {
-              const closetGroups = (groups ?? []).filter((g) => g.closetId === c._id);
+              // Groups directly in this storage (containers excluded) — the
+              // chips preview mirrors what the storage page now shows.
+              const closetGroups = (groups ?? []).filter(
+                (g) => g.closetId === c._id && !g.parentGroupId,
+              );
+              const containerCount = containersByCloset.get(c._id) ?? 0;
               const agg: Stats = { total: 0, available: 0, rented: 0, onProject: 0, broken: 0, pending: 0 };
               for (const g of closetGroups) {
                 const s = stats?.[g._id];
@@ -182,6 +205,11 @@ export default function Closets() {
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+                      {containerCount > 0 && (
+                        <span className="rounded bg-primary/10 px-1.5 py-0.5 font-medium text-primary">
+                          📦 <b>{containerCount}</b> container{containerCount === 1 ? "" : "s"}
+                        </span>
+                      )}
                       <span><b className="text-foreground">{agg.available}</b> available</span>
                       <span><b className="text-foreground">{agg.rented}</b> rented</span>
                       <span><b className="text-foreground">{agg.onProject}</b> on projects</span>
