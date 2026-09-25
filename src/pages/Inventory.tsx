@@ -5,6 +5,7 @@ import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { AppShell } from "@/components/AppShell";
 import { GroupCard } from "@/components/GroupCard";
+import { BulkGroupDialog } from "@/components/BulkGroupDialog";
 import { GroupFormDialog } from "@/components/GroupFormDialog";
 import { QrScanDialog } from "@/components/QrScanDialog";
 import { InventorySearchDialog } from "@/components/InventorySearchDialog";
@@ -27,6 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { motion } from "framer-motion";
 import {
   DropdownMenu,
@@ -89,6 +91,30 @@ export default function Inventory() {
   const upsertCategory = useMutation(api.catalog.upsertCategory);
   const deleteCategory = useMutation(api.catalog.deleteCategory);
   const deleteGroup = useMutation(api.catalog.deleteGroup);
+  // Multi-select mode: tick groups, then edit/delete them all at once.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const toggleGroup = (gid: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(gid)) next.delete(gid);
+      else next.add(gid);
+      return next;
+    });
+  };
+  const bulkDelete = async () => {
+    if (selected.size === 0) return;
+    if (!confirm(`Delete ${selected.size} selected group(s) and all their units?`)) return;
+    try {
+      const res = await bulkDeleteGroups({ groupIds: [...selected] as any });
+      setSelected(new Set());
+      if (res.deleted > 0) toast.success(`${res.deleted} group(s) deleted`);
+      if (res.skipped.length > 0) toast.warning(`Skipped: ${res.skipped.join(", ")}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    }
+  };
+  const bulkDeleteGroups = useMutation(api.catalog.bulkDeleteGroups);
 
   // Re-sync the bar controls when URL-driven filters change (e.g. from the
   // Search dialog, which navigates with ?q=&closet=&avail=).
@@ -215,6 +241,21 @@ export default function Inventory() {
             )}
           </div>
         </header>
+
+        {isAdmin && selected.size > 0 && (
+          <div className="sticky top-16 z-20 flex flex-wrap items-center gap-2 rounded-lg border border-primary/40 bg-background/95 px-4 py-2.5 shadow-sm backdrop-blur">
+            <span className="text-sm font-medium">{selected.size} group(s) selected</span>
+            <Button size="sm" variant="outline" onClick={() => setBulkEditOpen(true)}>
+              <Pencil className="size-3.5" /> Edit selected
+            </Button>
+            <Button size="sm" variant="outline" className="text-destructive" onClick={bulkDelete}>
+              <Trash2 className="size-3.5" /> Delete selected
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
+              Clear selection
+            </Button>
+          </div>
+        )}
 
         {/* Filter bar — search, category, storage, availability, sort */}
         <div className="flex flex-col gap-2 rounded-lg border bg-card/40 p-3">
@@ -369,27 +410,41 @@ export default function Inventory() {
                     {catGroups.map((g) => {
                       const contained = childrenByParent.get(g._id);
                       return (
-                        <GroupCard
+                        <div
                           key={g._id}
-                          group={g}
-                          stats={stats?.[g._id]}
-                          categoryName={cat.name}
-                          isAdmin={isAdmin}
-                          containedGroups={contained}
-                          onEdit={() => {
-                            setEditingGroup(g);
-                            setGroupFormOpen(true);
-                          }}
-                          onDelete={async () => {
-                            if (!confirm(`Delete ${g.name} and all its units?`)) return;
-                            try {
-                              await deleteGroup({ id: g._id });
-                              toast.success("Group deleted");
-                            } catch (e) {
-                              toast.error(e instanceof Error ? e.message : "Failed");
-                            }
-                          }}
-                        />
+                          className={`flex flex-col gap-2 rounded-lg transition-colors${selected.has(g._id) ? " ring-1 ring-primary/60" : ""}`}
+                        >
+                          {isAdmin && (
+                            <label className="ml-1 flex w-fit cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+                              <Checkbox
+                                checked={selected.has(g._id)}
+                                onCheckedChange={() => toggleGroup(g._id)}
+                                aria-label={`Select ${g.name}`}
+                              />
+                              select
+                            </label>
+                          )}
+                          <GroupCard
+                            group={g}
+                            stats={stats?.[g._id]}
+                            categoryName={cat.name}
+                            isAdmin={isAdmin}
+                            containedGroups={contained}
+                            onEdit={() => {
+                              setEditingGroup(g);
+                              setGroupFormOpen(true);
+                            }}
+                            onDelete={async () => {
+                              if (!confirm(`Delete ${g.name} and all its units?`)) return;
+                              try {
+                                await deleteGroup({ id: g._id });
+                                toast.success("Group deleted");
+                              } catch (e) {
+                                toast.error(e instanceof Error ? e.message : "Failed");
+                              }
+                            }}
+                          />
+                        </div>
                       );
                     })}
                   </div>
@@ -406,6 +461,17 @@ export default function Inventory() {
         onOpenChange={setSearchOpen}
         categories={categories}
         closets={closets}
+      />
+      <BulkGroupDialog
+        open={bulkEditOpen}
+        onOpenChange={(v) => {
+          setBulkEditOpen(v);
+          if (!v) setSelected(new Set());
+        }}
+        groupIds={[...selected] as any}
+        categories={categories}
+        closets={closets}
+        allGroups={allGroups}
       />
       <GroupFormDialog
         open={groupFormOpen}

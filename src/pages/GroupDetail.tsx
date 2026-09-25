@@ -1,23 +1,45 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { useSound } from "@/hooks/use-sound";
 import { AppShell } from "@/components/AppShell";
+import { NavArrows } from "@/components/NavArrows";
 import { QrChip } from "@/components/QrChip";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ReturnDialog } from "@/components/ReturnDialog";
 import { GroupCard } from "@/components/GroupCard";
 import { PackageBuilderDialog } from "@/components/PackageBuilderDialog";
 import { GroupDetailUnits, isBulkGroup, ConsumeBulkDialog } from "@/components/GroupDetailUnits";
 import { BulkUnitDialog } from "@/components/BulkUnitDialog";
+import { UnitEditDialog } from "@/components/UnitEditDialog";
 import { GroupFormDialog } from "@/components/GroupFormDialog";
 import { groupQr, unitQr } from "@/lib/qr";
 import { toast } from "sonner";
-import { ArrowLeft, Box, Loader2, PackagePlus, Package, RotateCcw, Scale } from "lucide-react";
+import {
+  ArrowDownUp,
+  ArrowLeft,
+  Box,
+  ExternalLink,
+  Loader2,
+  PackagePlus,
+  Package,
+  Pencil,
+  RotateCcw,
+  Scale,
+  Trash2,
+} from "lucide-react";
 import type { Doc } from "@/convex/_generated/dataModel";
 
 export default function GroupDetail() {
@@ -54,11 +76,76 @@ export default function GroupDetail() {
   const closets = useQuery(api.catalog.listClosets, {});
   const categories = useQuery(api.catalog.listCategories, {});
   const groupsIndex = useQuery(api.catalog.childGroupOptions, {});
+  // Project names for the on-project chips + the unit editor.
+  const activeProjects = useQuery(api.projects.listProjects, isAdmin ? { status: "active" } : "skip");
   const [busyTag, setBusyTag] = useState<string | null>(null);
   // Quantity picker for the "request N units" flow.
   const [qty, setQty] = useState(1);
   const [qtyBusy, setQtyBusy] = useState(false);
   const [pkgOpen, setPkgOpen] = useState(false);
+  // Unit multi-select + bulk actions (admin).
+  const [selectedUnits, setSelectedUnits] = useState<Set<string>>(new Set());
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const deletePart = useMutation(api.parts.deletePart);
+  // Unit-list ordering: grouped by state (default) or a flat sort.
+  const [unitSort, setUnitSort] = useState<"state" | "tag" | "tagDesc">("state");
+
+  const toggleUnit = (pid: string) => {
+    setSelectedUnits((prev) => {
+      const next = new Set(prev);
+      if (next.has(pid)) next.delete(pid);
+      else next.add(pid);
+      return next;
+    });
+  };
+
+  const orderedParts = useMemo(() => {
+    const list = [...(parts ?? [])];
+    const byTag = (a: Doc<"parts">, b: Doc<"parts">) => a.tag.localeCompare(b.tag);
+    if (unitSort === "tag") return list.sort(byTag);
+    if (unitSort === "tagDesc") return list.sort((a, b) => byTag(b, a));
+    const ORDER = ["pending", "rented", "on_project", "available", "broken", "transferred", "consumed"];
+    return list.sort(
+      (a, b) =>
+        ORDER.indexOf(a.status) - ORDER.indexOf(b.status) || byTag(a, b),
+    );
+  }, [parts, unitSort]);
+
+  const stateSections = useMemo(() => {
+    if (unitSort !== "state") return null;
+    const labels: Record<string, string> = {
+      pending: "Pending requests",
+      rented: "Rented",
+      on_project: "On projects",
+      available: "Available",
+      broken: "Broken",
+      transferred: "Transferred",
+      consumed: "Consumed",
+    };
+    return ["pending", "rented", "on_project", "available", "broken", "transferred", "consumed"]
+      .map((st) => ({
+        status: st,
+        label: labels[st],
+        units: orderedParts.filter((p) => p.status === st),
+      }))
+      .filter((s) => s.units.length > 0);
+  }, [orderedParts, unitSort]);
+
+  const bulkDeleteUnits = async () => {
+    if (selectedUnits.size === 0) return;
+    if (!confirm(`Delete ${selectedUnits.size} selected unit(s)?`)) return;
+    let ok = 0;
+    for (const pid of selectedUnits) {
+      try {
+        await deletePart({ id: pid as any });
+        ok += 1;
+      } catch {
+        // Units out on rent/project are refused server-side; keep going.
+      }
+    }
+    setSelectedUnits(new Set());
+    toast.success(`${ok} unit(s) deleted`);
+  };
 
   const myActivePartIds = new Set(
     (myRentals ?? [])
@@ -143,6 +230,14 @@ export default function GroupDetail() {
 
   return (
     <AppShell>
+      {/* ← → flip through the groups of the same storage (storage view order). */}
+      <NavArrows
+        items={(groupsIndex ?? [])
+          .filter((g) => !g.parentGroupId && g.closetId === group?.closetId)
+          .map((g) => g._id)}
+        currentId={group?._id}
+        onNavigate={(nid) => navigate(`/group/${nid}`)}
+      />
       {!group ? (
         <p className="py-16 text-center text-sm text-muted-foreground">Loading…</p>
       ) : (
@@ -410,19 +505,53 @@ export default function GroupDetail() {
 
           {!isBulk && !isMaster && (
           <section className="flex flex-col gap-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-sm font-semibold">Units · each with its own QR</h2>
-              {group.datasheetUrl && (
-                <a
-                  href={group.datasheetUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-sm text-muted-foreground underline"
+              <div className="flex items-center gap-2">
+                {isAdmin && selectedUnits.size > 0 && (
+                  <>
+                    <span className="text-xs text-muted-foreground">{selectedUnits.size} selected</span>
+                    <Button size="sm" variant="outline" onClick={() => setBulkEditOpen(true)}>
+                      <Pencil className="size-3.5" /> Edit selected
+                    </Button>
+                    <Button size="sm" variant="outline" className="text-destructive" onClick={bulkDeleteUnits}>
+                      <Trash2 className="size-3.5" /> Delete selected
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setSelectedUnits(new Set())}>
+                      Clear
+                    </Button>
+                  </>
+                )}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  title="Change how the list is ordered"
+                  onClick={() =>
+                    setUnitSort((s) =>
+                      s === "state" ? "tag" : s === "tag" ? "tagDesc" : "state",
+                    )
+                  }
                 >
-                  Datasheet
-                </a>
-              )}
+                  <ArrowDownUp className="size-3.5" />
+                  {unitSort === "state" ? "By state" : unitSort === "tag" ? "Tag A→Z" : "Tag Z→A"}
+                </Button>
+                {group.datasheetUrl && (
+                  <a
+                    href={group.datasheetUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sm text-muted-foreground underline"
+                  >
+                    Datasheet
+                  </a>
+                )}
+              </div>
             </div>
+            {isAdmin && parts && parts.length > 0 && selectedUnits.size === 0 && (
+              <p className="text-xs text-muted-foreground">
+                Tip: tick the checkboxes to edit or delete several units at once.
+              </p>
+            )}
             {parts === undefined ? (
               <p className="text-sm text-muted-foreground">Loading units…</p>
             ) : parts.length === 0 ? (
@@ -430,59 +559,74 @@ export default function GroupDetail() {
                 No units yet.
               </p>
             ) : (
-              <ul className="divide-y rounded-lg border">
-                {parts.map((p) => {
-                  const iHold = myActivePartIds.has(p._id);
-                  const iPending = myPendingPartIds.has(p._id);
-                  return (
-                    <li key={p._id} className="flex flex-wrap items-center gap-3 px-4 py-3">
-                      <QrChip payload={unitQr(p.tag)} label={`${group.name} · ${p.tag}`} />
-                      <Link to={`/part/${p._id}`} className="min-w-0 flex-1">
-                        <p className="font-mono text-sm font-medium">{p.tag}</p>
-                        {p.note && <p className="truncate text-xs text-muted-foreground">{p.note}</p>}
-                      </Link>
-                      <StatusBadge status={p.status} />
-                      {p.status === "available" && (
-                        <Button
-                          size="sm"
-                          variant={isAdmin ? "outline" : "default"}
-                          disabled={busyTag === p.tag || isStorageAlias}
-                          onClick={() => requestUnit(p._id, p.tag)}
-                        >
-                          {busyTag === p.tag ? (
-                            <Loader2 className="size-4 animate-spin" />
-                          ) : (
-                            <Package className="size-4" />
-                          )}
-                          Request
-                        </Button>
-                      )}
-                      {!isAdmin && p.status === "pending" && iPending && (
-                        <span className="text-xs text-muted-foreground">your request pending</span>
-                      )}
-                      {isAdmin && p.status === "rented" && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            const hit = (activeRentals ?? []).find((r) => r.part?._id === p._id);
-                            if (hit) {
-                              setReturnFor({ rentalId: hit.rental._id, partId: p._id, tag: p.tag, amount: hit.rental.amount });
-                            } else {
-                              toast.info("No active rental found for this unit");
-                            }
-                          }}
-                        >
-                          <RotateCcw className="size-4" /> Return
-                        </Button>
-                      )}
-                      {!isAdmin && iHold && p.status === "rented" && (
-                        <span className="text-xs text-muted-foreground">with you</span>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
+              <>
+                {stateSections ? (
+                  <div className="flex flex-col gap-5">
+                    {stateSections.map((sec) => (
+                      <div key={sec.status} className="flex flex-col gap-2">
+                        <div className="flex items-center gap-2 rounded-md border bg-card/40 px-3 py-1.5">
+                          <StatusBadge status={sec.status as any} />
+                          <span className="text-xs font-semibold">{sec.label}</span>
+                          <span className="ml-auto text-xs text-muted-foreground">{sec.units.length}</span>
+                        </div>
+                        <ul className="divide-y rounded-lg border">
+                          {sec.units.map((p) => (
+                            <UnitRow
+                              key={p._id}
+                              p={p}
+                              group={group}
+                              isAdmin={isAdmin}
+                              selected={selectedUnits.has(p._id)}
+                              onToggle={() => toggleUnit(p._id)}
+                              busyTag={busyTag}
+                              isStorageAlias={isStorageAlias}
+                              requestUnit={requestUnit}
+                              myActive={myActivePartIds.has(p._id)}
+                              myPending={myPendingPartIds.has(p._id)}
+                              onReturn={(tag, pid, amount) => {
+                                const hit = (activeRentals ?? []).find((r) => r.part?._id === pid);
+                                if (hit) {
+                                  setReturnFor({ rentalId: hit.rental._id, partId: pid, tag, amount: hit.rental.amount });
+                                } else {
+                                  toast.info("No active rental found for this unit");
+                                }
+                              }}
+                              activeProjects={activeProjects}
+                            />
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <ul className="divide-y rounded-lg border">
+                    {orderedParts.map((p) => (
+                      <UnitRow
+                        key={p._id}
+                        p={p}
+                        group={group}
+                        isAdmin={isAdmin}
+                        selected={selectedUnits.has(p._id)}
+                        onToggle={() => toggleUnit(p._id)}
+                        busyTag={busyTag}
+                        isStorageAlias={isStorageAlias}
+                        requestUnit={requestUnit}
+                        myActive={myActivePartIds.has(p._id)}
+                        myPending={myPendingPartIds.has(p._id)}
+                        onReturn={(tag, pid, amount) => {
+                          const hit = (activeRentals ?? []).find((r) => r.part?._id === pid);
+                          if (hit) {
+                            setReturnFor({ rentalId: hit.rental._id, partId: pid, tag, amount: hit.rental.amount });
+                          } else {
+                            toast.info("No active rental found for this unit");
+                          }
+                        }}
+                        activeProjects={activeProjects}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </>
             )}
           </section>
           )}
@@ -538,6 +682,137 @@ export default function GroupDetail() {
           ...insideDefaults,
         }}
       />
+
+      {/* Multi-unit editor (same window, applied to every ticked unit). */}
+      {group && (
+        <UnitEditDialog
+          open={bulkEditOpen}
+          onOpenChange={(v) => {
+            setBulkEditOpen(v);
+            if (!v) setSelectedUnits(new Set());
+          }}
+          units={parts?.filter((p) => selectedUnits.has(p._id)) ?? []}
+          groups={groupsIndex ?? []}
+          activeProjects={activeProjects}
+          onClose={() => setSelectedUnits(new Set())}
+        />
+      )}
     </AppShell>
   );
+}
+
+/**
+ * One row in the group's unit list. Admins get a selection checkbox (bulk
+ * edit/delete), an edit button, and — when the unit sits on a project — a
+ * small chip that jumps straight to that project.
+ */
+function UnitRow({
+  p,
+  group,
+  isAdmin,
+  selected,
+  onToggle,
+  busyTag,
+  isStorageAlias,
+  requestUnit,
+  myActive,
+  myPending,
+  onReturn,
+  activeProjects,
+}: {
+  p: Doc<"parts">;
+  group: Doc<"groups">;
+  isAdmin: boolean;
+  selected: boolean;
+  onToggle: () => void;
+  busyTag: string | null;
+  isStorageAlias: boolean;
+  requestUnit: (partId: string, tag: string) => void;
+  myActive: boolean;
+  myPending: boolean;
+  onReturn: (tag: string, partId: string, amount?: number) => void;
+  activeProjects: Doc<"projects">[] | undefined;
+}) {
+  const [editOpen, setEditOpen] = useState(false);
+  const groupsIndex = useQuery(api.catalog.childGroupOptions, editOpen ? {} : "skip");
+  return (
+    <li className={cnUnitRow(selected)}>
+      {isAdmin && (
+        <Checkbox
+          checked={selected}
+          onCheckedChange={onToggle}
+          aria-label={`Select unit ${p.tag}`}
+          className="mr-1 shrink-0"
+        />
+      )}
+      <QrChip payload={unitQr(p.tag)} label={`${group.name} · ${p.tag}`} />
+      <Link to={`/part/${p._id}`} className="min-w-0 flex-1">
+        <p className="font-mono text-sm font-medium">{p.tag}</p>
+        {p.note && <p className="truncate text-xs text-muted-foreground">{p.note}</p>}
+      </Link>
+      <StatusBadge status={p.status} />
+      {/* On a project? One click takes the admin to the project page. */}
+      {p.status === "on_project" && p.currentProjectId && (
+        <Link
+          to={`/projects/${p.currentProjectId}`}
+          className="inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[11px] font-medium text-violet-400 hover:border-violet-400 hover:text-violet-300"
+          title={
+            (activeProjects ?? []).find((x) => x._id === p.currentProjectId)?.name ??
+            "Open assigned project"
+          }
+        >
+          <ExternalLink className="size-3" />
+          {(activeProjects ?? []).find((x) => x._id === p.currentProjectId)?.name ?? "project"}
+        </Link>
+      )}
+      {p.status === "available" && (
+        <Button
+          size="sm"
+          variant={isAdmin ? "outline" : "default"}
+          disabled={busyTag === p.tag || isStorageAlias}
+          onClick={() => requestUnit(p._id, p.tag)}
+        >
+          {busyTag === p.tag ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <Package className="size-4" />
+          )}
+          Request
+        </Button>
+      )}
+      {!isAdmin && p.status === "pending" && myPending && (
+        <span className="text-xs text-muted-foreground">your request pending</span>
+      )}
+      {isAdmin && p.status === "rented" && (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => onReturn(p.tag, p._id)}
+        >
+          <RotateCcw className="size-4" /> Return
+        </Button>
+      )}
+      {!isAdmin && myActive && p.status === "rented" && (
+        <span className="text-xs text-muted-foreground">with you</span>
+      )}
+      {isAdmin && (
+        <Button size="sm" variant="ghost" onClick={() => setEditOpen(true)} title="Edit this unit">
+          <Pencil className="size-3.5" />
+        </Button>
+      )}
+      {editOpen && (
+        <UnitEditDialog
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          units={[p]}
+          groups={groupsIndex ?? []}
+          activeProjects={activeProjects}
+        />
+      )}
+    </li>
+  );
+}
+
+function cnUnitRow(selected: boolean) {
+  return `flex flex-wrap items-center gap-3 px-4 py-3${selected ? " bg-primary/5" : ""}`;
 }

@@ -5,6 +5,7 @@ import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { useSound } from "@/hooks/use-sound";
 import { AppShell } from "@/components/AppShell";
+import { NavArrows } from "@/components/NavArrows";
 import { QrChip } from "@/components/QrChip";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -44,6 +45,11 @@ export default function PartDetail() {
   const isAdmin = user?.role === "admin";
   const part = useQuery(api.parts.getPart, id ? { id: id as any } : "skip");
   const group = useQuery(api.catalog.getGroup, part ? { id: part.groupId } : "skip");
+  // Sibling units for the ← → arrows (same group, sorted by tag).
+  const siblings = useQuery(
+    api.parts.listPartsOfGroup,
+    part ? { groupId: part.groupId } : "skip",
+  );
   const detail = useQuery(api.parts.getPartWithRental, id ? { id: id as any } : "skip");
   const rentals = useQuery(api.parts.listAllRentals, isAdmin ? {} : "skip");
   const myRentals = useQuery(api.parts.listMyRentals, {});
@@ -70,6 +76,9 @@ export default function PartDetail() {
   const [editHolderId, setEditHolderId] = useState<string>("");
   const [editTakenAt, setEditTakenAt] = useState(""); // date, YYYY-MM-DD
   const [editDueAt, setEditDueAt] = useState(""); // date, YYYY-MM-DD
+  // Move this unit into a different group ("" = keep its current group).
+  const [editMoveGroupId, setEditMoveGroupId] = useState("");
+  const allGroups = useQuery(api.catalog.childGroupOptions, editOpen ? {} : "skip");
   const [busy, setBusy] = useState(false);
   // Print-card projection handed to <RentCardDialog/>.
   const [card, setCard] = useState<CardRow | null>(null);
@@ -110,6 +119,8 @@ export default function PartDetail() {
     );
   }
 
+  const siblingIds = (siblings ?? []).map((p) => p._id);
+
   // Weight/length units carry their own amount + minimum in the group's unit.
   const isBulkUnit = group?.measure === "weight" || group?.measure === "length";
   const bulkRemaining = part.amountRemaining !== undefined ? Number(part.amountRemaining) : undefined;
@@ -132,6 +143,11 @@ export default function PartDetail() {
 
   return (
     <AppShell>
+      <NavArrows
+        items={siblingIds}
+        currentId={part._id}
+        onNavigate={(nid) => navigate(`/part/${nid}`)}
+      />
       <div className="flex flex-col gap-6">
         <div>
           <Button variant="ghost" size="sm" onClick={() => navigate(`/group/${part.groupId}`)}>
@@ -175,6 +191,7 @@ export default function PartDetail() {
                   setEditHolderId(part.currentHolderId ?? "");
                   setEditTakenAt(part.rentedAt ? new Date(part.rentedAt).toISOString().slice(0, 10) : "");
                   setEditDueAt(part.dueAt ? new Date(part.dueAt).toISOString().slice(0, 10) : "");
+                  setEditMoveGroupId("");
                   setEditOpen(true);
                 }}
               >
@@ -659,6 +676,26 @@ export default function PartDetail() {
               <Textarea value={editNote} onChange={(e) => setEditNote(e.target.value)} rows={2} />
             </div>
             <div className="grid gap-2">
+              <Label>Move to group</Label>
+              <select
+                className="h-9 rounded-md border bg-background px-3 text-sm"
+                value={editMoveGroupId}
+                onChange={(e) => setEditMoveGroupId(e.target.value)}
+              >
+                <option value="">— Keep in {group?.name ?? "current group"} —</option>
+                {(allGroups ?? [])
+                  .filter((g) => g._id !== part.groupId)
+                  .filter((g) => !g.measure || g.measure === "count")
+                  .map((g) => (
+                    <option key={g._id} value={g._id}>{g.name}</option>
+                  ))}
+              </select>
+              <p className="text-xs text-muted-foreground">
+                The unit keeps its QR tag and history — only its home card
+                changes. Shelf units only (available / broken).
+              </p>
+            </div>
+            <div className="grid gap-2">
               <Label>Unit image URL</Label>
               <Input
                 value={editImageUrl}
@@ -692,6 +729,7 @@ export default function PartDetail() {
                     holderId: wantsHolder ? (editHolderId as any) : null,
                     rentedAt: wantsHolder && editTakenAt ? new Date(editTakenAt).getTime() : null,
                     dueAt: wantsHolder && editDueAt ? new Date(editDueAt).getTime() : null,
+                    moveGroupId: editMoveGroupId ? (editMoveGroupId as any) : undefined,
                   });
                   toast.success("Unit updated");
                   setEditOpen(false);

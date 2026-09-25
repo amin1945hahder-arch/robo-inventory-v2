@@ -797,3 +797,98 @@ export const adjustBulkStock = mutation({
     );
   },
 });
+
+/**
+ * Bulk edit several groups at once from the inventory multi-select. Only the
+ * fields the admin actually changes are applied; per-group QR identity and
+ * names are untouched (name edits stay in the single-group dialog).
+ */
+export const bulkUpdateGroups = mutation({
+  args: {
+    groupIds: v.array(v.id("groups")),
+    categoryId: v.optional(v.id("categories")),
+    closetId: v.optional(v.id("closets")),
+    // Move the whole set inside a container group; null lifts them to top level.
+    parentGroupId: v.optional(v.union(v.id("groups"), v.null())),
+    brand: v.optional(v.string()),
+    model: v.optional(v.string()),
+    datasheetUrl: v.optional(v.string()),
+    imageUrl: v.optional(v.string()),
+  },
+  handler: async (ctx, { groupIds, categoryId, closetId, parentGroupId, brand, model, datasheetUrl, imageUrl }) => {
+    await requireAdmin(ctx);
+    let moved = 0;
+    for (const groupId of groupIds) {
+      const group = await ctx.db.get(groupId);
+      if (!group || group.deleted) continue;
+      const patch: Record<string, unknown> = {};
+      if (categoryId !== undefined && categoryId !== group.categoryId) patch.categoryId = categoryId;
+      if (closetId !== undefined && closetId !== group.closetId) patch.closetId = closetId;
+      if (brand !== undefined) patch.brand = brand.trim() || undefined;
+      if (model !== undefined) patch.model = model.trim() || undefined;
+      if (datasheetUrl !== undefined) patch.datasheetUrl = datasheetUrl.trim() || undefined;
+      if (imageUrl !== undefined) patch.imageUrl = imageUrl.trim() || undefined;
+      if (parentGroupId !== undefined && (parentGroupId ?? null) !== (group.parentGroupId ?? null)) {
+        if (parentGroupId) {
+          if (parentGroupId === groupId) continue; // skip self
+          let cursor: any = await ctx.db.get(parentGroupId);
+          if (!cursor || cursor.deleted || cursor.measure) continue; // skip invalid
+          let depth = 0;
+          let cycle = false;
+          while (cursor?.parentGroupId && depth < 10) {
+            if (cursor.parentGroupId === groupId) { cycle = true; break; }
+            cursor = await ctx.db.get(cursor.parentGroupId);
+            depth += 1;
+          }
+          if (!cycle) {
+            await becomeMasterContainer(ctx, parentGroupId);
+            patch.parentGroupId = parentGroupId;
+            moved += 1;
+          }
+        } else {
+          patch.parentGroupId = undefined;
+          moved += 1;
+        }
+      }
+      if (Object.keys(patch).length > 0) await ctx.db.patch(groupId, patch as any);
+    }
+    return { ok: true, moved };
+  },
+});
+
+/**
+ * Bulk delete several groups at once (inventory multi-select). Same safety
+ * rules as single delete: containers must be emptied first; groups with
+ * units out on rent/projects are skipped and reported back.
+ */
+export const bulkDeleteGroups = mutation({
+  args: { groupIds: v.array(v.id("groups")) },
+  handler: async (ctx, { groupIds }) => {
+    await requireAdmin(ctx);
+    let deleted = 0;
+    const skipped: string[] = [];
+    for (const groupId of groupIds) {
+      const group = await ctx.db.get(groupId);
+      if (!group || group.deleted) continue;
+      if (await hasChildGroups(ctx, groupId)) {
+        skipped.push(`${group.name} (holds groups)`);
+        continue;
+      }
+      const parts = await ctx.db
+        .query("parts")
+        .withIndex("by_group", (q: any) => q.eq("groupId", groupId))
+        .collect();
+      const blocked = parts.some(
+        (p: any) => p.status === "rented" || p.status === "on_project",
+      );
+      if (blocked) {
+        skipped.push(`${group.name} (units out on rent/project)`);
+        continue;
+      }
+      for (const p of parts) await ctx.db.delete((p as any)._id);
+      await ctx.db.delete(groupId);
+      deleted += 1;
+    }
+    return { ok: true, deleted, skipped };
+  },
+});

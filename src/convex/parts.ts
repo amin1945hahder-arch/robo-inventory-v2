@@ -223,11 +223,48 @@ export const updatePart = mutation({
     // dueAt = when it should come back. Optional; "" clears.
     rentedAt: v.optional(v.union(v.number(), v.null())),
     dueAt: v.optional(v.union(v.number(), v.null())),
+    // Move the physical unit into a different group (its QR tag rides along).
+    // Only allowed for units sitting on the shelf (available / broken) — a
+    // rented or on-project unit must be returned/processed first.
+    moveGroupId: v.optional(v.id("groups")),
   },
-  handler: async (ctx, { id, tag, status, note, imageUrl, projectId, holderId, rentedAt, dueAt }) => {
+  handler: async (ctx, { id, tag, status, note, imageUrl, projectId, holderId, rentedAt, dueAt, moveGroupId }) => {
     await requireAdmin(ctx);
-    const part = await ctx.db.get(id);
-    if (!part) throw new Error("Part not found");
+    const currentPart = await ctx.db.get(id);
+    if (!currentPart) throw new Error("Part not found");
+    if (moveGroupId && moveGroupId !== currentPart.groupId) {
+      const target = await ctx.db.get(moveGroupId);
+      if (!target || target.deleted) throw new Error("Target group not found");
+      if (target.measure === "weight" || target.measure === "length") {
+        throw new Error("Weight/length groups track material — use their own add-unit flow");
+      }
+      // Master containers hold groups, not units.
+      const all = await ctx.db
+        .query("groups")
+        .withIndex("by_category")
+        .filter((q) => q.neq(q.field("deleted"), true))
+        .collect();
+      if (all.some((g) => g.parentGroupId === moveGroupId)) {
+        throw new Error("Master containers hold groups, not units — pick a normal group");
+      }
+      if (currentPart.status !== "available" && currentPart.status !== "broken") {
+        throw new Error("Only shelf units (available/broken) can be moved — return it first");
+      }
+      await ctx.db.patch(id, { groupId: moveGroupId });
+      // Re-sync both groups' quantity totals.
+      const recount = async (gid: Id<"groups">) => {
+        const n = (
+          await ctx.db
+            .query("parts")
+            .withIndex("by_group", (q) => q.eq("groupId", gid))
+            .collect()
+        ).length;
+        await ctx.db.patch(gid, { quantityTotal: n });
+      };
+      await recount(currentPart.groupId);
+      await recount(moveGroupId);
+    }
+    const part = currentPart;
     const patch: Record<string, unknown> = {};
     if (tag !== undefined) patch.tag = tag.trim().toUpperCase();
     if (note !== undefined) patch.note = note.trim();

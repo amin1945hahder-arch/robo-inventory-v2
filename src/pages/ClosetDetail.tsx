@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { AppShell } from "@/components/AppShell";
+import { NavArrows } from "@/components/NavArrows";
 import { GroupCard } from "@/components/GroupCard";
 import { GroupFormDialog } from "@/components/GroupFormDialog";
 import { QrChip } from "@/components/QrChip";
@@ -21,6 +22,8 @@ export default function ClosetDetail() {
   const isAdmin = user?.role === "admin";
   const closet = useQuery(api.catalog.getCloset, id ? { id: id as any } : "skip");
   const groups = useQuery(api.catalog.listGroups, id ? { closetId: id as any } : "skip");
+  // Sibling storages for the ← → arrows (alphabetical, same as the list page).
+  const allClosets = useQuery(api.catalog.listClosets, {});
   const stats = useQuery(api.stats.groupStats, {});
   // Full group index so master-container cards can show their contents
   // (outside view = inside view, exactly like the Inventory grid).
@@ -64,6 +67,11 @@ export default function ClosetDetail() {
 
   return (
     <AppShell>
+      <NavArrows
+        items={(allClosets ?? []).map((c) => c._id)}
+        currentId={closet?._id}
+        onNavigate={(nid) => navigate(`/closets/${nid}`)}
+      />
       <div className="flex flex-col gap-6">
         <div>
           <Button variant="ghost" size="sm" onClick={() => navigate("/closets")}>

@@ -276,19 +276,42 @@ export default function ExportStudio() {
   // Printed-card controls (mm)
   const [cardW, setCardW] = useState(60);
   const [cardH, setCardH] = useState(40);
-  // Which table columns the admin wants printed/exported (per dataset, all on
-  // by default — tick them off in the Columns menu).
+  // Which table columns the admin wants printed/exported, in which order
+  // (per dataset): hidden = excluded, order = first-to-last column order.
   const [hiddenCols, setHiddenCols] = useState<Record<string, Set<string>>>({});
+  const [colOrder, setColOrder] = useState<Record<string, string[]>>({});
 
   const allCols = useColumns(dataset);
   const hidden = useMemo(
     () => hiddenCols[dataset] ?? new Set<string>(),
     [hiddenCols, dataset],
   );
+  // Applied order: any keys missing from the saved order (new columns) go to
+  // the end, in their natural definition order.
+  const orderedCols = useMemo(() => {
+    const order = colOrder[dataset];
+    if (!order) return allCols;
+    const known = order
+      .map((k) => allCols.find((c) => c.key === k))
+      .filter((c): c is Col => Boolean(c));
+    const rest = allCols.filter((c) => !order.includes(c.key));
+    return [...known, ...rest];
+  }, [allCols, colOrder, dataset]);
   const cols = useMemo(
-    () => allCols.filter((c) => !hidden.has(c.key)),
-    [allCols, hidden],
+    () => orderedCols.filter((c) => !hidden.has(c.key)),
+    [orderedCols, hidden],
   );
+  const moveCol = (key: string, dir: -1 | 1) => {
+    setColOrder((prev) => {
+      const current = prev[dataset] ?? allCols.map((c) => c.key);
+      const idx = current.indexOf(key);
+      const target = idx + dir;
+      if (idx === -1 || target < 0 || target >= current.length) return prev;
+      const next = [...current];
+      [next[idx], next[target]] = [next[target], next[idx]];
+      return { ...prev, [dataset]: next };
+    });
+  };
   const toggleCol = (key: string) => {
     setHiddenCols((prev) => {
       const next = new Set(prev[dataset] ?? []);
@@ -455,22 +478,57 @@ export default function ExportStudio() {
                 <div className="px-2 py-1.5">
                   <p className="text-xs font-semibold">Columns to show</p>
                   <p className="text-[11px] text-muted-foreground">
-                    Applies to the table sheet, the CSV and the preview.
+                    Tick to include, use the arrows to set the print order.
                   </p>
                 </div>
-                {allCols.map((c) => (
-                  <DropdownMenuCheckboxItem
+                {orderedCols.map((c, i) => (
+                  <div
                     key={c.key}
-                    checked={!hidden.has(c.key)}
-                    onCheckedChange={() => toggleCol(c.key)}
-                    onSelect={(e) => e.preventDefault()}
+                    className="flex items-center gap-1 rounded px-2 py-1 hover:bg-accent/60"
                   >
-                    {c.label}
-                  </DropdownMenuCheckboxItem>
+                    <DropdownMenuCheckboxItem
+                      checked={!hidden.has(c.key)}
+                      onCheckedChange={() => toggleCol(c.key)}
+                      onSelect={(e) => e.preventDefault()}
+                      className="flex-1"
+                    >
+                      {c.label}
+                    </DropdownMenuCheckboxItem>
+                    <div className="flex shrink-0 flex-col">
+                      <button
+                        type="button"
+                        aria-label={`Move ${c.label} up`}
+                        disabled={i === 0}
+                        onClick={() => moveCol(c.key, -1)}
+                        className="flex h-4 w-5 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-30"
+                      >
+                        <ChevronUp className="size-3" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Move ${c.label} down`}
+                        disabled={i === orderedCols.length - 1}
+                        onClick={() => moveCol(c.key, 1)}
+                        className="flex h-4 w-5 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-30"
+                      >
+                        <ChevronDown className="size-3" />
+                      </button>
+                    </div>
+                  </div>
                 ))}
-                <div className="border-t p-1">
+                <div className="flex gap-1 border-t p-1">
                   <Button variant="ghost" size="sm" className="w-full" onClick={restoreCols}>
                     Show all columns
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full"
+                    onClick={() =>
+                      setColOrder((prev) => ({ ...prev, [dataset]: allCols.map((c) => c.key) }))
+                    }
+                  >
+                    Reset order
                   </Button>
                 </div>
               </DropdownMenuContent>
