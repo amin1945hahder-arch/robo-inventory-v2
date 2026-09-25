@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { api } from "./_generated/api";
 import { requireAdmin, requireNonGuest, requireInteractingMember, requireUser, safeImage } from "./lib";
@@ -2364,9 +2364,13 @@ export const deleteRentalRecord = mutation({
         part.status === "on_project" ||
         (part.status === "pending" && rental.status === "pending");
       if (holdsUnit && !alsoFreePart) {
-        throw new Error(
-          "This record still holds the unit (rented / on project / pending). Process a return first, or tick the release option.",
-        );
+        // Typed data payload so the client can offer the release option
+        // instead of showing a dead-end server error.
+        throw new ConvexError({
+          code: "RENTAL_HOLDING_UNIT",
+          partStatus: part.status,
+          message: `This record still holds its unit \u2014 the unit is currently "${part.status}". Process a return first, or tick "Also release the unit".`,
+        });
       }
       if (holdsUnit && alsoFreePart) {
         await ctx.db.patch(part._id, {

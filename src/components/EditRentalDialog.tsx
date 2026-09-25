@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation } from "convex/react";
+import { ConvexError } from "convex/values";
 import { api } from "@/convex/_generated/api";
 import {
   Dialog,
@@ -28,6 +29,12 @@ import { Trash2 } from "lucide-react";
  * note, or delete a mistaken/duplicate record entirely. Deleting a record
  * that still holds its unit requires the explicit "also release the unit"
  * option so live rentals can't vanish silently.
+ *
+ * Editing rules that keep records sane:
+ * - A date the admin explicitly cleared (was set, now blank) is sent as null
+ *   to remove it; a field that was always blank is left untouched.
+ * - The status is only sent when it actually changed — re-sending "returned"
+ *   on an old record must never release a unit that was re-rented since.
  */
 
 const STATUSES = [
@@ -40,6 +47,9 @@ const STATUSES = [
   "canceled",
 ] as const;
 
+/** Record statuses whose unit is (or was) actually held by this record. */
+const HOLDING = new Set(["pending", "approved", "active", "on_project"]);
+
 const pad = (x: number) => String(x).padStart(2, "0");
 
 /** ms timestamp → value for <input type="datetime-local"> (local time). */
@@ -50,7 +60,8 @@ const toLocalInput = (n?: number | null) => {
 };
 
 /** datetime-local value → ms timestamp (null clears the field). */
-const fromLocalInput = (s: string): number | null => (s ? new Date(s).getTime() : null);
+const fromLocalInput = (s: string): number | null =>
+  s ? new Date(s).getTime() : null;
 
 const FIELDS: { key: string; label: string }[] = [
   { key: "requestedAt", label: "Requested at" },
@@ -60,6 +71,29 @@ const FIELDS: { key: string; label: string }[] = [
   { key: "dueAt", label: "Due back at" },
   { key: "pickupAt", label: "Scheduled pickup" },
 ];
+
+/** Server error → human message: strips the "[CONVEX M(fn)] …/Called by
+ *  client" decoration and unwraps ConvexError data payloads. */
+const asMessage = (e: unknown): string => {
+  if (e instanceof ConvexError) {
+    const d = e.data as any;
+    if (typeof d === "string") return d;
+    if (d && typeof d === "object" && typeof d.message === "string") return d.message;
+  }
+  const raw = e instanceof Error ? e.message : "Something went wrong";
+  return raw
+    .replace(/^\[CONVEX [A-Z]+\([^)]*\)\]\s*/, "")
+    .replace(/\s+Called by client\s*$/, "")
+    .trim() || raw;
+};
+
+/** True when the delete guard refused because the record still holds a unit. */
+const releaseNeeded = (e: unknown): boolean => {
+  if (e instanceof ConvexError && (e.data as any)?.code === "RENTAL_HOLDING_UNIT") {
+    return true;
+  }
+  return asMessage(e).includes("holds the unit");
+};
 
 export function EditRentalDialog({
   open,
@@ -74,28 +108,41 @@ export function EditRentalDialog({
   const remove = useMutation(api.parts.deleteRentalRecord);
 
   const [status, setStatus] = useState<string>("pending");
+  const [originalStatus, setOriginalStatus] = useState<string>("pending");
   const [dates, setDates] = useState<Record<string, string>>({});
+  const [pristineDates, setPristineDates] = useState<Record<string, string>>({});
   const [condition, setCondition] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [alsoFree, setAlsoFree] = useState(false);
+  const [deleteHint, setDeleteHint] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (open && rental) {
-      setStatus(rental.status ?? "pending");
-      setDates({
+      const next = {
         requestedAt: toLocalInput(rental.requestedAt),
         decidedAt: toLocalInput(rental.decidedAt),
         pickedUpAt: toLocalInput(rental.pickedUpAt),
         returnedAt: toLocalInput(rental.returnedAt),
         dueAt: toLocalInput(rental.dueAt),
         pickupAt: toLocalInput(rental.pickupAt),
-      });
+      };
+      setStatus(rental.status ?? "pending");
+      setOriginalStatus(rental.status ?? "pending");
+      setDates(next);
+      setPristineDates(next);
       setCondition(rental.conditionReport ?? "");
       setConfirmDelete(false);
       setAlsoFree(false);
+      setDeleteHint(null);
     }
   }, [open, rental]);
+
+  // undefined = untouched (not sent), number = changed value, null = cleared.
+  const changedDate = (key: string): number | null | undefined => {
+    if ((dates[key] ?? "") === (pristineDates[key] ?? "")) return undefined;
+    return fromLocalInput(dates[key] ?? "");
+  };
 
   const save = async () => {
     if (!rental) return;
@@ -103,19 +150,21 @@ export function EditRentalDialog({
     try {
       await update({
         rentalId: rental._id,
-        status: status as any,
-        requestedAt: fromLocalInput(dates.requestedAt ?? ""),
-        decidedAt: fromLocalInput(dates.decidedAt ?? ""),
-        pickedUpAt: fromLocalInput(dates.pickedUpAt ?? ""),
-        returnedAt: fromLocalInput(dates.returnedAt ?? ""),
-        dueAt: fromLocalInput(dates.dueAt ?? ""),
-        pickupAt: fromLocalInput(dates.pickupAt ?? ""),
+        // Only send the status when it changed — re-sending "returned" on an
+        // old record would release a unit that may have been re-rented since.
+        ...(status !== originalStatus ? { status: status as any } : {}),
+        requestedAt: changedDate("requestedAt"),
+        decidedAt: changedDate("decidedAt"),
+        pickedUpAt: changedDate("pickedUpAt"),
+        returnedAt: changedDate("returnedAt"),
+        dueAt: changedDate("dueAt"),
+        pickupAt: changedDate("pickupAt"),
         conditionReport: condition,
       });
       toast.success("Rental record updated");
       onOpenChange(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }
@@ -126,17 +175,34 @@ export function EditRentalDialog({
     setBusy(true);
     try {
       await remove({ rentalId: rental._id, alsoFreePart: alsoFree || undefined });
-      toast.success("Rental record deleted");
+      toast.success(
+        alsoFree
+          ? "Record deleted — unit released back to the shelf"
+          : "Rental record deleted",
+      );
       onOpenChange(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
-      setAlsoFree(true);
+      if (releaseNeeded(e)) {
+        // The guard refused: the record still holds its unit. Pre-tick the
+        // release option so the retry is one click instead of a dead end.
+        setAlsoFree(true);
+        setDeleteHint(
+          "The unit is still marked rented / on project / pending in inventory. “Also release the unit” is now ticked — press Delete again to free it.",
+        );
+      } else {
+        toast.error(asMessage(e));
+      }
     } finally {
       setBusy(false);
     }
   };
 
-  const holdsUnit = rental && (rental.status === "active" || rental.status === "pending" || rental.status === "approved");
+  const holdsUnit = rental && HOLDING.has(rental.status);
+  // Moving a live record to returned/canceled releases the held unit on save.
+  const releasingOnSave =
+    originalStatus !== status &&
+    (originalStatus === "active" || originalStatus === "on_project") &&
+    (status === "returned" || status === "canceled");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -155,9 +221,11 @@ export function EditRentalDialog({
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">
-              Changing a live "active" record to returned/canceled also frees the unit.
-            </p>
+            {releasingOnSave && (
+              <p className="text-xs font-medium text-amber-500">
+                Saving this also releases the unit back to the shelf.
+              </p>
+            )}
           </div>
 
           <div className="grid gap-3">
@@ -175,7 +243,7 @@ export function EditRentalDialog({
               </div>
             ))}
             <p className="text-xs text-muted-foreground">
-              Clear a date to remove it; saving keeps everything else untouched.
+              Clear a date to remove it; fields you never touch stay untouched.
             </p>
           </div>
 
@@ -199,6 +267,11 @@ export function EditRentalDialog({
                   <Checkbox checked={alsoFree} onCheckedChange={(v) => setAlsoFree(Boolean(v))} />
                   Also release the unit (mark it available)
                 </label>
+              )}
+              {deleteHint && (
+                <p className="mt-2 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-500">
+                  {deleteHint}
+                </p>
               )}
               <div className="mt-2 flex gap-2">
                 <Button size="sm" variant="outline" onClick={() => setConfirmDelete(false)}>

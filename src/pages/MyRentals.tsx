@@ -7,6 +7,7 @@ import { useSound } from "@/hooks/use-sound";
 import { AppShell } from "@/components/AppShell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { RentCardDialog, type CardRow } from "@/components/RentCardDialog";
+import { EditRentalDialog } from "@/components/EditRentalDialog";
 import { PackageBuilderDialog } from "@/components/PackageBuilderDialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -14,6 +15,7 @@ import { Boxes, Loader2, PackageSearch, Pencil, Printer, RotateCcw, X } from "lu
 
 export default function MyRentals() {
   const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const rentals = useQuery(api.parts.listMyRentals, {});
   const packages = useQuery(api.parts.listPackages, {});
   const cooldownHours = useQuery(api.settings.getReturnCooldown, {});
@@ -25,6 +27,7 @@ export default function MyRentals() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [card, setCard] = useState<{ row: any; tag: string; groupName: string } | null>(null);
   const [editPkgId, setEditPkgId] = useState<string | null>(null);
+  const [editRentalFor, setEditRentalFor] = useState<any>(null);
 
   const groups: { title: string; statuses: string[] }[] = [
     { title: "Awaiting approval", statuses: ["pending"] },
@@ -181,6 +184,17 @@ export default function MyRentals() {
                                     {u.tag}
                                   </Link>
                                   <StatusBadge status={u.status} />
+                                  {isAdmin && (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-5 px-1.5 text-[10px]"
+                                      title="Edit or delete this record"
+                                      onClick={() => setEditRentalFor({ ...u, _id: u.rentalId })}
+                                    >
+                                      <Pencil className="size-3" />
+                                    </Button>
+                                  )}
                                   {u.rentBroken && (
                                     <span className="rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-rose-400">
                                       rented as broken
@@ -236,6 +250,16 @@ export default function MyRentals() {
                           </p>
                         </div>
                         <StatusBadge status={rental.status} />
+                        {isAdmin && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            title="Edit or delete this record"
+                            onClick={() => setEditRentalFor(rental)}
+                          >
+                            <Pencil className="size-4" />
+                          </Button>
+                        )}
                         {rental.status === "pending" && (
                           <Button
                             size="sm"
@@ -332,6 +356,14 @@ export default function MyRentals() {
             projectName: card.row.projectName,
           } as CardRow}
           onClose={() => setCard(null)}
+        />
+      )}
+
+      {editRentalFor && (
+        <EditRentalDialog
+          open={Boolean(editRentalFor)}
+          onOpenChange={(v) => !v && setEditRentalFor(null)}
+          rental={editRentalFor}
         />
       )}
 

@@ -27,7 +27,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Award, Boxes, Check, PackagePlus, Pencil, Printer, RotateCcw, ScanLine, X } from "lucide-react";
+import { Award, Boxes, Check, PackagePlus, Printer, RotateCcw, ScanLine, SquarePen, X } from "lucide-react";
 import { EditRentalDialog } from "@/components/EditRentalDialog";
 import {
   DocAttachmentField,
@@ -436,7 +436,15 @@ export default function AdminRequests() {
                           onClick={() => setEditRentalFor(row.rental)}
                           title="Edit or delete this record"
                         >
-                          <Pencil className="size-4" />
+                          <SquarePen className="size-4" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setEditRentalFor(row.rental)}
+                          title="Edit or delete this record"
+                        >
+                          <SquarePen className="size-4" />
                         </Button>
                         <Button
                           size="sm"
@@ -506,11 +514,15 @@ export default function AdminRequests() {
                     </div>
                     <ul className="mt-3 flex flex-wrap gap-1.5 border-t pt-3">
                       {row.units.map((u: any) => (
-                        <li
-                          key={u.rentalId}
-                          className="rounded border px-2 py-1 font-mono text-[11px] text-muted-foreground"
-                        >
-                          {u.tag ?? "?"}
+                        <li key={u.rentalId}>
+                          <button
+                            type="button"
+                            onClick={() => setEditRentalFor({ ...u, _id: u.rentalId })}
+                            title="Edit or delete this record"
+                            className="rounded border px-2 py-1 font-mono text-[11px] text-muted-foreground transition-colors hover:border-destructive/50 hover:text-destructive"
+                          >
+                            {u.tag ?? "?"}
+                          </button>
                         </li>
                       ))}
                     </ul>
@@ -630,6 +642,17 @@ export default function AdminRequests() {
                                   return asked
                                 </span>
                               )}
+                              {(u.status === "active" || u.status === "on_project") && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 gap-1 px-2 text-[11px]"
+                                  title="Edit or delete this record"
+                                  onClick={() => setEditRentalFor({ ...u, _id: u.rentalId })}
+                                >
+                                  <SquarePen className="size-3.5" />
+                                </Button>
+                              )}
                               {u.status === "active" && (
                                 <Button
                                   size="sm"
@@ -693,6 +716,14 @@ export default function AdminRequests() {
                           )}
                           <Button
                             size="sm"
+                            variant="ghost"
+                            onClick={() => setEditRentalFor(row.rental)}
+                            title="Edit or delete this record"
+                          >
+                            <SquarePen className="size-4" />
+                          </Button>
+                          <Button
+                            size="sm"
                             disabled={busyId === row.rental._id}
                             onClick={async () => {
                               setBusyId(row.rental._id);
@@ -728,7 +759,11 @@ export default function AdminRequests() {
                     key={row.rental._id}
                     row={row as Row}
                     actions={
-                      <Button size="sm" variant="outline" onClick={() => {
+                      <div className="flex items-center gap-2">
+                        <Button size="sm" variant="ghost" onClick={() => setEditRentalFor(row.rental)} title="Edit or delete this record">
+                          <SquarePen className="size-4" />
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => {
                         setReturnFor(row as Row);
                         setDestination("shelf");
                         setFunctional(true);
@@ -749,6 +784,7 @@ export default function AdminRequests() {
                       }}>
                         <RotateCcw className="size-4" /> Process return
                       </Button>
+                      </div>
                     }
                   />
                 ))}
@@ -770,7 +806,12 @@ export default function AdminRequests() {
                     key={row.rental._id}
                     row={row as Row}
                     actions={
-                      <StatusBadge status="on_project" />
+                      <div className="flex items-center gap-2">
+                        <Button size="sm" variant="ghost" onClick={() => setEditRentalFor(row.rental)} title="Edit or delete this record">
+                          <SquarePen className="size-4" />
+                        </Button>
+                        <StatusBadge status="on_project" />
+                      </div>
                     }
                   />
                 ))}
@@ -799,7 +840,7 @@ export default function AdminRequests() {
                           onClick={() => setEditRentalFor(row.rental)}
                           title="Edit or delete this record"
                         >
-                          <Pencil className="size-4" />
+                          <SquarePen className="size-4" />
                         </Button>
                         <StatusBadge status={row.rental.status} />
                       </div>
