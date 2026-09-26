@@ -25,6 +25,8 @@ import {
   UserRound,
 } from "lucide-react";
 import { PersonBadgeDialog } from "@/components/PersonBadgeDialog";
+import QRCodeReact from "react-qr-code";
+import { qrUrl, personQr } from "@/lib/qr";
 
 const fmt = (n?: number) => (n ? new Date(n).toLocaleString() : "—");
 
@@ -133,6 +135,16 @@ export default function PersonCard() {
               {(p.name ?? p.email ?? "?").slice(0, 1).toUpperCase()}
             </AvatarFallback>
           </Avatar>
+          {/* The person's own QR — always visible next to the photo. Scanning
+              it opens this same profile (with the chat/profile popup). */}
+          <div className="flex shrink-0 flex-col items-center gap-1 rounded-lg border bg-white p-1.5">
+            <QRCodeReact
+              value={qrUrl(personQr(p._id))}
+              size={64}
+              style={{ height: "auto", maxWidth: "100%" }}
+            />
+            <span className="font-mono text-[8px] text-neutral-500">scan profile</span>
+          </div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-base font-semibold">{p.name ?? "Unnamed member"}</p>
             <p className="truncate text-xs text-muted-foreground">{p.email}</p>

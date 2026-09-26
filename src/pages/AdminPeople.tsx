@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
@@ -169,6 +170,7 @@ function PersonRow({
 }) {  const { user, activeRentals, pending } = person;
   const isEx = user.membershipStatus === "ex";
   const age = ageFromIso(user.dateOfBirth);
+  const navigate = useNavigate();
   return (
     <li className={`flex flex-wrap items-center gap-3 px-4 py-3 ${isEx ? "opacity-60" : ""}`}>
       <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -180,7 +182,15 @@ function PersonRow({
         </Avatar>
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">
-            {user.name ?? "Unnamed"}
+            {/* Clicking a person opens their full profile (also the QR target). */}
+            <button
+              type="button"
+              className="hover:underline"
+              title="Open profile"
+              onClick={() => navigate(`/person/${user._id}`)}
+            >
+              {user.name ?? "Unnamed"}
+            </button>
             {isMe && <span className="ml-2 text-xs text-muted-foreground">(you)</span>}
             {isEx && (
               <span className="ml-2 rounded-full border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
