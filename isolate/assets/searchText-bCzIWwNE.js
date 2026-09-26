@@ -1,0 +1,1 @@
+function o(e,r){return typeof e=="string"&&e.toLowerCase().includes(r)}function f(e,r,n){const t=r.trim().toLowerCase();if(!t||n!==void 0&&o(n,t))return!0;if(!e)return!1;for(const u of Object.values(e))if(o(u,t))return!0;return!1}export{f as m};
