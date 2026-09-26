@@ -7,7 +7,7 @@ import { telegramDM, telegramGroup, notifyTelegram } from "./notify";
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { planMeasureTake, describePlan } from "../lib/measure-alloc";
-import { sumUnitStock, assertGroupLendable } from "./catalog";
+import { sumUnitStock, assertGroupLendable, containerChainFromIndex } from "./catalog";
 
 /**
  * Per-execution memo for joined docs.
@@ -80,13 +80,23 @@ export const rentalsOfPart = query({
       .withIndex("by_part", (q) => q.eq("partId", partId))
       .collect();
     const cache = docCache();
+    // The unit's group + its container chain (printed on the rent card).
+    const part0 = await ctx.db.get(partId);
+    const group0 = part0 ? await ctx.db.get(part0.groupId) : null;
+    let containerChain = "";
+    if (group0) {
+      const groups = await ctx.db.query("groups").collect();
+      const idx = new Map(groups.map((g) => [g._id, g]));
+      containerChain = containerChainFromIndex(group0, idx);
+    }
     const out = [];
     for (const r of rows.sort((a, b) => b.requestedAt - a.requestedAt)) {
       const student = await cache.get(ctx, r.userId);
       out.push({
         rental: r,
         part: await cache.get(ctx, partId),
-        group: null,
+        group: group0,
+        containerChain,
         student: student
           ? {
               _id: student._id,

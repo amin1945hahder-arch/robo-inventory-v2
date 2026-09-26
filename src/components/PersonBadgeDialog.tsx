@@ -55,7 +55,7 @@ export function PersonBadgeDialog({
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>Member badge</DialogTitle>
         </DialogHeader>
@@ -126,7 +126,7 @@ export function PersonBadgeDialog({
             )}
           </dl>
         </div>
-        <DialogFooter>
+        <DialogFooter className="grid grid-cols-1 gap-2 sm:grid-cols-3 [&>button]:w-full [&>span]:w-full">
           <Button variant="outline" onClick={onClose}>Close</Button>
           <Button
             variant="outline"

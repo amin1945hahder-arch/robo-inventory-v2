@@ -8,6 +8,7 @@ import { AppShell } from "@/components/AppShell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { RentCardDialog, type CardRow } from "@/components/RentCardDialog";
 import { EditRentalDialog } from "@/components/EditRentalDialog";
+import { containerChainOf } from "@/lib/container-chain";
 import { PackageBuilderDialog } from "@/components/PackageBuilderDialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -25,9 +26,16 @@ export default function MyRentals() {
   const returnPkg = useMutation(api.parts.requestPackageReturn);
   const playSound = useSound();
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [card, setCard] = useState<{ row: any; tag: string; groupName: string } | null>(null);
+  const [card, setCard] = useState<{
+    row: any;
+    tag: string;
+    groupName: string;
+    container?: string;
+  } | null>(null);
   const [editPkgId, setEditPkgId] = useState<string | null>(null);
   const [editRentalFor, setEditRentalFor] = useState<any>(null);
+  // Group index for resolving container chains on the admin rent cards.
+  const groupsIndex = useQuery(api.catalog.childGroupOptions, {});
 
   const groups: { title: string; statuses: string[] }[] = [
     { title: "Awaiting approval", statuses: ["pending"] },
@@ -318,6 +326,7 @@ export default function MyRentals() {
                                 row: rental,
                                 tag: part?.tag ?? "—",
                                 groupName: group?.name ?? "Part",
+                                container: containerChainOf(group, groupsIndex ?? []),
                               })
                             }
                           >
@@ -345,6 +354,7 @@ export default function MyRentals() {
             rentalId: card.row._id ?? card.row.rental?._id,
             groupName: card.groupName,
             tag: card.tag,
+            containerChain: card.container || undefined,
             holderName: user?.name ?? user?.email ?? "Member",
             studentId: user?.studentId || undefined,
             statusLabel: card.row.status,

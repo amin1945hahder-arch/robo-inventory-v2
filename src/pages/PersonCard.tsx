@@ -1,26 +1,70 @@
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { AppShell } from "@/components/AppShell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Loader2, MessageCircle, Pencil, UserRound, IdCard } from "lucide-react";
+import {
+  BadgeCheck,
+  FolderKanban,
+  IdCard,
+  Loader2,
+  MessageCircle,
+  Pencil,
+  UserRound,
+} from "lucide-react";
 import { PersonBadgeDialog } from "@/components/PersonBadgeDialog";
 
 const fmt = (n?: number) => (n ? new Date(n).toLocaleString() : "—");
 
-/** Person profile card — opened by scanning a person QR label (person:<id>). */
+type PersonCardData = {
+  person: any;
+  canSeeHistory: boolean;
+  isSelf: boolean;
+  viewerIsAdmin: boolean;
+  projects: {
+    _id: string;
+    name: string;
+    status: string;
+    role: string;
+    center?: string;
+    addedAt?: number;
+    unitsOnProject: number;
+  }[];
+  totalUnitsOnProject: number;
+  rentals: any[];
+};
+
+/** Person profile — opened by scanning a person QR label (person:<id>) or via
+ *  "view profile" on the scan popup. Structured tabs: info, lend records,
+ *  projects, positions. Self and admins see everything; other members get a
+ *  limited public view. */
 export default function PersonCard() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const card = useQuery(api.users.getPersonCard, id ? { userId: id as any } : "skip");
+  const card = useQuery(api.users.getPersonCard, id ? { userId: id as any } : "skip") as
+    | PersonCardData
+    | null
+    | undefined;
 
   const openDm = useMutation(api.chat.openDm);
   const [dmBusy, setDmBusy] = useState(false);
   const [badgeOpen, setBadgeOpen] = useState(false);
+  // Arrived from a fresh QR scan (?scan=1): show the action popup first —
+  // "Chat with" opens a DM, "View profile" reveals the full tabbed profile.
+  const [params] = useSearchParams();
+  const [scanPopup, setScanPopup] = useState(params.get("scan") === "1");
 
   if (card === undefined) {
     return (
@@ -54,6 +98,7 @@ export default function PersonCard() {
   const p = card.person;
   const viewerIsAdmin = card.viewerIsAdmin;
   const isSelf = card.isSelf;
+  const fullView = card.canSeeHistory;
 
   const startChat = async () => {
     setDmBusy(true);
@@ -72,7 +117,7 @@ export default function PersonCard() {
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
         <header className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Member card</h1>
+            <h1 className="text-2xl font-bold tracking-tight">Member profile</h1>
             <p className="mt-1 text-sm text-muted-foreground">Scanned person QR</p>
           </div>
           <Button variant="outline" onClick={() => navigate("/dashboard")}>
@@ -80,8 +125,8 @@ export default function PersonCard() {
           </Button>
         </header>
 
-        {/* Identity */}
-        <section className="flex items-center gap-4 rounded-lg border p-5">
+        {/* Identity header (always visible above the tabs) */}
+        <section className="flex flex-wrap items-center gap-4 rounded-lg border p-5">
           <Avatar className="size-16 border">
             <AvatarImage src={p.image} />
             <AvatarFallback className="text-lg">
@@ -120,80 +165,244 @@ export default function PersonCard() {
                   {r}
                 </span>
               ))}
-              {p.academicState && (
-                <span className="rounded-full bg-muted/60 px-2 py-0.5 text-xs text-muted-foreground">
-                  {p.academicState}
-                </span>
-              )}
-              {p.major && (
-                <span className="rounded-full bg-muted/60 px-2 py-0.5 text-xs text-muted-foreground">
-                  {p.major}
-                </span>
-              )}
             </div>
           </div>
+          {/* Print me: the badge with every info + the person QR. */}
+          <Button variant="outline" onClick={() => setBadgeOpen(true)}>
+            <IdCard className="size-4" /> Badge card
+          </Button>
         </section>
 
-        {/* Details grid */}
-        <section className="grid grid-cols-2 gap-3 text-sm">
-          {p.studentId && (
-            <div className="rounded-lg border p-3">
-              <p className="text-xs text-muted-foreground">Student ID</p>
-              <p className="mt-0.5 font-medium">{p.studentId}</p>
+        {/* Structured profile — everything of this person, per tab. */}
+        <Tabs defaultValue="info">
+          <TabsList className="flex flex-wrap">
+            <TabsTrigger value="info">Info</TabsTrigger>
+            {fullView && <TabsTrigger value="records">Lend records</TabsTrigger>}
+            {fullView && <TabsTrigger value="projects">Projects</TabsTrigger>}
+            {fullView && <TabsTrigger value="positions">Positions</TabsTrigger>}
+          </TabsList>
+
+          {/* ---- Info ---- */}
+          <TabsContent value="info" className="mt-4">
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              {p.studentId && (
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Student ID</p>
+                  <p className="mt-0.5 font-medium">{p.studentId}</p>
+                </div>
+              )}
+              {p.studentCode && (
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Club code</p>
+                  <p className="mt-0.5 font-mono">{p.studentCode}</p>
+                </div>
+              )}
+              {p.phone && (
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Phone</p>
+                  <p className="mt-0.5 font-medium">{p.phone}</p>
+                </div>
+              )}
+              {p.telegramUsername && (
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Telegram</p>
+                  <p className="mt-0.5 font-medium">@{p.telegramUsername}</p>
+                </div>
+              )}
+              {p.githubUrl && (
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">GitHub</p>
+                  <a
+                    href={p.githubUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-0.5 block truncate font-medium text-primary hover:underline"
+                  >
+                    {p.githubUrl.replace(/^https?:\/\/(www\.)?/, "")}
+                  </a>
+                </div>
+              )}
+              {p.dateOfBirth && (
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Age</p>
+                  <p className="mt-0.5 font-medium">
+                    {Math.floor((Date.now() - new Date(p.dateOfBirth).getTime()) / 3.15576e10)} yrs
+                  </p>
+                </div>
+              )}
+              {p.academicState && (
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Academic state</p>
+                  <p className="mt-0.5 font-medium">{p.academicState}</p>
+                </div>
+              )}
+              {p.major && (
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Major</p>
+                  <p className="mt-0.5 font-medium">{p.major}</p>
+                </div>
+              )}
+              {p.printerRole && (
+                <div className="rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Printer access</p>
+                  <p className="mt-0.5 font-medium">Granted</p>
+                </div>
+              )}
             </div>
-          )}
-          {p.studentCode && (
-            <div className="rounded-lg border p-3">
-              <p className="text-xs text-muted-foreground">Club code</p>
-              <p className="mt-0.5 font-mono">{p.studentCode}</p>
-            </div>
-          )}
-          {p.phone && (
-            <div className="rounded-lg border p-3">
-              <p className="text-xs text-muted-foreground">Phone</p>
-              <p className="mt-0.5 font-medium">{p.phone}</p>
-            </div>
-          )}
-          {p.telegramUsername && (
-            <div className="rounded-lg border p-3">
-              <p className="text-xs text-muted-foreground">Telegram</p>
-              <p className="mt-0.5 font-medium">@{p.telegramUsername}</p>
-            </div>
-          )}
-          {p.githubUrl && (
-            <div className="rounded-lg border p-3">
-              <p className="text-xs text-muted-foreground">GitHub</p>
-              <a
-                href={p.githubUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-0.5 block truncate font-medium text-primary hover:underline"
-              >
-                {p.githubUrl.replace(/^https?:\/\/(www\.)?/, "")}
-              </a>
-            </div>
-          )}
-          {p.dateOfBirth && (
-            <div className="rounded-lg border p-3">
-              <p className="text-xs text-muted-foreground">Age</p>
-              <p className="mt-0.5 font-medium">
-                {Math.floor((Date.now() - new Date(p.dateOfBirth).getTime()) / 3.15576e10)} yrs
+            {!fullView && (
+              <p className="mt-3 rounded-lg border border-dashed px-4 py-3 text-xs text-muted-foreground">
+                Records and projects are visible to the member and to admins only.
               </p>
-            </div>
+            )}
+          </TabsContent>
+
+          {/* ---- Lend records ---- */}
+          {fullView && (
+            <TabsContent value="records" className="mt-4">
+              {card.rentals.length === 0 ? (
+                <p className="rounded-lg border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
+                  No rentals yet.
+                </p>
+              ) : (
+                <ul className="divide-y rounded-lg border text-sm">
+                  {card.rentals.map((r: any) => (
+                    <li key={r._id} className="flex items-center justify-between gap-3 px-4 py-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-medium">
+                          {r.groupName}{" "}
+                          <span className="font-mono text-xs text-muted-foreground">
+                            ({r.partTag})
+                          </span>
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {fmt(r.requestedAt)}
+                          {r.returnedAt ? ` · returned ${fmt(r.returnedAt)}` : ""}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {r.partId && (
+                          <Link
+                            to={`/part/${r.partId}`}
+                            className="text-xs text-primary hover:underline"
+                          >
+                            Unit
+                          </Link>
+                        )}
+                        <StatusBadge status={r.status} />
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </TabsContent>
           )}
-        </section>
+
+          {/* ---- Projects ---- */}
+          {fullView && (
+            <TabsContent value="projects" className="mt-4">
+              {card.projects.length === 0 ? (
+                <p className="rounded-lg border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
+                  Not on any project team.
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-2">
+                  {card.projects.map((pr) => (
+                    <li
+                      key={pr._id}
+                      className="flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3"
+                    >
+                      <FolderKanban className="size-4 shrink-0 text-violet-400" />
+                      <div className="min-w-0 flex-1">
+                        <Link
+                          to={`/projects/${pr._id}`}
+                          className="truncate text-sm font-medium hover:underline"
+                        >
+                          {pr.name}
+                        </Link>
+                        <p className="text-xs text-muted-foreground">
+                          {pr.role === "leader" ? "Team leader" : "Member"}
+                          {pr.center ? ` · ${pr.center}` : ""}
+                          {pr.unitsOnProject > 0 ? ` · ${pr.unitsOnProject} unit(s) checked out` : ""}
+                          {pr.addedAt ? ` · joined ${new Date(pr.addedAt).toLocaleDateString()}` : ""}
+                        </p>
+                      </div>
+                      <StatusBadge status={pr.status === "active" ? "active" : pr.status} />
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {card.totalUnitsOnProject > 0 && (
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Currently holds {card.totalUnitsOnProject} unit(s) from the inventory.
+                </p>
+              )}
+            </TabsContent>
+          )}
+
+          {/* ---- Positions ---- */}
+          {fullView && (
+            <TabsContent value="positions" className="mt-4">
+              {(p.clubRoles ?? []).length === 0 && !p.academicState && !p.major ? (
+                <p className="rounded-lg border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
+                  No club positions recorded.
+                </p>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {(p.clubRoles ?? []).length > 0 && (
+                    <section className="rounded-lg border p-4">
+                      <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                        Club positions
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {(p.clubRoles ?? []).map((r: string) => (
+                          <span
+                            key={r}
+                            className="flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary"
+                          >
+                            <BadgeCheck className="size-3.5" /> {r}
+                          </span>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                  <section className="grid grid-cols-2 gap-3 text-sm">
+                    {p.academicState && (
+                      <div className="rounded-lg border p-3">
+                        <p className="text-xs text-muted-foreground">Academic state</p>
+                        <p className="mt-0.5 font-medium">{p.academicState}</p>
+                      </div>
+                    )}
+                    {p.major && (
+                      <div className="rounded-lg border p-3">
+                        <p className="text-xs text-muted-foreground">Major</p>
+                        <p className="mt-0.5 font-medium">{p.major}</p>
+                      </div>
+                    )}
+                    {p.studentCode && (
+                      <div className="rounded-lg border p-3">
+                        <p className="text-xs text-muted-foreground">Club code</p>
+                        <p className="mt-0.5 font-mono">{p.studentCode}</p>
+                      </div>
+                    )}
+                  </section>
+                </div>
+              )}
+            </TabsContent>
+          )}
+        </Tabs>
 
         {/* Actions */}
         <section className="flex flex-wrap gap-2">
           {!isSelf && (
             <Button onClick={startChat} disabled={dmBusy}>
-              {dmBusy ? <Loader2 className="size-4 animate-spin" /> : <MessageCircle className="size-4" />}
+              {dmBusy ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <MessageCircle className="size-4" />
+              )}
               Chat
             </Button>
           )}
-          <Button variant="outline" onClick={() => setBadgeOpen(true)}>
-            <IdCard className="size-4" /> Badge card
-          </Button>
           {viewerIsAdmin && (
             <Button variant="outline" onClick={() => navigate("/people")}>
               <Pencil className="size-4" /> Edit in People
@@ -206,41 +415,29 @@ export default function PersonCard() {
           )}
         </section>
 
-        {/* Rental history — self or admin only */}
-        {card.canSeeHistory && (
-          <section className="rounded-lg border">
-            <div className="border-b px-5 py-3">
-              <h2 className="text-sm font-semibold">Rental history</h2>
-            </div>
-            {card.rentals.length === 0 ? (
-              <p className="px-5 py-6 text-sm text-muted-foreground">No rentals yet.</p>
-            ) : (
-              <ul className="divide-y text-sm">
-                {card.rentals.map((r: any) => (
-                  <li key={r._id} className="flex items-center justify-between gap-3 px-5 py-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-medium">
-                        {r.groupName}{" "}
-                        <span className="font-mono text-xs text-muted-foreground">({r.partTag})</span>
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {fmt(r.requestedAt)}
-                        {r.returnedAt ? ` · returned ${fmt(r.returnedAt)}` : ""}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {r.partId && (
-                        <Link to={`/part/${r.partId}`} className="text-xs text-primary hover:underline">
-                          Unit
-                        </Link>
-                      )}
-                      <StatusBadge status={r.status} />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+        {/* Fresh scan: choose chat or the full profile. */}
+        {scanPopup && !isSelf && (
+          <Dialog open onOpenChange={(v) => !v && setScanPopup(false)}>
+            <DialogContent className="sm:max-w-sm">
+              <DialogHeader>
+                <DialogTitle>{p.name ?? "Member"}</DialogTitle>
+                <DialogDescription>You scanned this member's QR code.</DialogDescription>
+              </DialogHeader>
+              <div className="grid grid-cols-2 gap-2">
+                <Button onClick={startChat} disabled={dmBusy}>
+                  {dmBusy ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <MessageCircle className="size-4" />
+                  )}
+                  Chat with
+                </Button>
+                <Button variant="outline" onClick={() => setScanPopup(false)}>
+                  <UserRound className="size-4" /> View profile
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         )}
 
         {badgeOpen && (

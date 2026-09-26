@@ -10,6 +10,7 @@ export type { RentCardData };
 export function buildCardCaption(card: RentCardData, headline: string): string {
   const lines: string[] = [headline, ""];
   lines.push(`🏷 Item: ${card.groupName} (${card.tag})`);
+  if (card.containerChain) lines.push(`📦 Container: ${card.containerChain}`);
   for (const u of card.extraUnits ?? []) lines.push(`   • ${u.groupName} (${u.tag})`);
   lines.push(`👤 Student: ${card.holderName}${card.studentId ? ` · ${card.studentId}` : ""}`);
   if (card.amount !== undefined)

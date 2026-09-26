@@ -21,6 +21,8 @@ export type RentCardData = {
   projectName?: string;
   /** Package rentals list every unit of the bundle on the card itself. */
   extraUnits?: { tag: string; groupName: string }[];
+  /** "Box A > Box B" — where the unit lives (when it is inside containers). */
+  containerChain?: string;
 };
 
 const fmt = (n?: number) => (n ? new Date(n).toLocaleString() : "—");
@@ -66,6 +68,9 @@ export function RentCardSheet({ card }: { card: RentCardData }) {
       <dl className="mt-4 space-y-1.5 text-[13px]">
         <Row k="Student" v={card.holderName} />
         {card.studentId && <Row k="Student ID" v={card.studentId} />}
+        {card.containerChain && (
+          <Row k="Container" v={card.containerChain} />
+        )}
         <Row k="Status" v={card.statusLabel} />
         {card.extraUnits && card.extraUnits.length > 0 && (
           <div className="rounded border border-neutral-200 bg-neutral-50 px-2 py-1.5">

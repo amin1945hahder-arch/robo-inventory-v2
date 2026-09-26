@@ -174,8 +174,13 @@
   }
 }
 
-/* Print only the open QR label dialog when printing labels */
+/* Print only the open QR label dialog when printing labels.
+   Global page margins keep the printed sheet centered on every printer. */
 @media print {
+  @page {
+    size: auto;
+    margin: 0.5in;
+  }
   body * {
     visibility: hidden;
   }
@@ -196,6 +201,13 @@
   }
   [data-qr-label] * {
     color: black !important;
+  }
+}
+
+/* Full-height app shell on mobile browsers with collapsing URL bars. */
+@supports (height: 100dvh) {
+  .h-dvh {
+    height: 100dvh;
   }
 }
 

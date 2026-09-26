@@ -34,14 +34,14 @@ export function RentCardDialog({ r, onClose }: { r: CardRow; onClose: () => void
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Rent card</DialogTitle>
         </DialogHeader>
         <div id="rent-card-sheet" className="overflow-hidden rounded-lg">
           <RentCardSheet card={r} />
         </div>
-        <DialogFooter>
+        <DialogFooter className="grid grid-cols-2 gap-2 sm:grid-cols-2 [&>button]:w-full [&>span]:w-full">
           <Button variant="outline" onClick={onClose}>Close</Button>
           <Button
             variant="outline"

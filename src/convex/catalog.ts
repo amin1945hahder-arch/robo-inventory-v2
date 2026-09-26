@@ -1,5 +1,32 @@
 import { v } from "convex/values";
 import { matchesSearch } from "../lib/searchText";
+
+/** Human name of a group (null-safe, for joins). */
+export async function getGroupNameById(ctx: any, groupId: any): Promise<string | null> {
+  if (!groupId) return null;
+  const g = await ctx.db.get(groupId);
+  return g ? g.name : null;
+}
+
+/**
+ * "Box A > Box B" — the container chain a group sits inside (outermost
+ * first), for printed cards and profile views. `groups` must contain every
+ * non-deleted group (walks up via parentGroupId).
+ */
+export function containerChainFromIndex(
+  group: { parentGroupId?: string | null } | null | undefined,
+  groups: Map<string, any>,
+): string {
+  const parts: string[] = [];
+  let cur = group?.parentGroupId ? groups.get(group.parentGroupId) : null;
+  let depth = 0;
+  while (cur && depth < 10) {
+    parts.unshift(cur.name);
+    cur = cur.parentGroupId ? groups.get(cur.parentGroupId) : null;
+    depth += 1;
+  }
+  return parts.join(" > ");
+}
 import { mutation, query } from "./_generated/server";
 import { requireAdmin, requireInteractingMember, requireNonStudent } from "./lib";
 import { telegramGroup } from "./notify";

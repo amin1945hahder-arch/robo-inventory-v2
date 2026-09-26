@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import type { Doc } from "@/convex/_generated/dataModel";
 import { useAuth } from "@/hooks/use-auth";
 import { useSound } from "@/hooks/use-sound";
 import { AppShell } from "@/components/AppShell";
@@ -83,10 +84,30 @@ export default function PartDetail() {
   const [editDueAt, setEditDueAt] = useState(""); // date, YYYY-MM-DD
   // Move this unit into a different group ("" = keep its current group).
   const [editMoveGroupId, setEditMoveGroupId] = useState("");
-  const allGroups = useQuery(api.catalog.childGroupOptions, editOpen ? {} : "skip");
+  // Full group index: used by the unit editor AND to resolve the container
+  // chain printed on the rent card (needed when the group sits in containers).
+  const allGroups = useQuery(
+    api.catalog.childGroupOptions,
+    editOpen || group?.parentGroupId ? {} : "skip",
+  );
   const [busy, setBusy] = useState(false);
   // Print-card projection handed to <RentCardDialog/>.
   const [card, setCard] = useState<CardRow | null>(null);
+
+  // "Box A > Box B" — shown on the rent card so the unit can be re-shelved.
+  const containerChain = useMemo(() => {
+    if (!group?.parentGroupId) return "";
+    const idx = new Map<string, Doc<"groups">>((allGroups ?? []).map((g) => [g._id, g]));
+    const parts: string[] = [];
+    let cur = idx.get(group.parentGroupId);
+    let depth = 0;
+    while (cur && depth < 10) {
+      parts.unshift(cur.name);
+      cur = cur.parentGroupId ? idx.get(cur.parentGroupId) : undefined;
+      depth += 1;
+    }
+    return parts.join(" > ");
+  }, [group, allGroups]);
 
   const partRentals: RentRow[] = ((rentals ?? []) as RentRow[])
     .filter((r) => r.part?._id === part?._id)
@@ -285,6 +306,7 @@ export default function PartDetail() {
                         rentalId: currentRental._id,
                         groupName: group?.name ?? "Unit",
                         tag: part.tag,
+                        containerChain: containerChain || undefined,
                         holderName: currentRental.holderName,
                         studentId:
                           currentRentRow?.student?.studentId || user?.studentId || undefined,
@@ -563,6 +585,7 @@ export default function PartDetail() {
                                 rentalId: row.rental._id,
                                 groupName: group?.name ?? "Unit",
                                 tag: part.tag,
+                                containerChain: containerChain || undefined,
                                 holderName: row.student?.name ?? row.student?.email ?? "Member",
                                 studentId: row.student?.studentId || undefined,
                                 statusLabel: row.rental.status,

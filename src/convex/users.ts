@@ -441,6 +441,48 @@ export const getPersonCard = query({
       }
     }
 
+    // Full 360° view for the structured profile (self or admin only): the
+    // person's projects (with role/center) and per-project unit counts.
+    let projects: {
+      _id: string;
+      name: string;
+      status: string;
+      role: string;
+      center?: string;
+      addedAt?: number;
+      unitsOnProject: number;
+    }[] = [];
+    let totalUnitsOnProject = 0;
+    if (canSeeHistory) {
+      const memberRows = await ctx.db
+        .query("projectMembers")
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .collect();
+      for (const m of memberRows.sort((a, b) => b.addedAt - a.addedAt)) {
+        const project = await ctx.db.get(m.projectId);
+        if (!project || project.deleted) continue;
+        const checkedOut = await ctx.db
+          .query("parts")
+          .filter((q) => q.eq(q.field("currentProjectId"), m.projectId))
+          .collect();
+        projects.push({
+          _id: project._id,
+          name: project.name,
+          status: project.status,
+          role: m.role,
+          center: m.center,
+          addedAt: m.addedAt,
+          unitsOnProject: checkedOut.length,
+        });
+      }
+      totalUnitsOnProject = (
+        await ctx.db
+          .query("parts")
+          .filter((q) => q.eq(q.field("currentHolderId"), userId))
+          .collect()
+      ).length;
+    }
+
     return {
       person: {
         _id: person._id,
@@ -464,6 +506,8 @@ export const getPersonCard = query({
       canSeeHistory,
       isSelf: me._id === userId,
       viewerIsAdmin: me.role === "admin",
+      projects,
+      totalUnitsOnProject,
       rentals,
     };
   },
