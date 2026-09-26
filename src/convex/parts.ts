@@ -310,6 +310,9 @@ export const updatePart = mutation({
       if (target.measure === "weight" || target.measure === "length") {
         throw new Error("Weight/length groups track material — use their own add-unit flow");
       }
+      if (target.measure === "pack") {
+        throw new Error("Pack groups hold only their own packs — use their Add-unit flow instead");
+      }
       // Master containers hold groups, not units.
       const all = await ctx.db
         .query("groups")

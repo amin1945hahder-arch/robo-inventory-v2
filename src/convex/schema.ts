@@ -68,6 +68,12 @@ const schema = defineSchema(
       // member tunes their own tones in Settings/Profile — sounds are NOT
       // global anymore.
       soundSettings: v.optional(v.string()),
+      // Per-user appearance: which app mode this member prefers — "dark",
+      // "light" or "system" (follow the OS). Everyone picks their own; it
+      // only affects their own devices.
+      appearance: v.optional(
+        v.union(v.literal("dark"), v.literal("light"), v.literal("system")),
+      ),
     })
       .index("email", ["email"]) // index for the email. do not remove or modify
       .index("by_telegram_username", ["telegramUsername"]),

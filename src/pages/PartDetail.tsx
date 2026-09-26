@@ -25,6 +25,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { unitQr } from "@/lib/qr";
+import { describePackSize, isPackGroup } from "@/lib/group-measure";
 import { toast } from "sonner";
 import { ArrowLeft, History, Pencil, Printer, Trash2 } from "lucide-react";
 import { SquarePen } from "lucide-react";
@@ -264,6 +265,9 @@ export default function PartDetail() {
                   : null,
                 isBulkUnit
                   ? ["Minimum kept", bulkLowAt !== undefined ? `${bulkLowAt} ${group?.measureUnit ?? ""}` : "—"]
+                  : null,
+                isPackGroup(group)
+                  ? ["Pack size", describePackSize(group) || "—"]
                   : null,
                 ["Note", part.note ?? "—"],
                 part.status === "rented" && part.rentedAt

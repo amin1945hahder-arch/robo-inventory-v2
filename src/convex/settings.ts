@@ -80,6 +80,32 @@ export const setMySounds = mutation({
   },
 });
 
+// ---- Per-user appearance (app mode) ---------------------------------------
+// Every member picks their own app mode: "dark", "light" or "system" (follow
+// the OS). Stored on the user row so it follows the person across devices.
+
+export type Appearance = "dark" | "light" | "system";
+
+// Read MY OWN appearance setting (any signed-in user). Defaults to dark —
+// the app was designed dark-first.
+export const getMyAppearance = query({
+  args: {},
+  handler: async (ctx): Promise<Appearance> => {
+    const me = await requireUser(ctx);
+    return me.appearance ?? "dark";
+  },
+});
+
+// Save MY OWN appearance setting — never affects anyone else.
+export const setMyAppearance = mutation({
+  args: { value: v.union(v.literal("dark"), v.literal("light"), v.literal("system")) },
+  handler: async (ctx, { value }) => {
+    const me = await requireUser(ctx);
+    await ctx.db.patch(me._id, { appearance: value });
+    return { ok: true };
+  },
+});
+
 // @deprecated legacy global sounds (kept only so old clients don't break).
 export const getSounds = query({
   args: {},

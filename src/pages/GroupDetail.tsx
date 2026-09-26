@@ -23,6 +23,7 @@ import { ReturnDialog } from "@/components/ReturnDialog";
 import { GroupCard } from "@/components/GroupCard";
 import { PackageBuilderDialog } from "@/components/PackageBuilderDialog";
 import { GroupDetailUnits, isBulkGroup, ConsumeBulkDialog } from "@/components/GroupDetailUnits";
+import { describePackSize, isPackGroup } from "@/lib/group-measure";
 import { BulkUnitDialog } from "@/components/BulkUnitDialog";
 import { UnitEditDialog } from "@/components/UnitEditDialog";
 import { GroupFormDialog } from "@/components/GroupFormDialog";
@@ -207,7 +208,9 @@ export default function GroupDetail() {
     try {
       const res = await requestQty({ groupId: group._id, count: qty });
       playSound("rental_request");
-      toast.success(`${res.created} unit(s) requested — the lab admin has been notified`);
+      toast.success(
+        `${res.created} ${isPackGroup(group) ? `pack${res.created > 1 ? "s" : ""}` : `unit${res.created > 1 ? "s" : ""}`} requested — the lab admin has been notified`,
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to send request");
     } finally {
@@ -260,6 +263,11 @@ export default function GroupDetail() {
                 <p className="mt-1 text-sm text-muted-foreground">
                   {[group.brand, group.model].filter(Boolean).join(" · ") || "Component group"}
                 </p>
+                {isPackGroup(group) && (
+                  <p className="mt-1 text-xs font-medium text-primary">
+                    📦 {describePackSize(group)} — packs are lent whole, one QR per pack
+                  </p>
+                )}
               </div>
             </div>
             <div className="flex flex-col items-stretch gap-2 sm:items-end">
@@ -289,7 +297,7 @@ export default function GroupDetail() {
                     }
                   }}
                 >
-                  <PackagePlus className="size-4" /> Add unit
+                  <PackagePlus className="size-4" /> {isPackGroup(group) ? "Add pack" : "Add unit"}
                 </Button>
               )}
               {isAdmin && (
@@ -350,7 +358,9 @@ export default function GroupDetail() {
                       onClick={requestQuantity}
                     >
                       {qtyBusy ? <LoadingGifInline size={18} className="size-4" /> : <Package className="size-4" />}
-                      {availableUnits.length > 0 ? `Request ${qty} unit${qty > 1 ? "s" : ""}` : "No units available"}
+                      {availableUnits.length > 0
+                        ? `Request ${qty} ${isPackGroup(group) ? `pack${qty > 1 ? "s" : ""}` : `unit${qty > 1 ? "s" : ""}`}`
+                        : "No units available"}
                     </Button>
                   </div>
                   <Button
@@ -510,7 +520,11 @@ export default function GroupDetail() {
           {!isBulk && !isMaster && (
           <section className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-sm font-semibold">Units · each with its own QR</h2>
+              <h2 className="text-sm font-semibold">
+                {isPackGroup(group)
+                  ? `Packs · each with its own QR (${describePackSize(group)})`
+                  : "Units · each with its own QR"}
+              </h2>
               <div className="flex items-center gap-2">
                 {isAdmin && selectedUnits.size > 0 && (
                   <>

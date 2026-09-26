@@ -12,16 +12,20 @@ import { toast } from "sonner";
 import {
   Bell,
   Boxes,
+  Check,
   DatabaseBackup,
   FolderTree,
   Hash,
   Loader2,
   MessageSquare,
+  MonitorSmartphone,
+  Moon,
   Pencil,
   Plus,
   Printer,
   Save,
   SendHorizonal,
+  Sun,
   Trash2,
   TriangleAlert,
   Volume2,
@@ -752,6 +756,104 @@ function MySoundsSection() {
 }
 
 /* ========================================================================= */
+/* Per-user appearance (app mode)                                              */
+/* ========================================================================= */
+
+function AppearanceSection() {
+  const cfg = useQuery(api.settings.getMyAppearance, {});
+  const save = useMutation(api.settings.setMyAppearance);
+  const [value, setValue] = useState<"dark" | "light" | "system">("dark");
+  const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    if (cfg !== undefined) setValue(cfg);
+  }, [cfg]);
+
+  const choose = async (next: "dark" | "light" | "system") => {
+    if (pending) return;
+    setPending(true);
+    const prev = value;
+    setValue(next);
+    // Apply immediately for instant feedback (the AppShell hook also applies
+    // it once the DB value round-trips).
+    document.documentElement.classList.toggle(
+      "dark",
+      next === "dark" ||
+        (next === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches),
+    );
+    document.documentElement.style.colorScheme =
+      next === "light" || (next === "system" && !window.matchMedia("(prefers-color-scheme: dark)").matches)
+        ? "light"
+        : "dark";
+    try {
+      await save({ value: next });
+      toast.success(
+        next === "system"
+          ? "App follows your system mode"
+          : next === "dark"
+            ? "Dark mode on for you"
+            : "Light mode on for you",
+      );
+    } catch (e) {
+      setValue(prev);
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const options = [
+    { id: "dark", label: "Dark", icon: Moon, hint: "Neon dark theme" },
+    { id: "light", label: "Light", icon: Sun, hint: "Bright daylight theme" },
+    { id: "system", label: "System", icon: MonitorSmartphone, hint: "Follow my device" },
+  ] as const;
+
+  return (
+    <section className="flex flex-col gap-4 rounded-lg border p-5">
+      <div>
+        <h2 className="flex items-center gap-2 text-sm font-semibold">
+          <MonitorSmartphone className="size-4" /> App mode — my appearance
+        </h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Choose how the app looks for YOU — dark, light, or following your device. Every member has
+          their own setting; it applies on all your devices after sign-in.
+        </p>
+      </div>
+      {cfg === undefined ? (
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <LoadingGifInline size={18} /> Loading your appearance…
+        </p>
+      ) : (
+        <div className="grid gap-2 sm:grid-cols-3">
+          {options.map((o) => (
+            <button
+              key={o.id}
+              type="button"
+              onClick={() => void choose(o.id)}
+              disabled={pending}
+              className={cn(
+                "flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors",
+                value === o.id
+                  ? "border-primary bg-primary/10"
+                  : "hover:border-primary/40 hover:bg-muted/40",
+                pending && "opacity-60",
+              )}
+            >
+              <o.icon className="size-4 text-primary" />
+              <span>
+                <span className="block text-sm font-medium">{o.label}</span>
+                <span className="block text-xs text-muted-foreground">{o.hint}</span>
+              </span>
+              {value === o.id && <Check className="ml-auto size-4 text-primary" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/* ========================================================================= */
 /* Inventory structure: categories & storages                                  */
 /* ========================================================================= */
 
@@ -960,6 +1062,7 @@ type SectionId =
   | "topics-printer"
   | "backup"
   | "sounds"
+  | "appearance"
   | "returns"
   | "structure"
   | "lists"
@@ -972,6 +1075,7 @@ const SECTIONS: { id: SectionId; label: string; icon: typeof Hash; hint: string 
   { id: "topics-printer", label: "Printer topics", icon: Printer, hint: "Print-farm topic routing" },
   { id: "backup", label: "Data backup", icon: DatabaseBackup, hint: "Full .zip to the APP group" },
   { id: "sounds", label: "My sounds", icon: Volume2, hint: "Your personal tones" },
+  { id: "appearance", label: "App mode", icon: MonitorSmartphone, hint: "Dark / light / system" },
   { id: "returns", label: "Return rules", icon: Bell, hint: "Return-request cooldown" },
   { id: "structure", label: "Inventory structure", icon: FolderTree, hint: "Categories & storages" },
   { id: "lists", label: "Club lists", icon: Boxes, hint: "Positions & academic states" },
@@ -1287,6 +1391,7 @@ export default function AdminSettings() {
 
         {/* ===== Per-user sounds ===== */}
         {section === "sounds" && <MySoundsSection />}
+        {section === "appearance" && <AppearanceSection />}
 
         {/* ===== Return-request cooldown ===== */}
         {section === "returns" && (

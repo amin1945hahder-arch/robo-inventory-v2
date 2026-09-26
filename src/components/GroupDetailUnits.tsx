@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { unitQr } from "@/lib/qr";
+import { describePackSize, isPackGroup } from "@/lib/group-measure";
 import { Link } from "react-router";
 import { Beaker, PackageOpen, Pencil } from "lucide-react";
 import { toast } from "sonner";
@@ -187,7 +188,9 @@ export function GroupDetailUnits({
     <section className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold">
-          Units · {units.length} reel{units.length === 1 ? "" : "s"}/spool{units.length === 1 ? "" : "s"}, each with its own QR
+          {isPackGroup(group)
+            ? `Packs · ${units.length}, each with its own QR (${describePackSize(group)})`
+            : `Units · ${units.length} reel${units.length === 1 ? "" : "s"}/spool${units.length === 1 ? "" : "s"}, each with its own QR`}
         </h2>
         <p className="text-xs text-muted-foreground">
           {fmtAmount(total)} {unitLabel} total · {fmtAmount(availableTotal)} on the shelf
@@ -199,7 +202,7 @@ export function GroupDetailUnits({
         <p className="text-sm text-muted-foreground">Loading units…</p>
       ) : units.length === 0 ? (
         <p className="rounded-lg border border-dashed px-6 py-10 text-center text-sm text-muted-foreground">
-          No units yet — add the first reel/spool with its amount.
+          {isPackGroup(group) ? "No packs yet — add the first pack." : "No units yet — add the first reel/spool with its amount."}
         </p>
       ) : (
         <ul className="divide-y rounded-lg border">

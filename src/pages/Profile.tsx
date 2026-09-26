@@ -12,8 +12,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ageFromIso, compressImageFile } from "@/lib/utils";
+import { useAppearance } from "@/hooks/use-appearance";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { Camera, Github, IdCard, Loader2, LogOut, Printer, Send, ShieldCheck } from "lucide-react";
+import { Camera, Check, Github, IdCard, Loader2, LogOut, MonitorSmartphone, Moon, Printer, Send, ShieldCheck, Sun } from "lucide-react";
 import { PersonBadgeDialog } from "@/components/PersonBadgeDialog";
 
 // A member can request any of the club positions — the list is admin-editable
@@ -30,6 +32,7 @@ const FALLBACK_ROLES = [
 export default function Profile() {
   const { user, signOut, signIn } = useAuth();
   const navigate = useNavigate();
+  const appearance = useAppearance(user?._id);
   const dbRoles = useQuery(api.clubLists.getList, { key: "clubRoles" });
   const CLUB_ROLES = dbRoles ?? FALLBACK_ROLES;
   const requestChange = useMutation(api.notifications.requestProfileChange);
@@ -442,6 +445,44 @@ export default function Profile() {
               ? "Approval unlocks rentals, requests and packages."
               : "Profile edits are reviewed by the lab admin before they are applied."}
           </p>
+        </section>
+
+        {/* App mode — per-member appearance, mirrors Settings → App mode */}
+        <section className="flex flex-col gap-4 rounded-lg border p-5">
+          <div>
+            <h2 className="flex items-center gap-2 text-sm font-semibold">
+              <MonitorSmartphone className="size-4" /> App mode
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              How the app looks for you — dark, light, or following your device. Only affects your
+              own view.
+            </p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {([
+              { id: "dark", label: "Dark", icon: Moon },
+              { id: "light", label: "Light", icon: Sun },
+              { id: "system", label: "System", icon: MonitorSmartphone },
+            ] as const).map((o) => (
+              <button
+                key={o.id}
+                type="button"
+                onClick={() => void appearance.save({ value: o.id })}
+                className={cn(
+                  "flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors",
+                  appearance.mode === o.id
+                    ? "border-primary bg-primary/10"
+                    : "hover:border-primary/40 hover:bg-muted/40",
+                )}
+              >
+                <o.icon className="size-4 text-primary" />
+                <span className="text-sm font-medium">{o.label}</span>
+                {appearance.mode === o.id && (
+                  <Check className="ml-auto size-4 text-primary" />
+                )}
+              </button>
+            ))}
+          </div>
         </section>
 
         {/* Printer privilege (stacks on any role; admins hold it implicitly) */}

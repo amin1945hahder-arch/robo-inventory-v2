@@ -19,7 +19,9 @@ export type GroupMeasureLite = {
 } | null | undefined;
 
 /** Pack-measured group (whole packs of N pieces each). */
-export function isPackGroup(group: GroupMeasureLite): boolean {
+export function isPackGroup(
+  group: GroupMeasureLite,
+): group is { measure: "pack"; packSize?: number | null } {
   return group?.measure === "pack";
 }
 
@@ -28,7 +30,8 @@ export function isPackGroup(group: GroupMeasureLite): boolean {
  * Packs rent like count units — only their display differs.
  */
 export function isCountFlowGroup(group: GroupMeasureLite): boolean {
-  return !group?.measure || group.measure === "count" || group.measure === "pack";
+  const m = group?.measure;
+  return !m || m === "count" || m === "pack";
 }
 
 /** Bulk material group (weight or length). */

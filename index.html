@@ -12,6 +12,35 @@
 
 <body class="dark">
   <div id="root"></div>
+  <script>
+    // No-flash appearance bootstrap: restore THIS member's last mode before
+    // React mounts (the per-user setting from the DB re-applies right after
+    // sign-in). Keyed by member id, saved by use-appearance.ts.
+    (function () {
+      try {
+        var mode = null;
+        for (var i = 0; i < localStorage.length; i++) {
+          var k = localStorage.key(i);
+          if (k && k.indexOf("roboShelf.appearance.") === 0) {
+            mode = localStorage.getItem(k);
+            break;
+          }
+        }
+        if (mode === "light") {
+          document.body.classList.remove("dark");
+          document.documentElement.style.colorScheme = "light";
+        } else if (mode === "dark" || mode === "system") {
+          if (
+            mode === "system" &&
+            window.matchMedia("(prefers-color-scheme: light)").matches
+          ) {
+            document.body.classList.remove("dark");
+            document.documentElement.style.colorScheme = "light";
+          }
+        }
+      } catch (e) {}
+    })();
+  </script>
   <script type="module" src="/src/main.tsx"></script>
 </body>
 

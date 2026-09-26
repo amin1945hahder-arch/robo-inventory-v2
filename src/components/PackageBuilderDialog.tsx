@@ -32,6 +32,7 @@ import {
   type ScanFilter,
 } from "@/lib/package-scan";
 import { toast } from "sonner";
+import { describePackSize, isPackGroup } from "@/lib/group-measure";
 import { Loader2, Package, Plus, ScanLine, Trash2, X } from "lucide-react";
 
 type Line = PackageLine;
@@ -258,7 +259,8 @@ export function PackageBuilderDialog({
                         const a = availability?.[g._id];
                         return (
                           <SelectItem key={g._id} value={g._id}>
-                            {g.name} · {a ? `${a.available} free` : "…"}
+                            {g.name}
+                            {isPackGroup(g) ? ` (${describePackSize(g)})` : ""} · {a ? `${a.available} free` : "…"}
                           </SelectItem>
                         );
                       })

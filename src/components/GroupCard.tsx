@@ -4,6 +4,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { QrChip } from "@/components/QrChip";
 import { groupQr } from "@/lib/qr";
 import { cn } from "@/lib/utils";
+import { describePackSize, isPackGroup } from "@/lib/group-measure";
 import { Button } from "@/components/ui/button";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { Link } from "react-router";
@@ -152,6 +153,9 @@ function GroupCardBase({
               {group.parentGroupId ? "📦 Container · " : ""}
               {[group.brand, group.model].filter(Boolean).join(" · ") || "—"}
             </p>
+            {isPackGroup(group) && (
+              <p className="mt-0.5 text-xs font-medium text-primary">📦 {describePackSize(group)}</p>
+            )}
           </Link>
           <div className="flex items-center gap-1.5">
             <QrChip payload={groupQr(group._id)} label={group.name} />
@@ -212,7 +216,7 @@ function GroupCardBase({
               <div className="bg-zinc-500/80" style={{ width: `${((s.consumed ?? 0) / total) * 100}%` }} />
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
-              <span><b className="text-foreground">{s.available}</b> available</span>
+              <span><b className="text-foreground">{s.available}</b> {isPackGroup(group) ? "packs available" : "available"}</span>
               <span><b className="text-foreground">{s.rented}</b> rented</span>
               <span><b className="text-foreground">{s.onProject}</b> on project</span>
               <span><b className="text-foreground">{s.broken}</b> broken</span>
