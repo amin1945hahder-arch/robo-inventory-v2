@@ -30,7 +30,9 @@ import { Loader2 } from "lucide-react";
  * Every field starts OFF ("(unchanged)") — only the ones the admin ticks are
  * applied to all selected units, so opening it with several units selected
  * never overwrites anything by accident. Includes "move to a different
- * group": the unit keeps its QR tag but changes its home card.
+ * group", project assignment, and the transferred state with its destination
+ * setting (mutually exclusive with project / holder — a unit is either
+ * transferred away or checked out to a project, never both).
  */
 export function UnitEditDialog({
   open,
@@ -60,6 +62,8 @@ export function UnitEditDialog({
   const [projectId, setProjectId] = useState("");
   const [applyHolder, setApplyHolder] = useState(false);
   const [holderId, setHolderId] = useState("");
+  const [applyTransfer, setApplyTransfer] = useState(false);
+  const [transferName, setTransferName] = useState("");
   const [busy, setBusy] = useState(false);
 
   const many = units.length > 1;
@@ -79,8 +83,28 @@ export function UnitEditDialog({
       setProjectId(u?.currentProjectId ?? "");
       setApplyHolder(false);
       setHolderId(u?.currentHolderId ?? "");
+      setApplyTransfer(false);
+      setTransferName(u?.transferToName ?? "");
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const onStatusChange = (s: string) => {
+    setStatus(s);
+    // A unit is EITHER transferred away OR checked out (project / holder) —
+    // picking one clears the others' selections instead of erroring later.
+    if (s === "transferred" && applyProject) {
+      setApplyProject(false);
+      setProjectId("");
+    }
+    if (s === "transferred" && applyHolder) {
+      setApplyHolder(false);
+      setHolderId("");
+    }
+    if ((s === "on_project" || s === "rented") && applyTransfer) {
+      setApplyTransfer(false);
+      setTransferName("");
+    }
+  };
 
   const submit = async () => {
     if (units.length === 0) return;
@@ -88,8 +112,20 @@ export function UnitEditDialog({
       toast.error("Pick the group to move these units into");
       return;
     }
-    if (applyStatus && applyProject && status !== "on_project") {
-      toast.error("Project assignment sets the status to on_project");
+    if (applyStatus && applyProject && status === "transferred") {
+      toast.error("A transferred unit cannot be on a project");
+      return;
+    }
+    if (applyStatus && applyHolder && status === "transferred") {
+      toast.error("A transferred unit has no holder");
+      return;
+    }
+    if (applyStatus && applyTransfer && status !== "transferred") {
+      toast.error("Transfer details apply only when the status is transferred");
+      return;
+    }
+    if (applyStatus && status === "transferred" && applyTransfer && !transferName.trim()) {
+      toast.error("Enter where the unit was transferred to");
       return;
     }
     setBusy(true);
@@ -97,16 +133,28 @@ export function UnitEditDialog({
     try {
       for (const u of units) {
         try {
+          // Deliberate "wants" logic: a non-transfer status implicitly clears
+          // the transfer destination; "transferred" clears project + holder.
+          const nextTransfer =
+            applyStatus && status === "transferred"
+              ? applyTransfer
+                ? transferName.trim()
+                : u.transferToName ?? ""
+              : "";
           await updatePart({
             id: u._id,
             ...(applyStatus ? { status: status as any } : {}),
             ...(applyNote ? { note } : {}),
             ...(applyMove && moveGroupId ? { moveGroupId: moveGroupId as Id<"groups"> } : {}),
+            // Project and transfer are mutually exclusive.
             ...(applyProject
               ? { projectId: (projectId || null) as Id<"projects"> | null }
-              : {}),
+              : { projectId: null }),
             ...(applyHolder
               ? { holderId: (holderId || null) as Id<"users"> | null }
+              : {}),
+            ...(applyTransfer || nextTransfer !== undefined
+              ? { transferToName: nextTransfer }
               : {}),
           });
           ok += 1;
@@ -144,16 +192,34 @@ export function UnitEditDialog({
             <Checkbox checked={applyStatus} onCheckedChange={(v) => setApplyStatus(Boolean(v))} className="mt-1" />
             <div className="grid flex-1 gap-2">
               <Label className={applyStatus ? "" : "text-muted-foreground"}>Status</Label>
-              <Select value={status} onValueChange={setStatus} disabled={!applyStatus}>
+              <Select value={status} onValueChange={onStatusChange} disabled={!applyStatus}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {["available", "rented", "on_project", "broken", "transferred", "consumed"].map((s) => (
+                  {["available", "rented", "on_project", "transferred", "broken", "consumed"].map((s) => (
                     <SelectItem key={s} value={s}>{s}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
           </div>
+
+          {/* Transferred state: destination + details. Only when the status
+              is transferred (it is mutually exclusive with project/holder). */}
+          {applyStatus && status === "transferred" && (
+            <div className="ml-6 grid gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+              <Label className="text-xs">Transferred to *</Label>
+              <Input
+                value={transferName}
+                onChange={(e) => setTransferName(e.target.value)}
+                placeholder="e.g. Mechatronics dept., a donated school lab…"
+              />
+              <p className="text-xs text-muted-foreground">
+                The unit leaves the circulating inventory and stays on record
+                with this destination. A transferred unit cannot be on a
+                project or rented at the same time.
+              </p>
+            </div>
+          )}
 
           <div className="flex items-start gap-2">
             <Checkbox checked={applyNote} onCheckedChange={(v) => setApplyNote(Boolean(v))} className="mt-1" />
@@ -162,6 +228,49 @@ export function UnitEditDialog({
               <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} disabled={!applyNote} />
             </div>
           </div>
+
+          {/* Project / holder options hide while "transferred" is picked —
+              a unit is either transferred away or checked out, never both. */}
+          {!(applyStatus && status === "transferred") && (
+            <>
+              <div className="flex items-start gap-2">
+                <Checkbox checked={applyProject} onCheckedChange={(v) => setApplyProject(Boolean(v))} className="mt-1" />
+                <div className="grid flex-1 gap-2">
+                  <Label className={applyProject ? "" : "text-muted-foreground"}>Assign to project</Label>
+                  <Select value={projectId || "none"} onValueChange={(v) => setProjectId(v === "none" ? "" : v)} disabled={!applyProject}>
+                    <SelectTrigger><SelectValue placeholder="Project" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">— None (not on a project) —</SelectItem>
+                      {(activeProjects ?? []).map((p) => (
+                        <SelectItem key={p._id} value={p._id}>{p.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Checking the unit out to a project keeps it there until the
+                    project is dismantled.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2">
+                <Checkbox checked={applyHolder} onCheckedChange={(v) => setApplyHolder(Boolean(v))} className="mt-1" />
+                <div className="grid flex-1 gap-2">
+                  <Label className={applyHolder ? "" : "text-muted-foreground"}>Holder (rented to)</Label>
+                  <Input
+                    value={holderId}
+                    onChange={(e) => setHolderId(e.target.value)}
+                    placeholder="Member ID (optional)"
+                    disabled={!applyHolder}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Advanced: paste a member ID to hand the unit over, or clear to
+                    release. Status "rented" needs a holder.
+                  </p>
+                </div>
+              </div>
+            </>
+          )}
 
           <div className="flex items-start gap-2">
             <Checkbox checked={applyMove} onCheckedChange={(v) => setApplyMove(Boolean(v))} className="mt-1" />
@@ -182,43 +291,6 @@ export function UnitEditDialog({
               <p className="text-xs text-muted-foreground">
                 The unit keeps its QR tag and history; only its home card changes.
                 Shelf units only (available / broken).
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-start gap-2">
-            <Checkbox checked={applyProject} onCheckedChange={(v) => setApplyProject(Boolean(v))} className="mt-1" />
-            <div className="grid flex-1 gap-2">
-              <Label className={applyProject ? "" : "text-muted-foreground"}>Assign to project</Label>
-              <Select value={projectId || "none"} onValueChange={(v) => setProjectId(v === "none" ? "" : v)} disabled={!applyProject}>
-                <SelectTrigger><SelectValue placeholder="Project" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">— None (not on a project) —</SelectItem>
-                  {(activeProjects ?? []).map((p) => (
-                    <SelectItem key={p._id} value={p._id}>{p.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Checking the unit out to a project keeps it there until the
-                project is dismantled.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-start gap-2">
-            <Checkbox checked={applyHolder} onCheckedChange={(v) => setApplyHolder(Boolean(v))} className="mt-1" />
-            <div className="grid flex-1 gap-2">
-              <Label className={applyHolder ? "" : "text-muted-foreground"}>Holder (rented to)</Label>
-              <Input
-                value={holderId}
-                onChange={(e) => setHolderId(e.target.value)}
-                placeholder="Member ID (optional)"
-                disabled={!applyHolder}
-              />
-              <p className="text-xs text-muted-foreground">
-                Advanced: paste a member ID to hand the unit over, or clear to
-                release. Status “rented” needs a holder.
               </p>
             </div>
           </div>

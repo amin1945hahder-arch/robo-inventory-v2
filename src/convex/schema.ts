@@ -176,6 +176,10 @@ const schema = defineSchema(
       // started and when it should come back. Cleared on return.
       rentedAt: v.optional(v.number()),
       dueAt: v.optional(v.number()),
+      // "transferred" units: where the unit went (another department, a
+      // donated lab…). Kept on the unit so its card always shows the
+      // destination; cleared when the unit returns to circulation.
+      transferToName: v.optional(v.string()),
       deleted: v.optional(v.boolean()),
     })
       .index("by_group", ["groupId"])

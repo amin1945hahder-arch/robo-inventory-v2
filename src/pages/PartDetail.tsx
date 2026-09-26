@@ -84,6 +84,8 @@ export default function PartDetail() {
   const [editDueAt, setEditDueAt] = useState(""); // date, YYYY-MM-DD
   // Move this unit into a different group ("" = keep its current group).
   const [editMoveGroupId, setEditMoveGroupId] = useState("");
+  // Transferred state: where the unit went (shown only for transferred).
+  const [editTransferName, setEditTransferName] = useState("");
   // Full group index: used by the unit editor AND to resolve the container
   // chain printed on the rent card (needed when the group sits in containers).
   const allGroups = useQuery(
@@ -218,6 +220,7 @@ export default function PartDetail() {
                   setEditTakenAt(part.rentedAt ? new Date(part.rentedAt).toISOString().slice(0, 10) : "");
                   setEditDueAt(part.dueAt ? new Date(part.dueAt).toISOString().slice(0, 10) : "");
                   setEditMoveGroupId("");
+                  setEditTransferName(part.transferToName ?? "");
                   setEditOpen(true);
                 }}
               >
@@ -637,11 +640,29 @@ export default function PartDetail() {
                 value={editStatus}
                 onChange={(e) => setEditStatus(e.target.value)}
               >
-                {["available", "rented", "on_project", "broken", "transferred", "consumed"].map((s) => (
+                {["available", "rented", "on_project", "transferred", "broken", "consumed"].map((s) => (
                   <option key={s} value={s}>{s}</option>
                 ))}
               </select>
             </div>
+            {/* Transferred state: destination settings (mutually exclusive
+                with project / holder — a unit is either transferred away or
+                checked out, never both). */}
+            {editStatus === "transferred" && (
+              <div className="grid gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+                <Label>Transferred to *</Label>
+                <Input
+                  value={editTransferName}
+                  onChange={(e) => setEditTransferName(e.target.value)}
+                  placeholder="e.g. Mechatronics dept., a donated school lab…"
+                />
+                <p className="text-xs text-muted-foreground">
+                  The unit leaves the circulating inventory and stays on record
+                  with this destination. A transferred unit cannot be on a
+                  project or rented at the same time.
+                </p>
+              </div>
+            )}
             <div className="grid gap-2">
               <Label>Assigned project</Label>
               <select
@@ -737,8 +758,9 @@ export default function PartDetail() {
             <Button
               onClick={async () => {
                 try {
-                  const wantsProject = editProjectId !== "";
-                  const wantsHolder = editStatus === "rented";
+                  const isTransfer = editStatus === "transferred";
+                  const wantsProject = !isTransfer && editProjectId !== "";
+                  const wantsHolder = !isTransfer && editStatus === "rented";
                   if (wantsProject && wantsHolder) {
                     toast.error("A unit is either on a project or rented — pick one");
                     return;
@@ -747,14 +769,21 @@ export default function PartDetail() {
                     toast.error("Pick the member who holds the unit");
                     return;
                   }
+                  if (isTransfer && !editTransferName.trim()) {
+                    toast.error("Enter where the unit was transferred to");
+                    return;
+                  }
                   await updatePart({
                     id: part._id,
                     tag: editTag,
                     note: editNote,
                     status: editStatus as any,
                     imageUrl: editImageUrl.trim() || "",
-                    projectId: wantsProject ? (editProjectId as any) : null,
-                    holderId: wantsHolder ? (editHolderId as any) : null,
+                    // Transferred excludes project + holder; leaving the
+                    // transferred state clears the destination too.
+                    projectId: isTransfer ? null : wantsProject ? (editProjectId as any) : null,
+                    holderId: isTransfer ? null : wantsHolder ? (editHolderId as any) : null,
+                    transferToName: isTransfer ? editTransferName.trim() : "",
                     rentedAt: wantsHolder && editTakenAt ? new Date(editTakenAt).getTime() : null,
                     dueAt: wantsHolder && editDueAt ? new Date(editDueAt).getTime() : null,
                     moveGroupId: editMoveGroupId ? (editMoveGroupId as any) : undefined,

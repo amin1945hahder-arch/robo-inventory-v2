@@ -296,8 +296,11 @@ export const updatePart = mutation({
     // Only allowed for units sitting on the shelf (available / broken) — a
     // rented or on-project unit must be returned/processed first.
     moveGroupId: v.optional(v.id("groups")),
+    // Where the unit went when status is "transferred" (another department,
+    // a donated lab…). "" clears. Kept on the ledger row closed by this edit.
+    transferToName: v.optional(v.string()),
   },
-  handler: async (ctx, { id, tag, status, note, imageUrl, projectId, holderId, rentedAt, dueAt, moveGroupId }) => {
+  handler: async (ctx, { id, tag, status, note, imageUrl, projectId, holderId, rentedAt, dueAt, moveGroupId, transferToName }) => {
     await requireAdmin(ctx);
     const currentPart = await ctx.db.get(id);
     if (!currentPart) throw new Error("Part not found");
@@ -342,6 +345,9 @@ export const updatePart = mutation({
     // Lend dates only make sense on a rented unit.
     if (rentedAt !== undefined) patch.rentedAt = rentedAt || undefined;
     if (dueAt !== undefined) patch.dueAt = dueAt || undefined;
+    // Transfer destination only makes sense on a transferred unit; leaving the
+    // status cleans it up automatically.
+    if (transferToName !== undefined) patch.transferToName = transferToName.trim() || undefined;
 
     const wantsProject = projectId !== undefined;
     const wantsHolder = holderId !== undefined;
@@ -429,12 +435,14 @@ export const updatePart = mutation({
         });
       }
     } else {
-      // available / broken / pending: no holder, no project; close any open
-      // rental row unless the status is exactly "pending" (a live request).
+      // available / broken / pending / transferred / consumed: no holder, no
+      // project; close any open rental row unless the status is exactly
+      // "pending" (a live request).
       patch.currentHolderId = undefined;
       patch.currentProjectId = undefined;
       patch.rentedAt = undefined;
       patch.dueAt = undefined;
+      if (nextStatus !== "transferred") patch.transferToName = undefined;
       if (openRental && nextStatus !== "pending") {
         await ctx.db.patch(openRental._id, {
           status: "returned",
@@ -442,6 +450,11 @@ export const updatePart = mutation({
           // Terminal admin edits keep the truth on the ledger too.
           returnDestination:
             nextStatus === "transferred" ? ("transferred" as const) : ("shelf" as const),
+          // Carry the destination name onto the ledger row for transfers.
+          transferToName:
+            nextStatus === "transferred"
+              ? ((patch.transferToName as string | undefined) ?? openRental.transferToName)
+              : undefined,
           returnRequestedAt: undefined,
         });
       }
