@@ -27,8 +27,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Award, Boxes, Check, PackagePlus, Printer, RotateCcw, ScanLine, SquarePen, X } from "lucide-react";
+import { Award, Boxes, Check, IdCard, PackagePlus, Printer, RotateCcw, ScanLine, SquarePen, X } from "lucide-react";
 import { EditRentalDialog } from "@/components/EditRentalDialog";
+import { PersonBadgeDialog, type PersonBadgeData } from "@/components/PersonBadgeDialog";
 import { RentCardDialog, type CardRow } from "@/components/RentCardDialog";
 import { containerChainOf } from "@/lib/container-chain";
 import {
@@ -91,6 +92,18 @@ export default function AdminRequests() {
   const [editRentalFor, setEditRentalFor] = useState<any>(null);
   // Print rent card for any request row.
   const [card, setCard] = useState<CardRow | null>(null);
+  // Member badge card (Ranks / Printer / Profiles tabs).
+  const [badgeFor, setBadgeFor] = useState<PersonBadgeData | null>(null);
+  const badgeOf = (user: any): PersonBadgeData => ({
+    userId: user._id,
+    name: user.name ?? "Member",
+    email: user.email,
+    image: user.image,
+    role: user.role,
+    studentId: user.studentId,
+    clubRoles: user.clubRoles,
+    telegramUsername: user.telegramUsername,
+  });
   // Group index for the container chain printed on the card.
   const groupsIndex = useQuery(api.catalog.childGroupOptions, {});
   const [approvePkgFor, setApprovePkgFor] = useState<{ key: string; unitCount: number } | null>(null);
@@ -924,6 +937,14 @@ export default function AdminRequests() {
                     </div>
                     <Button
                       size="sm"
+                      variant="ghost"
+                      title="Member badge card"
+                      onClick={() => setBadgeFor(badgeOf(user))}
+                    >
+                      <IdCard className="size-4" /> Badge
+                    </Button>
+                    <Button
+                      size="sm"
                       disabled={busyId === request._id}
                       onClick={async () => {
                         setBusyId(request._id);
@@ -983,6 +1004,14 @@ export default function AdminRequests() {
                         requests printer access{request.message ? ` — “${request.message}”` : ""}
                       </p>
                     </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      title="Member badge card"
+                      onClick={() => setBadgeFor(badgeOf(user))}
+                    >
+                      <IdCard className="size-4" /> Badge
+                    </Button>
                     <Button
                       size="sm"
                       disabled={busyId === request._id}
@@ -1045,6 +1074,14 @@ export default function AdminRequests() {
                     </div>
                     <Button
                       size="sm"
+                      variant="ghost"
+                      title="Member badge card"
+                      onClick={() => setBadgeFor(badgeOf(user))}
+                    >
+                      <IdCard className="size-4" /> Badge
+                    </Button>
+                    <Button
+                      size="sm"
                       onClick={async () => {
                         try {
                           await decideProfile({ id: request._id, approve: true });
@@ -1078,6 +1115,10 @@ export default function AdminRequests() {
         </Tabs>
 
         {card && <RentCardDialog r={card} onClose={() => setCard(null)} />}
+
+        {badgeFor && (
+          <PersonBadgeDialog p={badgeFor} onClose={() => setBadgeFor(null)} />
+        )}
 
         {editRentalFor && (
           <EditRentalDialog

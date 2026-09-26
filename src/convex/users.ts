@@ -571,7 +571,17 @@ export const listRankRequests = query({
       out.push({
         request: r,
         user: user
-          ? { name: user.name, email: user.email, image: safeImage(user.image), clubRoles: user.clubRoles, telegramChatId: user.telegramChatId }
+          ? {
+              _id: user._id,
+              name: user.name,
+              email: user.email,
+              image: safeImage(user.image),
+              role: user.role,
+              clubRoles: user.clubRoles,
+              studentId: user.studentId,
+              telegramChatId: user.telegramChatId,
+              telegramUsername: user.telegramUsername,
+            }
           : null,
       });
     }
@@ -674,11 +684,15 @@ export const listPrinterRequests = query({
         request: r,
         user: user
           ? {
+              _id: user._id,
               name: user.name,
               email: user.email,
               image: safeImage(user.image),
               role: user.role,
               printerRole: user.printerRole,
+              studentId: user.studentId,
+              clubRoles: user.clubRoles,
+              telegramUsername: user.telegramUsername,
             }
           : null,
       });

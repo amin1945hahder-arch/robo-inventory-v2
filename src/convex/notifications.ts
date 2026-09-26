@@ -125,7 +125,16 @@ export const listProfileRequests = query({
       out.push({
         request: r,
         user: user
-          ? { name: user.name, email: user.email, image: safeImage(user.image), studentId: user.studentId, phone: user.phone }
+          ? {
+              _id: user._id,
+              name: user.name,
+              email: user.email,
+              image: safeImage(user.image),
+              role: user.role,
+              studentId: user.studentId,
+              phone: user.phone,
+              telegramUsername: user.telegramUsername,
+            }
           : null,
       });
     }
