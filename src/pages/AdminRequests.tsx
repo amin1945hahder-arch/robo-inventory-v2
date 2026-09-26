@@ -29,6 +29,8 @@ import {
 import { toast } from "sonner";
 import { Award, Boxes, Check, PackagePlus, Printer, RotateCcw, ScanLine, SquarePen, X } from "lucide-react";
 import { EditRentalDialog } from "@/components/EditRentalDialog";
+import { RentCardDialog, type CardRow } from "@/components/RentCardDialog";
+import { containerChainOf } from "@/lib/container-chain";
 import {
   DocAttachmentField,
   type AttachedDoc,
@@ -87,6 +89,10 @@ export default function AdminRequests() {
   // Approve flow: pick the pick-up date/time (or reuse a scheduled slot).
   const [approveFor, setApproveFor] = useState<Row | null>(null);
   const [editRentalFor, setEditRentalFor] = useState<any>(null);
+  // Print rent card for any request row.
+  const [card, setCard] = useState<CardRow | null>(null);
+  // Group index for the container chain printed on the card.
+  const groupsIndex = useQuery(api.catalog.childGroupOptions, {});
   const [approvePkgFor, setApprovePkgFor] = useState<{ key: string; unitCount: number } | null>(null);
   const [pickupLocal, setPickupLocal] = useState("");
   const [approveBusy, setApproveBusy] = useState(false);
@@ -314,6 +320,24 @@ export default function AdminRequests() {
     }
   };
 
+  // Build the printable rent-card data for any request row.
+  const cardFor = (row: Row): CardRow => ({
+    rentalId: row.rental._id,
+    groupName: row.group?.name ?? "Part",
+    tag: row.part?.tag ?? "—",
+    containerChain: containerChainOf(row.group, groupsIndex ?? []) || undefined,
+    holderName: row.student?.name ?? row.student?.email ?? "Member",
+    studentId: row.student?.studentId || undefined,
+    statusLabel: row.rental.status,
+    requestedAt: row.rental.requestedAt,
+    decidedAt: row.rental.decidedAt,
+    pickedUpAt: row.rental.pickedUpAt,
+    returnedAt: row.rental.returnedAt,
+    conditionReport: row.rental.conditionReport,
+    amount: row.rental.amount,
+    amountUnit: row.group?.measureUnit,
+  });
+
   const RowCard = ({ row, actions }: { row: Row; actions: React.ReactNode }) => (
     <li className="flex flex-wrap items-center gap-3 px-4 py-3">
       <Avatar className="size-8 shrink-0">
@@ -339,6 +363,14 @@ export default function AdminRequests() {
           </p>
         )}
       </div>
+      <Button
+        size="sm"
+        variant="ghost"
+        title="Print rent card"
+        onClick={() => setCard(cardFor(row))}
+      >
+        <Printer className="size-3.5" /> Card
+      </Button>
       {actions}
     </li>
   );
@@ -642,6 +674,24 @@ export default function AdminRequests() {
                                   return asked
                                 </span>
                               )}
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 gap-1 px-2 text-[11px]"
+                                title="Print rent card"
+                                onClick={() =>
+                                  setCard({
+                                    rentalId: u.rentalId,
+                                    groupName: l.groupName,
+                                    tag: u.tag ?? "—",
+                                    holderName: requester?.name ?? requester?.email ?? "Member",
+                                    studentId: requester?.studentId || undefined,
+                                    statusLabel: u.status,
+                                  })
+                                }
+                              >
+                                <Printer className="size-3" /> Card
+                              </Button>
                               {(u.status === "active" || u.status === "on_project") && (
                                 <Button
                                   size="sm"
@@ -1026,6 +1076,8 @@ export default function AdminRequests() {
             )}
           </TabsContent>
         </Tabs>
+
+        {card && <RentCardDialog r={card} onClose={() => setCard(null)} />}
 
         {editRentalFor && (
           <EditRentalDialog
