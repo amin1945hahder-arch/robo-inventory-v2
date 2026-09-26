@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { LoadingGifInline } from "@/components/LoadingGif";
 import {
   Dialog,
   DialogContent,
@@ -144,7 +145,7 @@ export function PrinterFormDialog({
             Cancel
           </Button>
           <Button onClick={submit} disabled={busy || !name.trim()}>
-            {busy && <Loader2 className="size-4 animate-spin" />} {printer ? "Save changes" : "Add printer"}
+            {busy && <LoadingGifInline size={18} className="size-4" />} {printer ? "Save changes" : "Add printer"}
           </Button>
         </DialogFooter>
       </DialogContent>

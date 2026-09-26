@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { LoadingGifInline } from "@/components/LoadingGif";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { AppShell } from "@/components/AppShell";
@@ -96,7 +97,7 @@ export default function ImportCSV() {
 
         <div className="flex gap-2">
           <Button onClick={run} disabled={busy || !csv.trim()}>
-            {busy ? <Loader2 className="size-4 animate-spin" /> : <FileUp className="size-4" />}
+            {busy ? <LoadingGifInline size={18} className="size-4" /> : <FileUp className="size-4" />}
             {busy ? "Importing…" : "Import CSV"}
           </Button>
           <Button variant="outline" onClick={() => setCsv(SAMPLE)}>

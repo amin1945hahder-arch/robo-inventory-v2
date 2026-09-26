@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { LoadingGifInline } from "@/components/LoadingGif";
 import { Camera, Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -103,7 +104,7 @@ export function PermissionsPrompt() {
             Not now
           </Button>
           <Button onClick={askCamera} disabled={phase === "asking" || phase === "granted"}>
-            {phase === "asking" && <Loader2 className="size-4 animate-spin" />}
+            {phase === "asking" && <LoadingGifInline size={18} className="size-4" />}
             {phase === "granted" ? "You're all set" : "Allow camera"}
           </Button>
         </DialogFooter>

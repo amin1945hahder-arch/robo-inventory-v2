@@ -42,6 +42,13 @@ export async function sumUnitStock(ctx: any, groupId: string): Promise<number> {
   return parts.reduce((s: number, p: any) => s + Number(p.amountRemaining ?? 0), 0);
 }
 
+/** Server-side twin of src/lib/group-measure.ts. */
+export function isCountFlowGroupSrv(group: {
+  measure?: "count" | "weight" | "length" | "pack" | null;
+} | null | undefined): boolean {
+  return !group?.measure || group.measure === "count" || group.measure === "pack";
+}
+
 // ===== Closets =====
 
 export const listClosets = query({
@@ -324,8 +331,15 @@ export const upsertGroup = mutation({
     // Counting mode: discrete units (default), or bulk stock tracked by
     // weight (kg/g) or length (m/cm/mm). Bulk groups skip per-unit tags.
     measure: v.optional(
-      v.union(v.literal("count"), v.literal("weight"), v.literal("length")),
+      v.union(
+        v.literal("count"),
+        v.literal("weight"),
+        v.literal("length"),
+        v.literal("pack"),
+      ),
     ),
+    // "pack" groups: number of pieces inside one pack (≥ 1 integer).
+    packSize: v.optional(v.number()),
     measureUnit: v.optional(v.string()),
     measureStock: v.optional(v.string()),
     measureLowAt: v.optional(v.string()),
@@ -348,8 +362,14 @@ export const upsertGroup = mutation({
       measureUnit,
       measureStock,
       measureLowAt,
+      packSize,
     } = args;
     const isBulk = measure === "weight" || measure === "length";
+    if (measure === "pack") {
+      if (!Number.isFinite(packSize) || packSize! < 1) {
+        throw new Error("Set how many pieces are inside each pack (at least 1)");
+      }
+    }
     if (isBulk) {
       const validUnits: Record<string, string[]> = {
         weight: ["kg", "g"],
@@ -375,8 +395,8 @@ export const upsertGroup = mutation({
       }
       let cursor: any = await ctx.db.get(parentGroupId);
       if (!cursor || cursor.deleted) throw new Error("Container group not found");
-      if (cursor.measure === "weight" || cursor.measure === "length") {
-        throw new Error("Weight/length stock groups hold material, not groups — pick a different container");
+      if (!isCountFlowGroupSrv(cursor)) {
+        throw new Error("Stock groups (weight/length/packs) hold material, not groups — pick a different container");
       }
       let depth = 0;
       while (cursor?.parentGroupId && depth < 10) {
@@ -398,6 +418,7 @@ export const upsertGroup = mutation({
       imageUrl: imageUrl?.trim(),
       quantityTotal: isBulk ? 0 : quantityTotal,
       measure: measure ?? "count",
+      packSize: measure === "pack" ? Math.round(packSize!) : undefined,
       measureUnit: isBulk ? measureUnit : undefined,
       measureStock: isBulk ? String(Number(measureStock)) : undefined,
       measureLowAt: isBulk && measureLowAt?.trim() ? String(Number(measureLowAt)) : undefined,
@@ -466,8 +487,8 @@ export const moveGroupToContainer = mutation({
       }
       let cursor: any = await ctx.db.get(parentGroupId);
       if (!cursor || cursor.deleted) throw new Error("Container group not found");
-      if (cursor.measure === "weight" || cursor.measure === "length") {
-        throw new Error("Weight/length stock groups hold material, not groups — pick a different container");
+      if (!isCountFlowGroupSrv(cursor)) {
+        throw new Error("Stock groups (weight/length/packs) hold material, not groups — pick a different container");
       }
       let depth = 0;
       while (cursor?.parentGroupId && depth < 10) {
@@ -528,6 +549,11 @@ export const addPartToGroup = mutation({
     }
     const isBulk = group.measure === "weight" || group.measure === "length";
     const n = Math.max(1, Math.min(count ?? 1, 50));
+    if (group.measure === "pack") {
+      throw new Error(
+        `Pack groups don't take custom amounts — "Add unit" creates one whole pack of ${group.packSize ?? "?"} pieces`,
+      );
+    }
     if (isBulk && n > 1) {
       throw new Error("Add bulk units one at a time — each holds its own amount");
     }
@@ -730,7 +756,7 @@ export const requestBulkRental = mutation({
     const group = await ctx.db.get(groupId);
     if (!group || group.deleted) throw new Error("Group not found");
     if (group.measure !== "weight" && group.measure !== "length") {
-      throw new Error("This group is counted in units, not by weight/length");
+      throw new Error("This group is counted in units or packs, not by weight/length");
     }
     // Master containers hold groups, not material to lend.
     if (await hasChildGroups(ctx, groupId)) {
@@ -855,7 +881,7 @@ export const bulkUpdateGroups = mutation({
         if (parentGroupId) {
           if (parentGroupId === groupId) continue; // skip self
           let cursor: any = await ctx.db.get(parentGroupId);
-          if (!cursor || cursor.deleted || cursor.measure) continue; // skip invalid
+          if (!cursor || cursor.deleted || !isCountFlowGroupSrv(cursor)) continue; // skip invalid
           let depth = 0;
           let cycle = false;
           while (cursor?.parentGroupId && depth < 10) {

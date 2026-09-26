@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { LoadingGifInline } from "@/components/LoadingGif";
 import {
   Dialog,
   DialogContent,
@@ -300,7 +301,7 @@ export function UnitEditDialog({
             Cancel
           </Button>
           <Button onClick={submit} disabled={busy || units.length === 0}>
-            {busy ? <Loader2 className="size-4 animate-spin" /> : null}
+            {busy ? <LoadingGifInline size={18} className="size-4" /> : null}
             {busy ? "Applying…" : `Apply to ${units.length} unit${units.length === 1 ? "" : "s"}`}
           </Button>
         </DialogFooter>

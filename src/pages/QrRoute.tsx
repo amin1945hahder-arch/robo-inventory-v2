@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useConvexAuth } from "convex/react";
-import { Loader2 } from "lucide-react";
+import { LoadingGif } from "@/components/LoadingGif";
 
 /** Route a printed QR label (`/qr?p=<payload>`) to the right destination. */
 export default function QrRoute() {
@@ -41,8 +41,7 @@ export default function QrRoute() {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-3 text-center">
-      <Loader2 className="size-6 animate-spin text-primary" />
-      <p className="text-sm text-muted-foreground">Opening {payload}…</p>
+      <LoadingGif size={56} label={`Opening ${payload}…`} />
     </div>
   );
 }

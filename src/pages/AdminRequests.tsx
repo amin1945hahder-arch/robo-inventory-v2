@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { AppShell } from "@/components/AppShell";
+import { LoadingGif } from "@/components/LoadingGif";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -462,7 +463,7 @@ export default function AdminRequests() {
               </div>
             )}
             {pendingRowsQ === undefined ? (
-              <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
+              <LoadingGif size={48} label={null} />
             ) : pendingRows.length === 0 && pendingPkgRows.length === 0 ? (
               <p className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
                 No pending requests — all clear ✨
@@ -579,7 +580,7 @@ export default function AdminRequests() {
 
           <TabsContent value="packages" className="mt-4">
             {packages === undefined ? (
-              <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
+              <LoadingGif size={48} label={null} />
             ) : packages.length === 0 ? (
               <p className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
                 No package rentals yet — members bundle multiple items from a group page.
@@ -810,7 +811,7 @@ export default function AdminRequests() {
               </section>
             )}
             {active === undefined ? (
-              <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
+              <LoadingGif size={48} label={null} />
             ) : active.length === 0 && (awaiting?.length ?? 0) === 0 ? (
               <p className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
                 Nothing is out on rental right now.
@@ -857,7 +858,7 @@ export default function AdminRequests() {
 
           <TabsContent value="projects" className="mt-4">
             {onProject === undefined ? (
-              <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
+              <LoadingGif size={48} label={null} />
             ) : onProject.length === 0 ? (
               <p className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
                 No parts are checked out to projects.
@@ -884,7 +885,7 @@ export default function AdminRequests() {
 
           <TabsContent value="history" className="mt-4">
             {history === undefined ? (
-              <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
+              <LoadingGif size={48} label={null} />
             ) : history.length === 0 ? (
               <p className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
                 No completed rentals yet.
@@ -916,7 +917,7 @@ export default function AdminRequests() {
 
           <TabsContent value="ranks" className="mt-4">
             {rankReqs === undefined ? (
-              <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
+              <LoadingGif size={48} label={null} />
             ) : rankReqs.length === 0 ? (
               <p className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
                 No rank requests — members can send them from their profile page.
@@ -986,7 +987,7 @@ export default function AdminRequests() {
 
           <TabsContent value="printers" className="mt-4">
             {printerReqs === undefined ? (
-              <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
+              <LoadingGif size={48} label={null} />
             ) : printerReqs.length === 0 ? (
               <p className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
                 No printer-access requests — members can send them from their profile page.
@@ -1055,7 +1056,7 @@ export default function AdminRequests() {
 
           <TabsContent value="profiles" className="mt-4">
             {profileReqs === undefined ? (
-              <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
+              <LoadingGif size={48} label={null} />
             ) : profileReqs.length === 0 ? (
               <p className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
                 No profile change requests.

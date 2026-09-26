@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { LoadingGifInline } from "@/components/LoadingGif";
 import {
   Dialog,
   DialogContent,
@@ -156,7 +157,7 @@ export function ScheduleJobDialog({
             onClick={submit}
             disabled={busy || !printerId || !filamentId || !weightG || !minutes || overSpool}
           >
-            {busy && <Loader2 className="size-4 animate-spin" />} Add to queue
+            {busy && <LoadingGifInline size={18} className="size-4" />} Add to queue
           </Button>
         </DialogFooter>
       </DialogContent>

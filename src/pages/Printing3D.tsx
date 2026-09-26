@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { LoadingGifInline } from "@/components/LoadingGif";
 import { AppShell } from "@/components/AppShell";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation } from "convex/react";
@@ -855,7 +856,7 @@ export default function Printing3D() {
                   setCompleteJob(null);
                 }}
               >
-                {busy && <Loader2 className="size-4 animate-spin" />} Finish print
+                {busy && <LoadingGifInline size={18} className="size-4" />} Finish print
               </Button>
             </DialogFooter>
           </DialogContent>

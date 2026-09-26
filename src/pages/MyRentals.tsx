@@ -5,6 +5,7 @@ import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { useSound } from "@/hooks/use-sound";
 import { AppShell } from "@/components/AppShell";
+import { LoadingGif } from "@/components/LoadingGif";
 import { StatusBadge } from "@/components/StatusBadge";
 import { RentCardDialog, type CardRow } from "@/components/RentCardDialog";
 import { EditRentalDialog } from "@/components/EditRentalDialog";
@@ -70,7 +71,7 @@ export default function MyRentals() {
         </header>
 
         {rentals === undefined ? (
-          <p className="py-16 text-center text-sm text-muted-foreground">Loading…</p>
+          <LoadingGif size={48} label={null} />
         ) : rentals.length === 0 && (packages ?? []).length === 0 ? (
           <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed px-6 py-16 text-center">
             <PackageSearch className="size-8 text-muted-foreground" />

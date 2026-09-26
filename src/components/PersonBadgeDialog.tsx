@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { LoadingGifInline } from "@/components/LoadingGif";
 import { useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
@@ -147,7 +148,7 @@ export function PersonBadgeDialog({
               }
             }}
           >
-            {busy === "send" ? <Loader2 className="size-4 animate-spin" /> : <SendHorizonal className="size-4" />}
+            {busy === "send" ? <LoadingGifInline size={18} className="size-4" /> : <SendHorizonal className="size-4" />}
             Send to group
           </Button>
           <Button
@@ -166,7 +167,7 @@ export function PersonBadgeDialog({
               }
             }}
           >
-            {busy === "pdf" ? <Loader2 className="size-4 animate-spin" /> : <Printer className="size-4" />}
+            {busy === "pdf" ? <LoadingGifInline size={18} className="size-4" /> : <Printer className="size-4" />}
             Download PDF
           </Button>
         </DialogFooter>

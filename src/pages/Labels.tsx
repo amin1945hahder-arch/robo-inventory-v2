@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { LoadingGifInline } from "@/components/LoadingGif";
 import { useQuery } from "convex/react";
 import QRCode from "react-qr-code";
 import { api } from "@/convex/_generated/api";
@@ -296,7 +297,7 @@ export default function Labels() {
 
         {data === undefined ? (
           <p className="py-16 text-center text-sm text-muted-foreground">
-            <Loader2 className="mr-2 inline size-4 animate-spin" /> Loading labels…
+            <LoadingGifInline size={18} className="mr-2 inline size-4" /> Loading labels…
           </p>
         ) : (
           <div id="print-area" className="flex flex-col gap-6 bg-white p-3 text-black">

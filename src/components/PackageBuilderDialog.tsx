@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { LoadingGifInline } from "@/components/LoadingGif";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
@@ -366,7 +367,7 @@ export function PackageBuilderDialog({
             Cancel
           </Button>
           <Button onClick={submit} disabled={busy || lines.length === 0 || shortages.length > 0}>
-            {busy ? <Loader2 className="size-4 animate-spin" /> : <Package className="size-4" />}
+            {busy ? <LoadingGifInline size={18} className="size-4" /> : <Package className="size-4" />}
             {editPackageId ? "Save changes" : "Send package request"}
           </Button>
         </DialogFooter>

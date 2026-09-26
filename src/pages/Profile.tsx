@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { LoadingGifInline } from "@/components/LoadingGif";
 import { useNavigate } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -232,7 +233,7 @@ export default function Profile() {
               onClick={() => fileRef.current?.click()}
               className="absolute -bottom-1 -right-1 flex size-7 items-center justify-center rounded-full border bg-background text-muted-foreground transition-colors hover:text-foreground"
             >
-              {imgBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Camera className="size-3.5" />}
+              {imgBusy ? <LoadingGifInline size={18} className="size-3.5" /> : <Camera className="size-3.5" />}
             </button>
             <input
               ref={fileRef}
@@ -424,7 +425,7 @@ export default function Profile() {
           </div>
           {locked && !hasData ? (
             <Button onClick={submit} disabled={busy} className="self-start">
-              {busy ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+              {busy ? <LoadingGifInline size={18} className="size-4" /> : <Send className="size-4" />}
               Submit profile for approval
             </Button>
           ) : pendingMine ? (

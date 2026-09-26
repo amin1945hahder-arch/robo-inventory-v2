@@ -58,8 +58,9 @@ export function GroupFormDialog({
   const [datasheetUrl, setDatasheetUrl] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [quantityTotal, setQuantityTotal] = useState("1");
-  // Counting mode: discrete units, or bulk stock (weight/length).
-  const [measure, setMeasure] = useState<"count" | "weight" | "length">("count");
+  // Counting mode: discrete units, packs, or bulk stock (weight/length).
+  const [measure, setMeasure] = useState<"count" | "weight" | "length" | "pack">("count");
+  const [packSize, setPackSize] = useState("40");
   const [measureUnit, setMeasureUnit] = useState("kg");
   const [measureStock, setMeasureStock] = useState("0");
   const [measureLowAt, setMeasureLowAt] = useState("");
@@ -84,6 +85,7 @@ export function GroupFormDialog({
       setImageUrl(group?.imageUrl ?? "");
       setQuantityTotal(String(group?.quantityTotal ?? 1));
       setMeasure(group?.measure ?? "count");
+      setPackSize(group?.packSize ? String(group.packSize) : "40");
       setMeasureUnit(group?.measureUnit ?? "kg");
       setMeasureStock(group?.measureStock ?? "0");
       setMeasureLowAt(group?.measureLowAt ?? "");
@@ -149,6 +151,7 @@ export function GroupFormDialog({
         imageUrl: imageUrl.trim() || undefined,
         quantityTotal: Math.max(1, parseInt(quantityTotal, 10) || 1),
         measure,
+        packSize: measure === "pack" ? Math.max(1, parseInt(packSize, 10) || 1) : undefined,
         measureUnit: measure !== "count" ? measureUnit : undefined,
         measureStock: measure !== "count" ? measureStock : undefined,
         measureLowAt: measure !== "count" ? measureLowAt.trim() || undefined : undefined,
@@ -297,7 +300,7 @@ export function GroupFormDialog({
               <Select
                 value={measure}
                 onValueChange={(v) => {
-                  const next = v as "count" | "weight" | "length";
+                  const next = v as "count" | "weight" | "length" | "pack";
                   setMeasure(next);
                   if (!group) setMeasureUnit(next === "weight" ? "kg" : "m");
                 }}
@@ -307,11 +310,54 @@ export function GroupFormDialog({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="count">🔢 Count (discrete units, each with a QR tag)</SelectItem>
+                  <SelectItem value="pack">📦 Pack (whole packs, e.g. jumper wires — pieces per pack)</SelectItem>
                   <SelectItem value="weight">⚖️ Weight (filament, resin… by kg/g)</SelectItem>
                   <SelectItem value="length">📏 Length (wires, tubes… by m/cm/mm)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+            {measure === "pack" && (
+              <div className="grid gap-3 rounded-lg border border-dashed p-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="grid gap-2">
+                    <Label>Pieces inside each pack</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={packSize}
+                      onChange={(e) => setPackSize(e.target.value)}
+                      disabled={Boolean(group)}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>How many packs</Label>
+                    {group ? (
+                      <Input value={quantityTotal} disabled />
+                    ) : (
+                      <Input
+                        type="number"
+                        min={1}
+                        value={quantityTotal}
+                        onChange={(e) => setQuantityTotal(e.target.value)}
+                      />
+                    )}
+                  </div>
+                </div>
+                {group ? (
+                  <p className="text-xs text-muted-foreground">
+                    Locked — every pack holds {packSize || "…"} pieces. Add/remove whole packs below the
+                    group header instead.
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Every pack gets its own QR tag (JUM-001, JUM-002…) and counts as ONE pack — the
+                    {Number(packSize) > 1 ? ` ${Number(packSize)}` : ""} pieces inside travel with it.
+                    Members request packs, not single pieces.
+                  </p>
+                )}
+              </div>
+            )}
             {measure === "count" ? (
               !group && (
                 <div className="grid gap-2">

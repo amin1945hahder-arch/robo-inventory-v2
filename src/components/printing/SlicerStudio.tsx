@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { LoadingGifInline } from "@/components/LoadingGif";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -719,7 +720,7 @@ export function SlicerStudio({
             <FileUp className="size-3.5" /> Load model
           </Button>
           <Button size="sm" variant="outline" className={railButton} onClick={doSlice} disabled={!ready || slicePhase === "slicing"}>
-            {slicePhase === "slicing" ? <Loader2 className="size-3.5 animate-spin" /> : <Cog className="size-3.5" />}
+            {slicePhase === "slicing" ? <LoadingGifInline size={18} className="size-3.5" /> : <Cog className="size-3.5" />}
             Slice in Kiri
           </Button>
           <Button
@@ -730,7 +731,7 @@ export function SlicerStudio({
             disabled={!sliced || exportJob.phase === "preparing" || exportJob.phase === "requested"}
           >
             {exportJob.phase === "preparing" || exportJob.phase === "requested" ? (
-              <Loader2 className="size-3.5 animate-spin" />
+              <LoadingGifInline size={18} className="size-3.5" />
             ) : (
               <Download className="size-3.5" />
             )}
@@ -786,7 +787,7 @@ export function SlicerStudio({
         <div className="relative min-h-0 overflow-hidden rounded-lg border bg-zinc-950">
           {!ready && (
             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-zinc-950/90 text-zinc-300">
-              <Loader2 className="size-6 animate-spin" />
+              <LoadingGifInline size={24} className="size-6" />
               <p className="text-sm">Loading Kiri:Moto…</p>
               <p className="text-xs text-muted-foreground">
                 All slicing controls live inside the frame — use the panels on its right.
@@ -888,7 +889,7 @@ export function SlicerStudio({
               Cancel
             </Button>
             <Button onClick={submitForApproval} disabled={submitting || !jobName.trim() || !canPrint}>
-              {submitting && <Loader2 className="size-4 animate-spin" />}
+              {submitting && <LoadingGifInline size={18} className="size-4" />}
               <Send className="size-4" /> Send for approval
             </Button>
           </DialogFooter>

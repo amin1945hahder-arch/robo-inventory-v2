@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { LoadingGifInline } from "@/components/LoadingGif";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -91,7 +92,7 @@ function ListEditor({
             </button>
           </span>
         ))}
-        {values === undefined && <Loader2 className="size-4 animate-spin" />}
+        {values === undefined && <LoadingGifInline size={18} className="size-4" />}
       </div>
       <div className="flex max-w-sm gap-2">
         <Input
@@ -192,7 +193,7 @@ function DataBackupSection() {
 
       {backupSettings === undefined ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" /> Loading backup settings…
+          <LoadingGifInline size={18} className="size-4" /> Loading backup settings…
         </p>
       ) : (
         <>
@@ -270,7 +271,7 @@ function DataBackupSection() {
           </div>
 
           <Button className="self-start" disabled={busy} onClick={save}>
-            {busy ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+            {busy ? <LoadingGifInline size={18} className="size-4" /> : <Save className="size-4" />}
             Save backup settings
           </Button>
 
@@ -284,7 +285,7 @@ function DataBackupSection() {
               </div>
               <Button disabled={backingUp} onClick={runBackup}>
                 {backingUp ? (
-                  <Loader2 className="size-4 animate-spin" />
+                  <LoadingGifInline size={18} className="size-4" />
                 ) : (
                   <DatabaseBackup className="size-4" />
                 )}
@@ -365,7 +366,7 @@ function ResetDatabaseCard() {
       </div>
       {stage === "idle" ? (
         <Button variant="destructive" className="self-start" disabled={busy} onClick={requestCode}>
-          {busy ? <Loader2 className="size-4 animate-spin" /> : <TriangleAlert className="size-4" />}
+          {busy ? <LoadingGifInline size={18} className="size-4" /> : <TriangleAlert className="size-4" />}
           Email me a reset code
         </Button>
       ) : (
@@ -397,7 +398,7 @@ function ResetDatabaseCard() {
               disabled={busy || phrase.trim() !== "DELETE ALL" || code.trim().length === 0}
               onClick={confirm}
             >
-              {busy ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+              {busy ? <LoadingGifInline size={18} className="size-4" /> : <Trash2 className="size-4" />}
               Delete everything
             </Button>
             <Button variant="outline" disabled={busy} onClick={() => setStage("idle")}>
@@ -504,7 +505,7 @@ function TopicCard({ topic }: { topic: Topic }) {
                 Cancel
               </Button>
               <Button size="sm" onClick={saveEdits} disabled={busy || !name.trim()}>
-                {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+                {busy ? <LoadingGifInline size={18} className="size-3.5" /> : <Save className="size-3.5" />}
               </Button>
             </>
           ) : (
@@ -594,7 +595,7 @@ function TopicsPanel({ bot }: { bot: BotId }) {
 
       {topics === undefined ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" /> Loading topics…
+          <LoadingGifInline size={18} className="size-4" /> Loading topics…
         </p>
       ) : topics.length === 0 ? (
         <p className="rounded-md border border-dashed px-3 py-4 text-center text-xs text-muted-foreground">
@@ -625,7 +626,7 @@ function TopicsPanel({ bot }: { bot: BotId }) {
         </div>
         <div className="flex items-end">
           <Button disabled={busy || !name.trim() || !threadId.trim()} onClick={add} className="w-full">
-            {busy ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />} Add
+            {busy ? <LoadingGifInline size={18} className="size-4" /> : <Plus className="size-4" />} Add
           </Button>
         </div>
       </div>
@@ -704,7 +705,7 @@ function MySoundsSection() {
 
       {cfg === undefined ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" /> Loading your sound settings…
+          <LoadingGifInline size={18} className="size-4" /> Loading your sound settings…
         </p>
       ) : (
         <div className="grid gap-2">
@@ -822,7 +823,7 @@ function StructureList({
     <div className="grid gap-2">
       {rows === undefined ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" /> Loading…
+          <LoadingGifInline size={18} className="size-4" /> Loading…
         </p>
       ) : rows.length === 0 ? (
         <p className="rounded-md border border-dashed px-3 py-3 text-center text-xs text-muted-foreground">
@@ -851,7 +852,7 @@ function StructureList({
                   disabled={busy || !name.trim() || name.trim() === r.name}
                   onClick={() => save(r)}
                 >
-                  {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+                  {busy ? <LoadingGifInline size={18} className="size-3.5" /> : <Save className="size-3.5" />}
                   Save
                 </Button>
                 <Button size="sm" variant="outline" disabled={busy} onClick={() => setEditingId(null)}>
@@ -1076,7 +1077,7 @@ export default function AdminSettings() {
 
             {tg === undefined ? (
               <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" /> Loading…
+                <LoadingGifInline size={18} className="size-4" /> Loading…
               </p>
             ) : (
               <>

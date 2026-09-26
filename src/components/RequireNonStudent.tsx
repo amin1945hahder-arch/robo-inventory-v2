@@ -1,7 +1,8 @@
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
+import { LoadingGif } from "@/components/LoadingGif";
 import { Link } from "react-router";
-import { Loader2, ShieldAlert } from "lucide-react";
+import { ShieldAlert } from "lucide-react";
 import type { ReactNode } from "react";
 
 /**
@@ -15,7 +16,7 @@ export function RequireNonStudent({ children }: { children: ReactNode }) {
   if (isLoading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-background">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        <LoadingGif size={56} label={null} />
       </main>
     );
   }

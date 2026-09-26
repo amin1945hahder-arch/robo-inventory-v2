@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { LoadingGifInline } from "@/components/LoadingGif";
 import {
   Card,
   CardContent,
@@ -263,7 +264,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                       disabled={isLoading}
                     >
                       {isLoading ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <LoadingGifInline size={18} className="h-4 w-4" />
                       ) : (
                         <ArrowRight className="h-4 w-4" />
                       )}
@@ -336,7 +337,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                   >
                     {isLoading ? (
                       <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        <LoadingGifInline size={18} className="mr-2 h-4 w-4" />
                         Verifying...
                       </>
                     ) : (

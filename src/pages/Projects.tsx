@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { AppShell } from "@/components/AppShell";
+import { LoadingGif } from "@/components/LoadingGif";
 import { QrChip } from "@/components/QrChip";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -126,7 +127,7 @@ export default function Projects() {
         </header>
 
         {projects === undefined ? (
-          <p className="py-16 text-center text-sm text-muted-foreground">Loading…</p>
+          <LoadingGif size={48} label={null} />
         ) : (
           <>
             <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

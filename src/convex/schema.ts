@@ -103,12 +103,21 @@ const schema = defineSchema(
       imageUrl: v.optional(v.string()),
       quantityTotal: v.number(),
       // How this group is counted: "count" = discrete units (default);
-      // "weight" = filament, resin, screws by mass; "length" = wires, tubes.
-      // Weight/length groups don't use per-unit QR tags — the admin logs a
-      // quantity in the group's unit (kg/g or m/cm/mm) and rentals deduct it.
+      // "weight" = filament, resin, screws by mass; "length" = wires, tubes;
+      // "pack" = whole packs of small items (jumper wires), where every pack
+      // is a QR-tagged unit that carries the same number of pieces inside
+      // (groups.packSize). Packs rent/return whole, like count groups.
       measure: v.optional(
-        v.union(v.literal("count"), v.literal("weight"), v.literal("length")),
+        v.union(
+          v.literal("count"),
+          v.literal("weight"),
+          v.literal("length"),
+          v.literal("pack"),
+        ),
       ),
+      // For "pack" groups: how many pieces are inside ONE pack (e.g. 40
+      // jumper wires per pack). Displayed as "40 pieces/pack".
+      packSize: v.optional(v.number()),
       // Display unit for weight/length groups: "kg" | "g" | "m" | "cm" | "mm".
       measureUnit: v.optional(v.string()),
       // For weight/length groups: current stock in `measureUnit` (number as

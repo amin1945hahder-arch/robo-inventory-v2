@@ -5,6 +5,7 @@ import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { useAuth } from "@/hooks/use-auth";
 import { AppShell } from "@/components/AppShell";
+import { LoadingGif } from "@/components/LoadingGif";
 import { QrChip } from "@/components/QrChip";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -135,7 +136,7 @@ export default function Closets() {
         </header>
 
         {closets === undefined ? (
-          <p className="py-16 text-center text-sm text-muted-foreground">Loading…</p>
+          <LoadingGif size={48} label={null} />
         ) : closets.length === 0 ? (
           <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed px-6 py-16 text-center">
             <Warehouse className="size-8 text-muted-foreground" />

@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { AppShell } from "@/components/AppShell";
+import { LoadingGif } from "@/components/LoadingGif";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -521,7 +522,7 @@ export default function AdminPeople() {
         </header>
 
         {people === undefined ? (
-          <p className="py-16 text-center text-sm text-muted-foreground">Loading…</p>
+          <LoadingGif size={48} label={null} />
         ) : people.length === 0 ? (
           <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed px-6 py-16 text-center">
             <Users className="size-8 text-muted-foreground" />

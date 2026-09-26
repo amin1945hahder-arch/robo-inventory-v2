@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { LoadingGifInline } from "@/components/LoadingGif";
 import {
   Dialog,
   DialogContent,
@@ -198,7 +199,7 @@ export function BulkGroupDialog({
             Cancel
           </Button>
           <Button onClick={submit} disabled={busy || groupIds.length === 0}>
-            {busy ? <Loader2 className="size-4 animate-spin" /> : null}
+            {busy ? <LoadingGifInline size={18} className="size-4" /> : null}
             {busy ? "Applying…" : `Apply to ${groupIds.length} group(s)`}
           </Button>
         </DialogFooter>

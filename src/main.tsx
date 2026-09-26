@@ -11,6 +11,7 @@ import React, { StrictMode, useEffect, lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router";
 import "./index.css";
+import { LoadingGif } from "@/components/LoadingGif";
 
 // Lazy load route components for better code splitting
 const Landing = lazy(() => import("./pages/Landing.tsx"));
@@ -40,14 +41,11 @@ const PersonCard = lazy(() => import("./pages/PersonCard.tsx"));
 const Printing3D = lazy(() => import("./pages/Printing3D.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
-// Loading fallback for route transitions (spinner + page shell)
+// Loading fallback for route transitions (the shared animated gif)
 function RouteLoading() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="flex flex-col items-center gap-3">
-        <div className="size-8 animate-spin rounded-full border-2 border-muted-foreground/25 border-t-primary" />
-        <p className="animate-pulse text-sm text-muted-foreground">Loading…</p>
-      </div>
+      <LoadingGif size={64} label="Loading…" />
     </div>
   );
 }

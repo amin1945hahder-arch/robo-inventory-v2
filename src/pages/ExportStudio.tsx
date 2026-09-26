@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { LoadingGifInline } from "@/components/LoadingGif";
 import { useQuery } from "convex/react";
 import QRCode from "react-qr-code";
 import { api } from "@/convex/_generated/api";
@@ -864,7 +865,7 @@ export default function ExportStudio() {
         {/* Live print preview */}
         {raw === undefined ? (
           <p className="py-16 text-center text-sm text-muted-foreground">
-            <Loader2 className="mr-2 inline size-4 animate-spin" /> Loading data…
+            <LoadingGifInline size={18} className="mr-2 inline size-4" /> Loading data…
           </p>
         ) : activeMode === "cards" ? (
           <div

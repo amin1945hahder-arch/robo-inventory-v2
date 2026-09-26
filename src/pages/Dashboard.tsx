@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { AppShell } from "@/components/AppShell";
+import { LoadingGif } from "@/components/LoadingGif";
 import { QrChip } from "@/components/QrChip";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -112,7 +113,7 @@ export default function Dashboard() {
               </Link>
             </div>
             {pending === undefined || my === undefined ? (
-              <p className="px-5 py-6 text-sm text-muted-foreground">Loading…</p>
+              <LoadingGif size={40} label={null} />
             ) : isAdmin && pending.length > 0 ? (
               <ul className="divide-y">
                 {pending.slice(0, 5).map(({ rental, part, group, student }) => (

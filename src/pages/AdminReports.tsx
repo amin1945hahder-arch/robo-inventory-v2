@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import { api } from "@/convex/_generated/api";
 import { AppShell } from "@/components/AppShell";
+import { LoadingGif, LoadingGifInline } from "@/components/LoadingGif";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -163,7 +164,7 @@ export default function AdminReports() {
             Total rental events per component type (all time).
           </p>
           {!stats ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">Loading…</p>
+            <LoadingGif size={48} label={null} />
           ) : stats.topGroups.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">No rental history yet.</p>
           ) : (
@@ -224,7 +225,7 @@ export default function AdminReports() {
 
           {history === undefined ? (
             <p className="py-12 text-center text-sm text-muted-foreground">
-              <Loader2 className="mr-2 inline size-4 animate-spin" /> Loading history…
+              <LoadingGifInline size={18} className="mr-2 inline size-4" /> Loading history…
             </p>
           ) : history.length === 0 ? (
             <p className="rounded-lg border border-dashed px-6 py-14 text-center text-sm text-muted-foreground">

@@ -5,6 +5,7 @@ import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { useSound } from "@/hooks/use-sound";
 import { AppShell } from "@/components/AppShell";
+import { LoadingGif, LoadingGifInline } from "@/components/LoadingGif";
 import { NavArrows } from "@/components/NavArrows";
 import { QrChip } from "@/components/QrChip";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -242,7 +243,7 @@ export default function GroupDetail() {
         onNavigate={(nid) => navigate(`/group/${nid}`)}
       />
       {!group ? (
-        <p className="py-16 text-center text-sm text-muted-foreground">Loading…</p>
+        <LoadingGif size={48} label={null} />
       ) : (
         <div className="flex flex-col gap-6">
           <div>
@@ -320,7 +321,7 @@ export default function GroupDetail() {
                       disabled={isStorageAlias}
                     />
                     <Button disabled={qtyBusy || stock <= 0 || isStorageAlias} onClick={requestBulk}>
-                      {qtyBusy ? <Loader2 className="size-4 animate-spin" /> : <Scale className="size-4" />}
+                      {qtyBusy ? <LoadingGifInline size={18} className="size-4" /> : <Scale className="size-4" />}
                       Request amount
                     </Button>
                   </div>
@@ -348,7 +349,7 @@ export default function GroupDetail() {
                       disabled={availableUnits.length === 0 || qtyBusy || isStorageAlias}
                       onClick={requestQuantity}
                     >
-                      {qtyBusy ? <Loader2 className="size-4 animate-spin" /> : <Package className="size-4" />}
+                      {qtyBusy ? <LoadingGifInline size={18} className="size-4" /> : <Package className="size-4" />}
                       {availableUnits.length > 0 ? `Request ${qty} unit${qty > 1 ? "s" : ""}` : "No units available"}
                     </Button>
                   </div>
@@ -776,7 +777,7 @@ function UnitRow({
           onClick={() => requestUnit(p._id, p.tag)}
         >
           {busyTag === p.tag ? (
-            <Loader2 className="size-4 animate-spin" />
+            <LoadingGifInline size={18} className="size-4" />
           ) : (
             <Package className="size-4" />
           )}

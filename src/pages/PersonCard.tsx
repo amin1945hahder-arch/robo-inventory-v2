@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { LoadingGifInline } from "@/components/LoadingGif";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -72,7 +73,7 @@ export default function PersonCard() {
     return (
       <AppShell>
         <p className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" /> Loading…
+          <LoadingGifInline size={18} className="size-4" /> Loading…
         </p>
       </AppShell>
     );
@@ -408,7 +409,7 @@ export default function PersonCard() {
           {!isSelf && (
             <Button onClick={startChat} disabled={dmBusy}>
               {dmBusy ? (
-                <Loader2 className="size-4 animate-spin" />
+                <LoadingGifInline size={18} className="size-4" />
               ) : (
                 <MessageCircle className="size-4" />
               )}
@@ -438,7 +439,7 @@ export default function PersonCard() {
               <div className="grid grid-cols-2 gap-2">
                 <Button onClick={startChat} disabled={dmBusy}>
                   {dmBusy ? (
-                    <Loader2 className="size-4 animate-spin" />
+                    <LoadingGifInline size={18} className="size-4" />
                   ) : (
                     <MessageCircle className="size-4" />
                   )}

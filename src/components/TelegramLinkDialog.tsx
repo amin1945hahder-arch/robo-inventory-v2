@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { LoadingGifInline } from "@/components/LoadingGif";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
@@ -138,7 +139,7 @@ export function TelegramLinkDialog({ open, onOpenChange }: { open: boolean; onOp
                   disabled={busy || username.trim().replace(/^@/, "") === (usernameSaved ?? "")}
                   onClick={save}
                 >
-                  {busy ? <Loader2 className="size-4 animate-spin" /> : "Save"}
+                  {busy ? <LoadingGifInline size={18} className="size-4" /> : "Save"}
                 </Button>
               </div>
             </div>
@@ -213,7 +214,7 @@ export function TelegramLinkDialog({ open, onOpenChange }: { open: boolean; onOp
                       inputMode="numeric"
                     />
                     <Button disabled={busy || manual.trim().length < 4} onClick={submitManual}>
-                      {busy ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+                      {busy ? <LoadingGifInline size={18} className="size-4" /> : <Send className="size-4" />}
                       Link
                     </Button>
                   </div>

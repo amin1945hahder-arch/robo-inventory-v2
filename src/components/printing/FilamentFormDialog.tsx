@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { LoadingGifInline } from "@/components/LoadingGif";
 import {
   Dialog,
   DialogContent,
@@ -201,7 +202,7 @@ export function FilamentFormDialog({
             Cancel
           </Button>
           <Button onClick={submit} disabled={busy || !colorName.trim()}>
-            {busy && <Loader2 className="size-4 animate-spin" />} {spool ? "Save" : "Add spool"}
+            {busy && <LoadingGifInline size={18} className="size-4" />} {spool ? "Save" : "Add spool"}
           </Button>
         </DialogFooter>
       </DialogContent>

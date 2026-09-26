@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { LoadingGifInline } from "@/components/LoadingGif";
 import { Link, useNavigate } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -173,7 +174,7 @@ export default function RentScan() {
                     }
                   }}
                 >
-                  {dmBusy ? <Loader2 className="size-4 animate-spin" /> : <MessageCircle className="size-4" />}
+                  {dmBusy ? <LoadingGifInline size={18} className="size-4" /> : <MessageCircle className="size-4" />}
                   Chat with
                 </Button>
                 <Button variant="outline" onClick={() => navigate(`${resolved.url}?scan=1`)}>
@@ -245,7 +246,7 @@ export default function RentScan() {
           </Card>
         ) : resolved === undefined ? (
           <p className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" /> Looking up {payload}…
+            <LoadingGifInline size={18} className="size-4" /> Looking up {payload}…
           </p>
         ) : resolved === null ? (
           <Card className="border-dashed">
@@ -264,7 +265,7 @@ export default function RentScan() {
           </Card>
         ) : partData === undefined || partData === null ? (
           <p className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" /> Loading unit…
+            <LoadingGifInline size={18} className="size-4" /> Loading unit…
           </p>
         ) : (
           <Card className="neon-ring overflow-hidden">
@@ -293,7 +294,7 @@ export default function RentScan() {
                     rows={2}
                   />
                   <Button onClick={request} disabled={busy}>
-                    {busy ? <Loader2 className="size-4 animate-spin" /> : <Package className="size-4" />}
+                    {busy ? <LoadingGifInline size={18} className="size-4" /> : <Package className="size-4" />}
                     {busy ? "Sending…" : "Request this unit"}
                   </Button>
                 </div>

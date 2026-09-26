@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { TelegramLinkDialog } from "@/components/TelegramLinkDialog";
+import { LoadingGif, LoadingGifInline } from "@/components/LoadingGif";
 import { useAuth } from "@/hooks/use-auth";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -78,7 +79,7 @@ function timeLabel(ts: number) {
 }
 
 function Ticks({ status }: { status: LocalMessage["status"] }) {
-  if (status === "sending") return <Loader2 className="size-3 animate-spin text-muted-foreground" />;
+  if (status === "sending") return <LoadingGifInline size={18} className="size-3 text-muted-foreground" />;
   if (status === "sent") return <Check className="size-3.5 text-muted-foreground" />;
   if (status === "delivered") return <CheckCheck className="size-3.5 text-muted-foreground" />;
   if (status === "read") return <CheckCheck className="size-3.5 text-sky-400" />;
@@ -400,7 +401,7 @@ export default function Chat() {
   if (!meId) {
     return (
       <AppShell>
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <LoadingGif size={48} label={null} />
       </AppShell>
     );
   }
@@ -558,7 +559,7 @@ export default function Chat() {
                   }
                 }}
               >
-                {backupAllBusy ? <Loader2 className="size-3 animate-spin" /> : <FileDown className="size-3" />}
+                {backupAllBusy ? <LoadingGifInline size={18} className="size-3" /> : <FileDown className="size-3" />}
                 Backup everything
               </Button>
             </div>

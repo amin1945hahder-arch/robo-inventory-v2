@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { LoadingGifInline } from "@/components/LoadingGif";
 import {
   Dialog,
   DialogContent,
@@ -327,7 +328,7 @@ export function NewJobDialog({
             onClick={submit}
             disabled={busy || !name.trim() || (!!file && fileKind === null)}
           >
-            {busy && <Loader2 className="size-4 animate-spin" />}
+            {busy && <LoadingGifInline size={18} className="size-4" />}
             {fileKind === "gcode" ? (
               <>
                 <Send className="size-4" /> Send G-code for approval

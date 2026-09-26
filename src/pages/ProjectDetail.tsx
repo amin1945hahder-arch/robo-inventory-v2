@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { AppShell } from "@/components/AppShell";
+import { LoadingGif } from "@/components/LoadingGif";
 import { NavArrows } from "@/components/NavArrows";
 import { QrChip } from "@/components/QrChip";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -322,7 +323,7 @@ export default function ProjectDetail() {
   if (data === undefined) {
     return (
       <AppShell>
-        <p className="py-16 text-center text-sm text-muted-foreground">Loading…</p>
+        <LoadingGif size={48} label={null} />
       </AppShell>
     );
   }
