@@ -20,6 +20,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { closetQr } from "@/lib/qr";
+import { groupsInStorage } from "@/lib/containment";
 import { compressImageFile } from "@/lib/utils";
 import { toast } from "sonner";
 import { Pencil, Plus, Trash2, Warehouse } from "lucide-react";
@@ -35,8 +36,8 @@ export default function Closets() {
   const remove = useMutation(api.catalog.deleteCloset);
   const upsertCloset = useMutation(api.catalog.upsertCloset);
 
-  // Master containers (group-of-groups) per storage. A container is a group
-  // that has children; groups inside containers live on the container's page.
+  // Master containers (group-of-groups) per storage: containers whose OWN
+  // closetId points at the storage, or that sit inside containers of it.
   const containersByCloset = useMemo(() => {
     const childIds = new Set<string>();
     for (const g of allGroups ?? []) {
@@ -44,9 +45,17 @@ export default function Closets() {
     }
     const map = new Map<string, number>();
     for (const g of allGroups ?? []) {
-      if (childIds.has(g._id) && g.closetId) {
-        map.set(g.closetId, (map.get(g.closetId) ?? 0) + 1);
+      if (!childIds.has(g._id) || !g.closetId) continue;
+      // Chain closetIds: own + ancestors — count once per storage.
+      const ids = new Set<string>([g.closetId]);
+      let cur = (allGroups ?? []).find((x) => x._id === g.parentGroupId);
+      let depth = 0;
+      while (cur && depth < 10) {
+        if (cur.closetId) ids.add(cur.closetId);
+        cur = (allGroups ?? []).find((x) => x._id === cur!.parentGroupId);
+        depth += 1;
       }
+      for (const id of ids) map.set(id, (map.get(id) ?? 0) + 1);
     }
     return map;
   }, [allGroups]);
@@ -118,6 +127,18 @@ export default function Closets() {
     }
   };
 
+  // Containment view per storage card: direct groups PLUS everything that
+  // sits in containers belonging to the storage (any depth) — the same
+  // resolution the storage detail page uses. Computed once here (not inside
+  // the map) to keep hook ordering valid.
+  const groupsByCloset = useMemo(() => {
+    const map = new Map<string, Doc<"groups">[]>();
+    for (const c of closets ?? []) {
+      map.set(c._id, groupsInStorage(c._id, groups ?? []));
+    }
+    return map;
+  }, [closets, groups]);
+
   return (
     <AppShell>
       <div className="flex flex-col gap-8">
@@ -145,11 +166,8 @@ export default function Closets() {
         ) : (
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {closets.map((c) => {
-              // Groups directly in this storage (containers excluded) — the
-              // chips preview mirrors what the storage page now shows.
-              const closetGroups = (groups ?? []).filter(
-                (g) => g.closetId === c._id && !g.parentGroupId,
-              );
+              // Same containment view as the storage detail page.
+              const closetGroups = groupsByCloset.get(c._id) ?? [];
               const containerCount = containersByCloset.get(c._id) ?? 0;
               const agg: Stats = { total: 0, available: 0, rented: 0, onProject: 0, broken: 0, pending: 0 };
               for (const g of closetGroups) {

@@ -484,6 +484,11 @@ export const deletePart = mutation({
         .withIndex("by_group", (q) => q.eq("groupId", part.groupId))
         .collect();
       await ctx.db.patch(group._id, { quantityTotal: remaining.length });
+      // Packs keep their total pieces in measureStock — re-sum after removal.
+      if (group.measure === "pack") {
+        const stock = await sumUnitStock(ctx, part.groupId);
+        await ctx.db.patch(group._id, { measureStock: String(stock) });
+      }
     }
   },
 });
@@ -565,6 +570,11 @@ export const requestRental = mutation({
     if (part.status !== "available") {
       throw new Error("This unit is not available right now");
     }
+    const group0 = await ctx.db.get(part.groupId);
+    // An emptied pack (all pieces consumed) is out of circulation.
+    if (group0?.measure === "pack" && Number(part.amountRemaining ?? 0) <= 0) {
+      throw new Error("This pack is empty — log pieces via Update consumption before lending it again");
+    }
     // Storage-alias groups (named exactly like a storage) open the storage
     // when their QR is scanned — they cannot be lent.
     await assertGroupLendable(ctx, part.groupId);
@@ -638,7 +648,12 @@ export const requestRentalQuantity = mutation({
       .withIndex("by_group", (q) => q.eq("groupId", groupId))
       .filter((q) => q.neq(q.field("deleted"), true))
       .collect();
-    const free = candidates.filter((p) => p.status === "available");
+    const free = candidates.filter(
+      (p) =>
+        p.status === "available" &&
+        // Emptied packs (all pieces consumed) are out of circulation.
+        !(group.measure === "pack" && Number(p.amountRemaining ?? 0) <= 0),
+    );
     if (free.length < wanted) {
       throw new Error(`Only ${free.length} unit(s) available (you asked for ${wanted})`);
     }

@@ -23,7 +23,7 @@ import { ReturnDialog } from "@/components/ReturnDialog";
 import { GroupCard } from "@/components/GroupCard";
 import { PackageBuilderDialog } from "@/components/PackageBuilderDialog";
 import { GroupDetailUnits, isBulkGroup, ConsumeBulkDialog } from "@/components/GroupDetailUnits";
-import { describePackSize, isPackGroup } from "@/lib/group-measure";
+import { describePackSize, isPackGroup, sumPiecesInUnits } from "@/lib/group-measure";
 import { BulkUnitDialog } from "@/components/BulkUnitDialog";
 import { UnitEditDialog } from "@/components/UnitEditDialog";
 import { GroupFormDialog } from "@/components/GroupFormDialog";
@@ -162,10 +162,21 @@ export default function GroupDetail() {
 
   const s = stats?.[id ?? ""];
   const total = s?.total ?? 0;
-  const availableUnits = (parts ?? []).filter((p) => p.status === "available");
-  // Bulk stock group (weight/length): rentals deduct an amount, not units.
+  // Amount-ledger groups (weight/length reels AND packs) share the bulk
+  // unit list, consumption dialog and stock roll-up.
   const isBulk = isBulkGroup(group);
   const stock = Number(group?.measureStock ?? 0);
+  // Packs: real stock = pieces inside ALL packs (ledger-aware), shown next
+  // to the pack count in the stats grid.
+  const isPack = isPackGroup(group);
+  const piecesStock = isPack ? sumPiecesInUnits(parts ?? [], group) : 0;
+  const fullPieces = Math.round(Number(group?.packSize ?? 0) * total);
+  const availableUnits = (parts ?? []).filter(
+    (p) =>
+      p.status === "available" &&
+      // Emptied packs are out of circulation until pieces are logged back.
+      (!isPack || Number(p.amountRemaining ?? 0) > 0),
+  );
   const [bulkAmount, setBulkAmount] = useState("");
 
   // Storage-alias group: its name is exactly a storage's name, so its printed
@@ -282,7 +293,9 @@ export default function GroupDetail() {
                   variant="outline"
                   onClick={() => {
                     if (isBulk) {
-                      // Bulk units need their amount up front — open the dialog.
+                      // Bulk units AND packs are added through the dialog:
+                      // bulk needs its amount up front; a new pack is added
+                      // full (pieces prefilled from the pack size).
                       setBulkUnitEdit(null);
                       setBulkUnitOpen(true);
                     } else {
@@ -314,8 +327,10 @@ export default function GroupDetail() {
               )}
               {/* Rental requests are available to every signed-in member —
                   admins included (they often demo or reserve units too).
-                  Masters hold groups only — no lending UI. */}
-              {isMaster ? null : isBulk ? (
+                  Masters hold groups only — no lending UI. Packs keep the
+                  count-style "Request N packs" flow (whole units); only
+                  weight/length groups use the amount input. */}
+              {isMaster ? null : isBulk && !isPack ? (
                 <div className="flex flex-col items-stretch gap-2 sm:items-end">
                   <div className="flex items-center gap-2">
                     <Input
@@ -333,7 +348,7 @@ export default function GroupDetail() {
                       Request amount
                     </Button>
                   </div>
-                  {isAdmin && (
+                  {isAdmin && !isPack && (
                     <p className="max-w-xs text-right text-xs text-muted-foreground">
                       Stock is the sum of all units — add or edit units below to correct it.
                     </p>
@@ -463,15 +478,31 @@ export default function GroupDetail() {
               Lend out items from the individual groups inside it.
             </p>
           ) : isBulk ? (
-            <section className="grid grid-cols-3 gap-px overflow-hidden rounded-lg border bg-border">
+            <section className={`grid gap-px overflow-hidden rounded-lg border bg-border ${isPack ? "grid-cols-2" : "grid-cols-3"}`}>
               {[
-                ["Stock", `${stock} ${group.measureUnit}`, ""],
-                ["Low-stock at", group.measureLowAt ? `${group.measureLowAt} ${group.measureUnit}` : "—", ""],
-                [
-                  "Status",
-                  group.measureLowAt && stock <= Number(group.measureLowAt) ? "⚠️ LOW" : "OK",
-                  group.measureLowAt && stock <= Number(group.measureLowAt) ? "text-rose-400" : "text-emerald-400",
-                ],
+                ...(isPack
+                  ? [
+                      ["Packs", String(total), ""],
+                      ["Pieces in all packs", `${piecesStock} pieces${total > 0 ? ` · ${fullPieces} when full` : ""}`, ""],
+                    ]
+                  : []),
+                ...(isPack
+                  ? []
+                  : [["Stock", `${stock} ${group.measureUnit}`, ""]]),
+                ...(isPack
+                  ? []
+                  : [
+                      [
+                        "Low-stock at",
+                        group.measureLowAt ? `${group.measureLowAt} ${group.measureUnit}` : "—",
+                        "",
+                      ],
+                      [
+                        "Status",
+                        group.measureLowAt && stock <= Number(group.measureLowAt) ? "⚠️ LOW" : "OK",
+                        group.measureLowAt && stock <= Number(group.measureLowAt) ? "text-rose-400" : "text-emerald-400",
+                      ],
+                    ]),
               ].map(([label, value, cls]) => (
                 <div key={label as string} className="bg-background px-5 py-5">
                   <p className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground">{label}</p>

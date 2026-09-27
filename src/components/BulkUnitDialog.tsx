@@ -13,6 +13,7 @@ import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
+import { isPackGroup } from "@/lib/group-measure";
 
 /**
  * Add a unit to a weight/length group (one at a time — each holds its own
@@ -55,7 +56,9 @@ export function BulkUnitDialog({
   }, [open, unit, group]);
 
   const isEdit = Boolean(unit);
-  const unitLabel = group.measureUnit ?? "units";
+  const isPack = isPackGroup(group);
+  const unitLabel = isPack ? "pieces" : (group.measureUnit ?? "units");
+  const packSize = Math.round(Number(group.packSize) || 0);
 
   const submit = async () => {
     const amountNum = Number(amount);
@@ -72,14 +75,18 @@ export function BulkUnitDialog({
           lowAt: lowAt.trim() === "" ? undefined : Number(lowAt),
           note: note.trim(),
         });
-        toast.success("Unit updated — group stock re-summed");
+        toast.success(isPack ? "Pack updated — pieces re-summed" : "Unit updated — group stock re-summed");
       } else {
         await addPart({
           groupId: group._id,
           amount: amountNum,
           lowAt: lowAt.trim() === "" ? undefined : Number(lowAt),
         });
-        toast.success(`Unit added with ${amountNum} ${unitLabel} and a new QR tag`);
+        toast.success(
+          isPack
+            ? `Pack added with ${amountNum} pieces and a new QR tag`
+            : `Unit added with ${amountNum} ${unitLabel} and a new QR tag`,
+        );
       }
       onOpenChange(false);
     } catch (e) {
@@ -94,13 +101,19 @@ export function BulkUnitDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
-            {isEdit ? `Edit unit ${(unit as Doc<"parts">).tag}` : `Add unit to ${group.name}`}
+            {isEdit
+              ? `Edit ${isPack ? "pack" : "unit"} ${(unit as Doc<"parts">).tag}`
+              : isPack
+                ? `Add pack to ${group.name}`
+                : `Add unit to ${group.name}`}
           </DialogTitle>
         </DialogHeader>
         <div className="grid gap-3 py-1">
           <div className="grid gap-2">
             <Label>
-              Amount on this unit ({unitLabel}) — {isEdit ? "re-measured remaining" : "initial fill"}
+              {isPack
+                ? `Pieces inside this pack${isEdit ? " — remaining now" : " — full"}`
+                : `Amount on this unit (${unitLabel}) — ${isEdit ? "re-measured remaining" : "initial fill"}`}
             </Label>
             <Input
               type="number"
@@ -108,22 +121,30 @@ export function BulkUnitDialog({
               step="any"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              placeholder={isEdit ? undefined : `e.g. ${group.measure === "weight" ? "1" : "3"} ${unitLabel}`}
+              placeholder={
+                isEdit
+                  ? undefined
+                  : isPack
+                    ? `e.g. ${packSize || 40}`
+                    : `e.g. ${group.measure === "weight" ? "1" : "3"} ${unitLabel}`
+              }
             />
           </div>
-          <div className="grid gap-2">
-            <Label>
-              Minimum kept on the unit ({unitLabel}) — prefilled from the group setting
-            </Label>
-            <Input
-              type="number"
-              min={0}
-              step="any"
-              value={lowAt}
-              onChange={(e) => setLowAt(e.target.value)}
-              placeholder="Rental cuts may never drop it below this"
-            />
-          </div>
+          {!isPack && (
+            <div className="grid gap-2">
+              <Label>
+                Minimum kept on the unit ({unitLabel}) — prefilled from the group setting
+              </Label>
+              <Input
+                type="number"
+                min={0}
+                step="any"
+                value={lowAt}
+                onChange={(e) => setLowAt(e.target.value)}
+                placeholder="Rental cuts may never drop it below this"
+              />
+            </div>
+          )}
           {isEdit && (
             <div className="grid gap-2">
               <Label>Note (optional)</Label>
@@ -135,14 +156,20 @@ export function BulkUnitDialog({
             </div>
           )}
           <p className="text-xs text-muted-foreground">
-            {isEdit
-              ? "The group's headline stock is re-summed from all units automatically."
-              : "Each unit gets its own QR tag automatically. Rentals can cut across several units while respecting every minimum."}
+            {isPack
+              ? isEdit
+                ? "The group's total pieces inside all packs are re-summed automatically."
+                : `New packs start full (${packSize || "pack size"} pieces). You can log pieces as they are used up — the pack can be lent whole again any time.`
+              : isEdit
+                ? "The group's headline stock is re-summed from all units automatically."
+                : "Each unit gets its own QR tag automatically. Rentals can cut across several units while respecting every minimum."}
           </p>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={submit} disabled={busy}>{busy ? "Saving…" : isEdit ? "Save" : "Add unit"}</Button>
+          <Button onClick={submit} disabled={busy}>
+            {busy ? "Saving…" : isEdit ? "Save" : isPack ? "Add pack" : "Add unit"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

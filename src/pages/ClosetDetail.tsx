@@ -10,6 +10,7 @@ import { GroupFormDialog } from "@/components/GroupFormDialog";
 import { QrChip } from "@/components/QrChip";
 import { Button } from "@/components/ui/button";
 import { closetQr } from "@/lib/qr";
+import { containerNamesOf, groupsInStorage } from "@/lib/containment";
 import { useAuth } from "@/hooks/use-auth";
 import { motion } from "framer-motion";
 import { ArrowLeft, Plus, Warehouse } from "lucide-react";
@@ -34,11 +35,14 @@ export default function ClosetDetail() {
   const [addOpen, setAddOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<Doc<"groups"> | null>(null);
 
-  // Only top-level groups appear here — groups inside containers live on the
-  // container's page, same as the inventory grid.
+  // EVERYTHING that belongs to this storage: groups whose own closetId is
+  // this storage OR that sit (via their container chain) inside containers
+  // belonging to it — a group in a box kept in another storage still shows
+  // up here, with its container path on the card. Containers that hold
+  // children are hidden (their content is listed instead), like the grid.
   const topGroups = useMemo(
-    () => (groups ?? []).filter((g) => !g.parentGroupId),
-    [groups],
+    () => (closet ? groupsInStorage(closet._id, allGroups ?? groups ?? []) : []),
+    [closet, allGroups, groups],
   );
 
   // parent id -> groups directly inside it (for master container cards).
@@ -148,6 +152,7 @@ export default function ClosetDetail() {
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                       {catGroups.map((g) => {
                         const contained = childrenByParent.get(g._id);
+                        const chain = containerNamesOf(g, allGroups ?? []);
                         return (
                           <GroupCard
                             key={g._id}
@@ -156,6 +161,7 @@ export default function ClosetDetail() {
                             categoryName={cat.name}
                             isAdmin={isAdmin}
                             containedGroups={contained}
+                            containerPath={chain.length > 0 ? chain.join(" > ") : undefined}
                             onEdit={() => {
                               setEditingGroup(g);
                               setAddOpen(true);

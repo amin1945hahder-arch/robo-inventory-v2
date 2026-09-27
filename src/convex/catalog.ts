@@ -50,6 +50,18 @@ export function isCountFlowGroupSrv(group: {
   return !m || m === "count" || m === "pack";
 }
 
+/**
+ * Groups whose units carry a per-unit amount ledger: weight/length reels AND
+ * packs (each pack part holds `packSize` pieces, decremented as they are
+ * used up). Count groups stay discrete units with no amounts.
+ */
+export function isAmountGroupSrv(group: {
+  measure?: "count" | "weight" | "length" | "pack" | null;
+} | null | undefined): boolean {
+  const m = group?.measure;
+  return m === "weight" || m === "length" || m === "pack";
+}
+
 /** Plain count groups only — the only groups that may hold child groups. */
 export function isPlainCountGroupSrv(group: {
   measure?: "count" | "weight" | "length" | "pack" | null;
@@ -433,7 +445,12 @@ export const upsertGroup = mutation({
       measure: measure ?? "count",
       packSize: measure === "pack" ? Math.round(packSize!) : undefined,
       measureUnit: isBulk ? measureUnit : undefined,
-      measureStock: isBulk ? String(Number(measureStock)) : undefined,
+      measureStock: isBulk
+        ? String(Number(measureStock))
+        : measure === "pack"
+          ? // Packs track total pieces inside all packs in measureStock.
+            String(Math.max(0, Math.round(quantityTotal * (Number(packSize) || 0))))
+          : undefined,
       measureLowAt: isBulk && measureLowAt?.trim() ? String(Number(measureLowAt)) : undefined,
       ...(parentGroupId !== undefined
         ? { parentGroupId: (parentGroupId || undefined) as any }
@@ -472,7 +489,18 @@ export const upsertGroup = mutation({
         n += 1;
         tag = `${prefix}-${String(n).padStart(3, "0")}`;
       }
-      await ctx.db.insert("parts", { groupId, tag, status: "available" });
+      await ctx.db.insert("parts", {
+        groupId,
+        tag,
+        status: "available",
+        // Packs start full — the per-unit ledger mirrors the pieces inside.
+        ...(measure === "pack"
+          ? {
+              amountRemaining: String(Math.max(1, Math.round(Number(packSize) || 1))),
+              lowAt: "0",
+            }
+          : {}),
+      });
       n += 1;
     }
     return groupId;
@@ -590,21 +618,26 @@ export const addPartToGroup = mutation({
         tag = `${prefix}-${String(num).padStart(3, "0")}`;
       }
       const partData: any = { groupId, tag, status: "available" };
-      if (isBulk) {
-        // Bulk groups also carry the hidden BULK placeholder for the rental
-        // ledger — never re-create or number it here.
-        if (tag === "BULK") continue;
-        const amount = Number(args.amount);
-        if (!Number.isFinite(amount) || amount <= 0) {
-          throw new Error(`Set the amount this unit holds (in ${group.measureUnit ?? "units"})`);
-        }
-        partData.amountRemaining = String(amount);
-        partData.lowAt = String(
-          Number.isFinite(Number(args.lowAt)) && Number(args.lowAt) >= 0
-            ? Number(args.lowAt)
-            : Number(group.measureLowAt ?? 0),
-        );
+    if (isBulk) {
+      // Bulk groups also carry the hidden BULK placeholder for the rental
+      // ledger — never re-create or number it here.
+      if (tag === "BULK") continue;
+      const amount = Number(args.amount);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        throw new Error(`Set the amount this unit holds (in ${group.measureUnit ?? "units"})`);
       }
+      partData.amountRemaining = String(amount);
+      partData.lowAt = String(
+        Number.isFinite(Number(args.lowAt)) && Number(args.lowAt) >= 0
+          ? Number(args.lowAt)
+          : Number(group.measureLowAt ?? 0),
+      );
+    } else if (group.measure === "pack") {
+      // Packs start full: the amount ledger holds the pieces inside this
+      // pack (editable later via the same consumption flow as reels).
+      partData.amountRemaining = String(Math.max(1, Math.round(Number(group.packSize) || 1)));
+      partData.lowAt = "0";
+    }
       await ctx.db.insert("parts", partData);
       num += 1;
     }
@@ -613,13 +646,23 @@ export const addPartToGroup = mutation({
       const stock = await sumUnitStock(ctx, groupId);
       await ctx.db.patch(groupId, { measureStock: String(stock) });
     } else {
-      await ctx.db.patch(groupId, { quantityTotal: parts.length + n });
+      const patch: Record<string, unknown> = { quantityTotal: parts.length + n };
+      if (group.measure === "pack") {
+        // Packs track their total pieces in measureStock too.
+        const stock = await sumUnitStock(ctx, groupId);
+        patch.measureStock = String(stock);
+      }
+      await ctx.db.patch(groupId, patch);
     }
     return parts.length + n;
   },
 });
 
-/** Admin edits a bulk unit's remaining amount / minimum (re-weighed reel…). */
+/**
+ * Admin edits an amount-carrying unit's remaining pieces / minimum
+ * (re-weighed reel, pack topped up, miscounted pieces corrected…).
+ * Works for weight/length groups AND packs (amount = pieces inside).
+ */
 export const updateBulkUnit = mutation({
   args: {
     partId: v.id("parts"),
@@ -632,8 +675,8 @@ export const updateBulkUnit = mutation({
     const part = await ctx.db.get(partId);
     if (!part) throw new Error("Unit not found");
     const group = await ctx.db.get(part.groupId);
-    if (!group || (group.measure !== "weight" && group.measure !== "length")) {
-      throw new Error("Only weight/length group units carry amounts");
+    if (!group || !isAmountGroupSrv(group)) {
+      throw new Error("Only weight/length/pack group units carry amounts");
     }
     if (!Number.isFinite(amountRemaining) || amountRemaining < 0) {
       throw new Error("Amount must be ≥ 0");
@@ -668,10 +711,11 @@ export const updateBulkUnit = mutation({
 });
 
 /**
- * Routine-consumption writes for weight/length units (NOT rentals): log that
- * some amount was used up in the lab and deduct it from the unit, or mark the
- * unit FULLY consumed in one click. The minimum (lowAt) does not apply here —
- * that guard only protects rental cuts.
+ * Routine-consumption writes for amount-carrying units (NOT rentals): log
+ * that some pieces/material were used up and deduct them from the unit, or
+ * mark the unit FULLY consumed in one click. Works for weight/length groups
+ * AND packs (pieces). The minimum (lowAt) does not apply here — that guard
+ * only protects rental cuts.
  */
 export const consumeBulkUnit = mutation({
   args: {
@@ -686,8 +730,8 @@ export const consumeBulkUnit = mutation({
     const part = await ctx.db.get(partId);
     if (!part) throw new Error("Unit not found");
     const group = await ctx.db.get(part.groupId);
-    if (!group || (group.measure !== "weight" && group.measure !== "length")) {
-      throw new Error("Only weight/length group units carry amounts");
+    if (!group || !isAmountGroupSrv(group)) {
+      throw new Error("Only weight/length/pack group units carry amounts");
     }
     const remaining = Number(part.amountRemaining ?? 0);
     const entry = {

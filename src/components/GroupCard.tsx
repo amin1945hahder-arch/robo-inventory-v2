@@ -59,6 +59,7 @@ function GroupCardBase({
   onEdit,
   onDelete,
   containedGroups,
+  containerPath,
 }: {
   group: Doc<"groups">;
   stats?: GroupStats;
@@ -69,6 +70,10 @@ function GroupCardBase({
   /** Master containers: the groups inside — shown on the card instead of
       unit stats, so the outside view matches the inside view. */
   containedGroups?: Doc<"groups">[];
+  /** Optional "Box A > Box B" path — shown when a storage page lists a
+      group that physically sits inside containers (possibly of another
+      storage), so it is clear why it appears here. */
+  containerPath?: string;
 }) {
   const s: GroupStats =
     stats ?? { total: 0, available: 0, rented: 0, onProject: 0, broken: 0, pending: 0, transferred: 0, consumed: 0 };
@@ -153,8 +158,20 @@ function GroupCardBase({
               {group.parentGroupId ? "📦 Container · " : ""}
               {[group.brand, group.model].filter(Boolean).join(" · ") || "—"}
             </p>
+            {containerPath && (
+              <p className="mt-0.5 truncate text-[11px] text-muted-foreground" title={containerPath}>
+                📦 in {containerPath}
+              </p>
+            )}
             {isPackGroup(group) && (
-              <p className="mt-0.5 text-xs font-medium text-primary">📦 {describePackSize(group)}</p>
+              <>
+                <p className="mt-0.5 text-xs font-medium text-primary">📦 {describePackSize(group)}</p>
+                {Number(group.measureStock ?? 0) > 0 && (
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    <b className="text-foreground">{Math.round(Number(group.measureStock))}</b> pieces inside all packs
+                  </p>
+                )}
+              </>
             )}
           </Link>
           <div className="flex items-center gap-1.5">
@@ -281,5 +298,6 @@ export const GroupCard = memo(
     a.stats === b.stats &&
     a.categoryName === b.categoryName &&
     a.isAdmin === b.isAdmin &&
-    a.containedGroups === b.containedGroups,
+    a.containedGroups === b.containedGroups &&
+    a.containerPath === b.containerPath,
 );

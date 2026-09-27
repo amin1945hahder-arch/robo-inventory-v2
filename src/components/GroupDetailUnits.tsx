@@ -14,16 +14,27 @@ import { Label } from "@/components/ui/label";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { unitQr } from "@/lib/qr";
-import { describePackSize, isPackGroup } from "@/lib/group-measure";
+import { describePackSize, isPackGroup, sumPiecesInUnits } from "@/lib/group-measure";
 import { Link } from "react-router";
 import { Beaker, PackageOpen, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import type { Doc } from "@/convex/_generated/dataModel";
 
+/**
+ * Groups whose units carry a per-unit amount ledger that admins can edit:
+ * weight/length reels AND packs (amount = pieces inside the pack).
+ */
 export function isBulkGroup(
   group: Doc<"groups"> | null | undefined,
 ): boolean {
-  return group?.measure === "weight" || group?.measure === "length";
+  return (
+    group?.measure === "weight" || group?.measure === "length" || isPackGroup(group)
+  );
+}
+
+/** The unit of the per-unit amount ledger: kg/m…, or "pieces" for packs. */
+function unitLabelOf(group: Doc<"groups">): string {
+  return isPackGroup(group) ? "pieces" : (group.measureUnit ?? "units");
 }
 
 function fmtAmount(n: number): string {
@@ -62,7 +73,9 @@ export function ConsumeBulkDialog({
   }, [open]);
 
   const remaining = Number(unit.amountRemaining ?? 0);
-  const unitLabel = group.measureUnit ?? "units";
+  const isPack = isPackGroup(group);
+  const unitLabel = unitLabelOf(group);
+  const fullLabel = isPack ? `full pack = ${Math.round(Number(group.packSize) || 0)} pieces` : unitLabel;
 
   const submit = async (fully: boolean) => {
     if (busy) return;
@@ -99,7 +112,8 @@ export function ConsumeBulkDialog({
         </DialogHeader>
         <div className="flex flex-col gap-3 py-1">
           <p className="text-sm text-muted-foreground">
-            Currently holding <b className="text-foreground">{fmtAmount(remaining)} {unitLabel}</b>. This
+            Currently holding <b className="text-foreground">{fmtAmount(remaining)} {unitLabel}</b>
+            {isPack ? ` (full pack = ${Math.round(Number(group.packSize) || 0)})` : ""}. This
             is a routine inventory write — no rental, no minimum applies.
           </p>
           <div className="grid gap-2">
@@ -110,7 +124,7 @@ export function ConsumeBulkDialog({
               step="any"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              placeholder={`e.g. 0.5 ${unitLabel}`}
+              placeholder={isPack ? `e.g. 5 ${unitLabel}` : `e.g. 0.5 ${unitLabel}`}
             />
           </div>
           <div className="grid gap-2">
@@ -122,10 +136,11 @@ export function ConsumeBulkDialog({
             />
           </div>
           <Button variant="outline" onClick={() => submit(false)} disabled={busy || remaining <= 0}>
-            <Beaker className="size-4" /> Log consumption
+            <Beaker className="size-4" /> Log consumption ({unitLabel})
           </Button>
           <Button variant="destructive" onClick={() => submit(true)} disabled={busy || remaining <= 0}>
-            <PackageOpen className="size-4" /> Fully consumed — write off the whole unit
+            <PackageOpen className="size-4" />
+            {isPack ? "Empty pack — write off all its pieces" : "Fully consumed — write off the whole unit"}
           </Button>
           {(log ?? []).length > 0 && (
             <div className="mt-1">
@@ -176,25 +191,34 @@ export function GroupDetailUnits({
   onEdit: (unit: Doc<"parts">) => void;
   onConsume: (unit: Doc<"parts">) => void;
 }) {
-  const unitLabel = group.measureUnit ?? "";
+  const unitLabel = unitLabelOf(group);
   const units = (parts ?? []).filter((p) => p.tag !== "BULK");
   const total = units.reduce((s, p) => s + Number(p.amountRemaining ?? 0), 0);
   const available = units.filter((p) => p.status === "available");
   const availableTotal = available.reduce((s, p) => s + Number(p.amountRemaining ?? 0), 0);
   const outTotal = total - availableTotal;
   const consumedCount = units.filter((p) => p.consumedAt !== undefined).length;
+  // Packs: the headline is PIECES inside all packs (real stock), not pack count.
+  const isPack = isPackGroup(group);
+  const totalPieces = isPack ? sumPiecesInUnits(units, group) : null;
+  const availablePieces = isPack ? sumPiecesInUnits(available, group) : null;
+  const outPieces = isPack && totalPieces !== null && availablePieces !== null
+    ? totalPieces - availablePieces
+    : null;
+  const fmt = (n: number) => String(Number(n.toFixed(4)));
 
   return (
     <section className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold">
-          {isPackGroup(group)
+          {isPack
             ? `Packs · ${units.length}, each with its own QR (${describePackSize(group)})`
             : `Units · ${units.length} reel${units.length === 1 ? "" : "s"}/spool${units.length === 1 ? "" : "s"}, each with its own QR`}
         </h2>
         <p className="text-xs text-muted-foreground">
-          {fmtAmount(total)} {unitLabel} total · {fmtAmount(availableTotal)} on the shelf
-          {outTotal > 0 ? ` · ${fmtAmount(outTotal)} out` : ""}
+          {isPack
+            ? `${units.length} pack${units.length === 1 ? "" : "s"} · ${fmt(totalPieces ?? 0)} pieces inside all packs · ${fmt(availablePieces ?? 0)} pieces on the shelf${outPieces && outPieces > 0 ? ` · ${fmt(outPieces)} out` : ""}`
+            : `${fmtAmount(total)} ${unitLabel} total · ${fmtAmount(availableTotal)} on the shelf${outTotal > 0 ? ` · ${fmtAmount(outTotal)} out` : ""}`}
           {consumedCount > 0 ? ` · ${consumedCount} fully consumed` : ""}
         </p>
       </div>
@@ -212,7 +236,7 @@ export function GroupDetailUnits({
             .map((p) => {
               const remaining = Number(p.amountRemaining ?? 0);
               const lowAt = Number(p.lowAt ?? group.measureLowAt ?? 0);
-              const low = remaining > 0 && remaining <= lowAt;
+              const low = !isPack && remaining > 0 && remaining <= lowAt;
               const consumed = p.consumedAt !== undefined;
               return (
                 <li key={p._id} className="flex flex-wrap items-center gap-3 px-4 py-3">
@@ -220,8 +244,10 @@ export function GroupDetailUnits({
                   <Link to={`/part/${p._id}`} className="min-w-0 flex-1">
                     <p className="font-mono text-sm font-medium">{p.tag}</p>
                     <p className="text-xs text-muted-foreground">
-                      {fmtAmount(remaining)} {unitLabel}
-                      {lowAt > 0 ? ` · min ${fmtAmount(lowAt)}` : ""}
+                      {isPack
+                        ? `${fmt(remaining)} of ${Math.round(Number(group.packSize) || 0)} pieces`
+                        : `${fmtAmount(remaining)} ${unitLabel}`}
+                      {!isPack && lowAt > 0 ? ` · min ${fmtAmount(lowAt)}` : ""}
                       {p.note ? ` · ${p.note}` : ""}
                     </p>
                   </Link>

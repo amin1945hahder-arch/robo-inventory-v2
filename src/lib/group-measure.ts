@@ -56,3 +56,32 @@ export function piecesInPacks(group: GroupMeasureLite, packs: number): string {
   if (!(n > 0) || !Number.isFinite(packs)) return "";
   return `${Math.round(n * packs)} pieces`;
 }
+
+/**
+ * Pieces remaining INSIDE one pack unit (from its amount ledger). Falls back
+ * to a full pack for legacy rows created before the ledger existed.
+ */
+export function piecesInUnit(
+  unit: { amountRemaining?: string | number | null } | null | undefined,
+  group: GroupMeasureLite,
+): number {
+  const raw = unit?.amountRemaining;
+  // null/undefined/blank/NaN = legacy row without a ledger → full pack.
+  if (raw !== null && raw !== undefined && String(raw).trim() !== "") {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  return Math.max(0, Number(group?.packSize ?? 0));
+}
+
+/**
+ * Total pieces inside ALL given packs (Σ per-pack amounts). This is the
+ * real stock of a pack group — a whole pack can still sit on the shelf
+ * while being far from full.
+ */
+export function sumPiecesInUnits(
+  units: { amountRemaining?: string | number | null }[],
+  group: GroupMeasureLite,
+): number {
+  return units.reduce((s, u) => s + piecesInUnit(u, group), 0);
+}

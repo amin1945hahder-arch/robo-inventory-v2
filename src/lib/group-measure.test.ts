@@ -5,6 +5,8 @@ import {
   isCountFlowGroup,
   isPackGroup,
   piecesInPacks,
+  piecesInUnit,
+  sumPiecesInUnits,
 } from "./group-measure";
 
 describe("isPackGroup", () => {
@@ -74,5 +76,44 @@ describe("piecesInPacks", () => {
     expect(piecesInPacks({ measure: "count" }, 3)).toBe("");
     expect(piecesInPacks({ measure: "pack", packSize: 0 }, 3)).toBe("");
     expect(piecesInPacks({ measure: "pack", packSize: 40 }, Number.NaN)).toBe("");
+  });
+});
+
+describe("piecesInUnit", () => {
+  it("reads the per-pack amount ledger", () => {
+    expect(piecesInUnit({ amountRemaining: "37" }, { measure: "pack", packSize: 40 })).toBe(37);
+    expect(piecesInUnit({ amountRemaining: "0" }, { measure: "pack", packSize: 40 })).toBe(0);
+    expect(piecesInUnit({ amountRemaining: 12 }, { measure: "pack", packSize: 40 })).toBe(12);
+  });
+
+  it("falls back to a full pack for legacy units without a ledger", () => {
+    expect(piecesInUnit({}, { measure: "pack", packSize: 40 })).toBe(40);
+    expect(piecesInUnit({ amountRemaining: null }, { measure: "pack", packSize: 25 })).toBe(25);
+  });
+
+  it("is 0 without any pack size information", () => {
+    expect(piecesInUnit({}, { measure: "pack" })).toBe(0);
+    expect(piecesInUnit({}, null)).toBe(0);
+  });
+});
+
+describe("sumPiecesInUnits", () => {
+  it("sums the pieces inside every pack", () => {
+    const g = { measure: "pack" as const, packSize: 40 };
+    expect(
+      sumPiecesInUnits(
+        [{ amountRemaining: "40" }, { amountRemaining: "12" }, { amountRemaining: "0" }],
+        g,
+      ),
+    ).toBe(52);
+  });
+
+  it("mixes legacy full packs with ledgered ones", () => {
+    const g = { measure: "pack" as const, packSize: 30 };
+    expect(sumPiecesInUnits([{}, { amountRemaining: "10" }], g)).toBe(40);
+  });
+
+  it("is 0 for an empty list", () => {
+    expect(sumPiecesInUnits([], { measure: "pack", packSize: 40 })).toBe(0);
   });
 });
