@@ -35,7 +35,6 @@ const AdminReports = lazy(() => import("./pages/AdminReports.tsx"));
 const ExportStudio = lazy(() => import("./pages/ExportStudio.tsx"));
 const AdminSettings = lazy(() => import("./pages/AdminSettings.tsx"));
 const Courses = lazy(() => import("./pages/Courses.tsx"));
-const Chat = lazy(() => import("./pages/Chat.tsx"));
 const Profile = lazy(() => import("./pages/Profile.tsx"));
 const PersonCard = lazy(() => import("./pages/PersonCard.tsx"));
 const Printing3D = lazy(() => import("./pages/Printing3D.tsx"));
@@ -264,15 +263,6 @@ createRoot(document.getElementById("root")!).render(
                     <RequireNonStudent>
                       <Courses />
                     </RequireNonStudent>
-                  </RequireAuth>
-                }
-              />
-              {/* Chat: open to every signed-in role (admins, members, students). */}
-              <Route
-                path="/chat"
-                element={
-                  <RequireAuth>
-                    <Chat />
                   </RequireAuth>
                 }
               />

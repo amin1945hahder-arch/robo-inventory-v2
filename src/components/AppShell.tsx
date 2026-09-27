@@ -26,7 +26,6 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
-  MessagesSquare,
   PackageSearch,
   QrCode,
   ScanLine,
@@ -50,7 +49,6 @@ const NAV = [
   { to: "/rentals", label: "My rentals", icon: PackageSearch, studentBlocked: true },
   { to: "/3d-printing", label: "3D printing", icon: Box, studentBlocked: true },
   { to: "/courses", label: "Courses", icon: GraduationCap, studentBlocked: false },
-  { to: "/chat", label: "Chat", icon: MessagesSquare, studentBlocked: false },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {

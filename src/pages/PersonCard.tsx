@@ -21,7 +21,6 @@ import {
   FolderKanban,
   IdCard,
   Loader2,
-  MessageCircle,
   Pencil,
   UserRound,
 } from "lucide-react";
@@ -61,11 +60,9 @@ export default function PersonCard() {
     | null
     | undefined;
 
-  const openDm = useMutation(api.chat.openDm);
-  const [dmBusy, setDmBusy] = useState(false);
   const [badgeOpen, setBadgeOpen] = useState(false);
-  // Arrived from a fresh QR scan (?scan=1): show the action popup first —
-  // "Chat with" opens a DM, "View profile" reveals the full tabbed profile.
+  // Arrived from a fresh QR scan (?scan=1): show the action popup first,
+  // "View profile" reveals the full tabbed profile.
   const [params] = useSearchParams();
   const [scanPopup, setScanPopup] = useState(params.get("scan") === "1");
 
@@ -102,18 +99,6 @@ export default function PersonCard() {
   const viewerIsAdmin = card.viewerIsAdmin;
   const isSelf = card.isSelf;
   const fullView = card.canSeeHistory;
-
-  const startChat = async () => {
-    setDmBusy(true);
-    try {
-      const convId = await openDm({ userId: p._id });
-      navigate(`/chat?dm=${convId}`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
-    } finally {
-      setDmBusy(false);
-    }
-  };
 
   return (
     <AppShell>
@@ -406,16 +391,6 @@ export default function PersonCard() {
 
         {/* Actions */}
         <section className="flex flex-wrap gap-2">
-          {!isSelf && (
-            <Button onClick={startChat} disabled={dmBusy}>
-              {dmBusy ? (
-                <LoadingGifInline size={18} className="size-4" />
-              ) : (
-                <MessageCircle className="size-4" />
-              )}
-              Chat
-            </Button>
-          )}
           {viewerIsAdmin && (
             <Button variant="outline" onClick={() => navigate("/people")}>
               <Pencil className="size-4" /> Edit in People
@@ -428,7 +403,7 @@ export default function PersonCard() {
           )}
         </section>
 
-        {/* Fresh scan: choose chat or the full profile. */}
+        {/* Fresh scan popup: straight to the full profile. */}
         {scanPopup && !isSelf && (
           <Dialog open onOpenChange={(v) => !v && setScanPopup(false)}>
             <DialogContent className="sm:max-w-sm">
@@ -436,16 +411,8 @@ export default function PersonCard() {
                 <DialogTitle>{p.name ?? "Member"}</DialogTitle>
                 <DialogDescription>You scanned this member's QR code.</DialogDescription>
               </DialogHeader>
-              <div className="grid grid-cols-2 gap-2">
-                <Button onClick={startChat} disabled={dmBusy}>
-                  {dmBusy ? (
-                    <LoadingGifInline size={18} className="size-4" />
-                  ) : (
-                    <MessageCircle className="size-4" />
-                  )}
-                  Chat with
-                </Button>
-                <Button variant="outline" onClick={() => setScanPopup(false)}>
+              <div className="grid grid-cols-1 gap-2">
+                <Button onClick={() => setScanPopup(false)}>
                   <UserRound className="size-4" /> View profile
                 </Button>
               </div>

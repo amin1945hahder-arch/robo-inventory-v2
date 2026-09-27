@@ -238,7 +238,7 @@ export default function ProjectDetail() {
     | Workspace
     | null
     | undefined;
-  const people = useQuery(api.chat.listPeople, {});
+  const people = useQuery(api.users.listPeopleLite, {});
   // ← → to flip through the active projects.
   const projects = useQuery(api.projects.listProjects, { status: "active" });
 

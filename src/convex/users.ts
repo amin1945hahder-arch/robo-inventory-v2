@@ -5,6 +5,7 @@ import {
   hasPrinterPrivilege,
   requireAdmin,
   requireNonGuest,
+  requireNonStudent,
   requireUser,
   safeImage,
 } from "./lib";
@@ -26,6 +27,29 @@ export const currentUser = query({
     }
 
     return user;
+  },
+});
+
+/**
+ * Light directory of real (non-anonymous) members for pickers — e.g. the
+ * project "Add people" dialog. Available to admins and members.
+ */
+export const listPeopleLite = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireNonStudent(ctx);
+    const users = await ctx.db.query("users").collect();
+    return users
+      .filter((u) => !u.isAnonymous)
+      .map((u) => ({
+        _id: u._id,
+        name: u.name,
+        email: u.email,
+        image: safeImage(u.image),
+        role: u.role,
+        clubRoles: u.clubRoles,
+      }))
+      .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
   },
 });
 

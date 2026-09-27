@@ -26,7 +26,6 @@ import {
   Barcode,
   Camera,
   Loader2,
-  MessageCircle,
   Package,
   UserRound,
   ScanLine,
@@ -45,8 +44,6 @@ export default function RentScan() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const isAdmin = user?.role === "admin";
-  const openDm = useMutation(api.chat.openDm);
-  const [dmBusy, setDmBusy] = useState(false);
 
   const [scanOpen, setScanOpen] = useState(true);
   const [manual, setManual] = useState("");
@@ -148,8 +145,8 @@ export default function RentScan() {
     }
   };
 
-  // smart-redirect for non-unit payloads — person QRs get the two-button
-  // popup (chat with / view profile); everything else offers a direct open.
+  // smart-redirect for non-unit payloads — person QRs go straight to the
+  // profile (chat was removed); everything else offers a direct open.
   if (resolved && resolved.type !== "unit") {
     if (resolved.type === "person") {
       return (
@@ -158,26 +155,10 @@ export default function RentScan() {
             <DialogContent className="sm:max-w-sm">
               <DialogHeader>
                 <DialogTitle>Member QR scanned</DialogTitle>
-                <DialogDescription>Choose what you want to do.</DialogDescription>
+                <DialogDescription>Opening the member's profile…</DialogDescription>
               </DialogHeader>
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  disabled={dmBusy}
-                  onClick={async () => {
-                    setDmBusy(true);
-                    try {
-                      const convId = await openDm({ userId: resolved.id as any });
-                      navigate(`/chat?dm=${convId}`);
-                    } catch (e) {
-                      toast.error(e instanceof Error ? e.message : "Failed");
-                      setDmBusy(false);
-                    }
-                  }}
-                >
-                  {dmBusy ? <LoadingGifInline size={18} className="size-4" /> : <MessageCircle className="size-4" />}
-                  Chat with
-                </Button>
-                <Button variant="outline" onClick={() => navigate(`${resolved.url}?scan=1`)}>
+              <div className="grid grid-cols-1 gap-2">
+                <Button onClick={() => navigate(`${resolved.url}?scan=1`)}>
                   <UserRound className="size-4" /> View profile
                 </Button>
               </div>
