@@ -21,13 +21,12 @@ import logo from "@/assets/logo.svg";
 import {
   api,
 } from "@/convex/_generated/api";
-import { useMutation } from "convex/react";
-import {
-  clearSavedAccount,
+import { useMutation } from "convex/react";import { clearSavedAccount,
   getSavedAccount,
   saveAccount,
   type SavedAccount,
 } from "@/lib/tokens";
+import { signInWithRetry } from "@/lib/sign-in";
 import { ArrowRight, Loader2, LogIn, Mail, X } from "lucide-react";
 import { Suspense, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
@@ -99,13 +98,16 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     setIsLoading(true);
     setError(null);
     try {
-      await signIn("device", { token: saved.token });
+      await signInWithRetry(signIn, "device", { token: saved.token });
       navigate(redirect);
     } catch {
       // Token no longer valid (revoked / database reset) — drop the chip.
+      // Connection losses were already retried by signInWithRetry, so a
+      // failure reaching here is a genuine rejection.
       clearSavedAccount();
       setSaved(null);
       setIsLoading(false);
+      setError("This saved sign-in no longer works — sign in with your email instead.");
     }
   };
 
@@ -131,7 +133,9 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     setError(null);
     try {
       const formData = new FormData(event.currentTarget);
-      await signIn("email-otp", formData);
+      // Retries transient Convex connection drops ("Connection lost while
+      // action was in flight") — a real rejection surfaces immediately.
+      await signInWithRetry(signIn, "email-otp", formData);
       setStep({ email: formData.get("email") as string });
       setIsLoading(false);
     } catch (error) {
@@ -152,7 +156,9 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     try {
       const formData = new FormData(event.currentTarget);
       const email = String(formData.get("email") ?? "");
-      await signIn("email-otp", formData);
+      // Same retry shield: a dropped connection mid-verification no longer
+      // kills the flow; the still-valid code is simply re-verified.
+      await signInWithRetry(signIn, "email-otp", formData);
 
       // Remember this device: issue a token so the next sign-in on this
       // browser skips the email code entirely ("Continue as …" chip).
@@ -174,7 +180,14 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     } catch (error) {
       console.error("OTP verification error:", error);
 
-      setError("The verification code you entered is incorrect.");
+      // Retries already happened for connection drops — anything reaching
+      // here is (almost always) a genuinely wrong code.
+      const msg = error instanceof Error ? error.message : "";
+      setError(
+        msg && !/connection|in flight/i.test(msg)
+          ? msg
+          : "The verification code you entered is incorrect.",
+      );
       setIsLoading(false);
 
       setOtp("");
