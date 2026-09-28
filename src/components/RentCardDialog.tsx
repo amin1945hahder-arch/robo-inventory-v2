@@ -35,7 +35,7 @@ export function RentCardDialog({ r, onClose }: { r: CardRow; onClose: () => void
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
+      <DialogContent className="max-h-[90vh] max-w-[calc(100vw-1rem)] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Rent card</DialogTitle>
         </DialogHeader>

@@ -40,12 +40,16 @@ function Row({ k, v }: { k: string; v: string }) {
  *  re-opens the rental (rental:<id>). This EXACT element is what becomes the
  *  PDF for downloads, manual sends AND every automated bot post, so the
  *  group always receives the identical card — Arabic included, pixel-perfect.
- *  Wrap it in an element with `data-qr-label` when printing. */
+ *  Wrap it in an element with `data-qr-label` when printing.
+ *
+ *  The card keeps its 360px print layout on paper/desktop, but scales down
+ *  to fit narrow phone screens (width 100% of its container) so nothing is
+ *  ever trimmed from the right in the mobile dialog. */
 export function RentCardSheet({ card }: { card: RentCardData }) {
   return (
     <div
       data-qr-label
-      className="w-[360px] rounded-lg border bg-white p-5 text-black">
+      className="w-full max-w-[360px] rounded-lg border bg-white p-5 text-black sm:w-[360px]"
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-widest text-neutral-500">
