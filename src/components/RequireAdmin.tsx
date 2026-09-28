@@ -12,7 +12,7 @@ export function RequireAdmin({ children }: { children: ReactNode }) {
 
   if (isLoading) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-background">
+      <main className="flex min-h-screen items-center justify-center bg-transparent">
         <LoadingGif size={56} label={null} />
       </main>
     );

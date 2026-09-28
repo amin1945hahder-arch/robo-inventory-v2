@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import logo from "@/assets/logo.svg";
-import { coverUrl } from "@/lib/cover";
 import {
   ArrowRight,
   Boxes,
@@ -72,16 +71,8 @@ export default function Landing() {
 
   return (
     <div className="relative min-h-screen overflow-x-clip">
-      {/* backdrop — replace src/assets/cover.png (or cover.svg) to change it */}
-      {coverUrl ? (
-        <div className="pointer-events-none absolute inset-0">
-          <img src={coverUrl} alt="" className="h-full w-full object-cover" />
-          {/* readability veil so hero text stays crisp over any artwork */}
-          <div className="absolute inset-0 bg-gradient-to-b from-background/55 via-background/70 to-background" />
-        </div>
-      ) : (
-        <div className="pointer-events-none absolute inset-0 grid-bg opacity-60" />
-      )}
+      {/* backdrop: the global cover (src/assets/cover.*) is rendered app-wide
+          by CoverBackground in main.tsx — only the soft glows stay local. */}
       <div className="pointer-events-none absolute -top-40 left-1/2 h-125 w-200 -translate-x-1/2 rounded-full bg-primary/12 blur-3xl" />
       <div className="pointer-events-none absolute right-[-10%] top-1/3 h-96 w-96 rounded-full bg-violet-500/10 blur-3xl" />
 

@@ -119,7 +119,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-background">
+    <div className="flex h-dvh overflow-hidden bg-transparent">
       <aside className="hidden h-dvh w-60 shrink-0 flex-col overflow-y-auto border-r bg-card/50 px-4 py-6 md:flex">
         <Link to="/dashboard" className="mb-8 flex items-center gap-2 px-2">
           <div className="flex size-8 items-center justify-center rounded-lg bg-primary/15 text-primary neon-ring">
@@ -265,7 +265,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       <div ref={scrollRef} className="flex h-dvh min-w-0 flex-1 flex-col overflow-y-auto">
-        <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b bg-background/80 px-4 backdrop-blur md:px-8">
+        <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b bg-background/60 px-4 backdrop-blur md:px-8">
           <div className="flex items-center gap-1 md:hidden">
             {/* Hamburger: opens the full mobile menu (everything in the
                 sidebar, laid out as a dropdown panel). */}

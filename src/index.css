@@ -80,6 +80,12 @@
   --chart-5: oklch(0.62 0.19 20);
 }
 
+/* The html element carries the theme background: body itself is transparent
+   so the global cover image shows through everywhere. */
+html {
+  background: var(--background);
+}
+
 .dark {
   --background: oklch(0.16 0.024 250);
   --foreground: oklch(0.965 0.006 240);
@@ -139,7 +145,11 @@ html:not(.dark) .neon-glow {
     scroll-behavior: smooth;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply text-foreground;
+    /* Transparent: the global cover image (CoverBackground, fixed z-0)
+       shows through on every page. Cards/panels still paint their own
+       bg-card, so readability is unaffected. */
+    background: transparent;
   }
   button:not([disabled]),
   [role="button"]:not([disabled]) {

@@ -12,6 +12,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router";
 import "./index.css";
 import { LoadingGif } from "@/components/LoadingGif";
+import { CoverBackground } from "@/components/CoverBackground";
 
 // Lazy load route components for better code splitting
 const Landing = lazy(() => import("./pages/Landing.tsx"));
@@ -146,6 +147,10 @@ createRoot(document.getElementById("root")!).render(
         <VlyToolbar />
       </ToolbarErrorBoundary>
       <ConvexAuthProvider client={convex}>
+        {/* Global cover background: sits behind EVERY page (landing, auth,
+            app shell). Replace src/assets/cover.png or cover.svg to change
+            the artwork — height fits the window, width follows the A4 ratio. */}
+        <CoverBackground />
         <BrowserRouter>
           <RouteSyncer />
           <Suspense fallback={<RouteLoading />}>
