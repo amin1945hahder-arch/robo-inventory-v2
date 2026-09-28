@@ -28,6 +28,113 @@ export type TelegramSettings = {
 
 const TELEGRAM_KEY = "telegram";
 const COOLDOWN_KEY = "return_request_cooldown_hours";
+const CARD_LAYOUT_KEY = "card_print_layout";
+
+// ---- Card print layout ---------------------------------------------------
+// Admin-configurable layout used EVERYWHERE a rent/badge card is printed or
+// downloaded as PDF: page size, card size and its position on the page.
+// All numbers are millimetres; unit conversions happen on the client.
+
+export type CardPrintLayout = {
+  /** Page size preset the printer gets (@page size). */
+  pageSize: "A4" | "A5" | "Letter" | "Legal" | "custom";
+  /** Custom page size in mm (used when pageSize === "custom"). */
+  pageWidthMm: number;
+  pageHeightMm: number;
+  /** Card size in mm (printed size — not screen pixels). */
+  cardWidthMm: number;
+  cardHeightMm: number;
+  /** Card position: offset from the page's top-left corner in mm. */
+  offsetXmm: number;
+  offsetYmm: number;
+  /**
+   * "page" prints the card centred on the selected paper (office printer);
+   * "thermal" prints it on a continuous label roll (@page size = card size).
+   */
+  printMode: "page" | "thermal";
+};
+
+export const DEFAULT_CARD_LAYOUT: CardPrintLayout = {
+  pageSize: "A4",
+  pageWidthMm: 210,
+  pageHeightMm: 297,
+  cardWidthMm: 95,
+  cardHeightMm: 70,
+  offsetXmm: 15,
+  offsetYmm: 15,
+  printMode: "page",
+};
+
+function normalizeCardLayout(raw: unknown): CardPrintLayout {
+  const d = DEFAULT_CARD_LAYOUT;
+  const r = (raw ?? {}) as Partial<CardPrintLayout>;
+  const num = (v: unknown, def: number, min: number, max: number) => {
+    const n = typeof v === "number" && Number.isFinite(v) ? v : def;
+    return Math.min(max, Math.max(min, n));
+  };
+  const page = ["A4", "A5", "Letter", "Legal", "custom"].includes(String(r.pageSize))
+    ? (r.pageSize as CardPrintLayout["pageSize"])
+    : d.pageSize;
+  const mode = r.printMode === "thermal" ? "thermal" : r.printMode === "page" ? "page" : d.printMode;
+  const pw = num(r.pageWidthMm, d.pageWidthMm, 40, 400);
+  const ph = num(r.pageHeightMm, d.pageHeightMm, 40, 400);
+  const cw = num(r.cardWidthMm, d.cardWidthMm, 20, 400);
+  const ch = num(r.cardHeightMm, d.cardHeightMm, 20, 400);
+  return {
+    pageSize: page,
+    pageWidthMm: pw,
+    pageHeightMm: ph,
+    cardWidthMm: cw,
+    cardHeightMm: ch,
+    offsetXmm: num(r.offsetXmm, d.offsetXmm, 0, Math.max(0, pw - Math.min(cw, pw))),
+    offsetYmm: num(r.offsetYmm, d.offsetYmm, 0, Math.max(0, ph - Math.min(ch, ph))),
+    printMode: mode,
+  };
+}
+
+/** Read the card print layout (any signed-in user — the dialog needs it). */
+export const getCardLayout = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireUser(ctx);
+    const row = await ctx.db
+      .query("settings")
+      .withIndex("by_key", (q) => q.eq("key", CARD_LAYOUT_KEY))
+      .unique();
+    return normalizeCardLayout(row?.value ? JSON.parse(row.value) : {});
+  },
+});
+
+/** Admin saves the card print layout. */
+export const setCardLayout = mutation({
+  args: {
+    pageSize: v.union(
+      v.literal("A4"),
+      v.literal("A5"),
+      v.literal("Letter"),
+      v.literal("Legal"),
+      v.literal("custom"),
+    ),
+    pageWidthMm: v.number(),
+    pageHeightMm: v.number(),
+    cardWidthMm: v.number(),
+    cardHeightMm: v.number(),
+    offsetXmm: v.number(),
+    offsetYmm: v.number(),
+    printMode: v.union(v.literal("page"), v.literal("thermal")),
+  },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    const value = JSON.stringify(normalizeCardLayout(args));
+    const row = await ctx.db
+      .query("settings")
+      .withIndex("by_key", (q) => q.eq("key", CARD_LAYOUT_KEY))
+      .unique();
+    if (row) await ctx.db.patch(row._id, { value });
+    else await ctx.db.insert("settings", { key: CARD_LAYOUT_KEY, value });
+    return normalizeCardLayout(JSON.parse(value));
+  },
+});
 
 // ---- Per-user notification sounds ----------------------------------------
 // Every member owns their sound settings (stored on their user row); the

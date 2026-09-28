@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { LoadingGifInline } from "@/components/LoadingGif";
-import { useAction } from "convex/react";
+import { useAction, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Loader2, Printer, SendHorizonal } from "lucide-react";
+import { Printer, SendHorizonal } from "lucide-react";
 import QRCodeReact from "react-qr-code";
 import { qrUrl } from "@/lib/qr";
 import { downloadCardPdf, elementToPdfBase64 } from "@/lib/rent-card-hifi";
@@ -40,6 +40,7 @@ export function PersonBadgeDialog({
 }) {
   const [busy, setBusy] = useState<"" | "pdf" | "send">("");
   const deliverBadgePdf = useAction(api.rentCardTelegram.deliverRentCardPdf);
+  const layout = useQuery(api.settings.getCardLayout, {});
 
   const caption = [
     `🪪 Club member badge: ${p.name}`,
@@ -56,7 +57,7 @@ export function PersonBadgeDialog({
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-sm">
+      <DialogContent className="max-h-[90vh] max-w-[calc(100vw-1rem)] overflow-y-auto sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>Member badge</DialogTitle>
         </DialogHeader>
@@ -137,7 +138,7 @@ export function PersonBadgeDialog({
               try {
                 const el = document.getElementById("person-badge-sheet") as HTMLElement | null;
                 if (!el) throw new Error("Badge not rendered");
-                const { base64 } = await elementToPdfBase64(el);
+                const { base64 } = await elementToPdfBase64(el, layout ?? undefined);
                 const res = await deliverBadgePdf({ pdfBase64: base64, captionLines: caption });
                 if (res?.sent) toast.success("Badge PDF sent to the club group");
                 else toast.error(`Not sent: ${res?.reason ?? "unknown"}`);
@@ -158,7 +159,7 @@ export function PersonBadgeDialog({
               try {
                 const el = document.getElementById("person-badge-sheet") as HTMLElement | null;
                 if (!el) throw new Error("Badge not rendered");
-                await downloadCardPdf(el, `badge-${p.name.replace(/\s+/g, "_")}.pdf`);
+                await downloadCardPdf(el, `badge-${p.name.replace(/\s+/g, "_")}.pdf`, layout ?? undefined);
                 toast.success("Badge PDF downloaded");
               } catch (e) {
                 toast.error(e instanceof Error ? e.message : "Failed");

@@ -4,6 +4,7 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AppShell } from "@/components/AppShell";
+import { CardLayoutSection } from "@/components/CardLayoutSection";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -1067,6 +1068,7 @@ type SectionId =
   | "structure"
   | "lists"
   | "chat-backup"
+  | "card-layout"
   | "danger";
 
 const SECTIONS: { id: SectionId; label: string; icon: typeof Hash; hint: string }[] = [
@@ -1078,6 +1080,7 @@ const SECTIONS: { id: SectionId; label: string; icon: typeof Hash; hint: string 
   { id: "appearance", label: "App mode", icon: MonitorSmartphone, hint: "Dark / light / system" },
   { id: "returns", label: "Return rules", icon: Bell, hint: "Return-request cooldown" },
   { id: "structure", label: "Inventory structure", icon: FolderTree, hint: "Categories & storages" },
+  { id: "card-layout", label: "Card print layout", icon: Printer, hint: "Page, card size & position" },
   { id: "lists", label: "Club lists", icon: Boxes, hint: "Positions & academic states" },
   { id: "chat-backup", label: "Chat backups", icon: MessageSquare, hint: "Archive destinations" },
   { id: "danger", label: "Danger zone", icon: TriangleAlert, hint: "Reset the database" },
@@ -1471,6 +1474,8 @@ export default function AdminSettings() {
         )}
 
         {/* ===== chat backup destinations ===== */}
+        {section === "card-layout" && <CardLayoutSection />}
+
         {section === "chat-backup" && (
           <section className="rounded-lg border">
             <div className="border-b px-5 py-3">

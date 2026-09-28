@@ -50,6 +50,7 @@ export function RentCardSheet({ card }: { card: RentCardData }) {
     <div
       data-qr-label
       className="w-full max-w-[360px] rounded-lg border bg-white p-5 text-black sm:w-[360px]"
+    >
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-widest text-neutral-500">

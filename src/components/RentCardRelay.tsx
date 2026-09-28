@@ -18,6 +18,7 @@ import { elementToPdfBase64 } from "@/lib/rent-card-hifi";
  */
 export function RentCardRelay() {
   const job = useQuery(api.rentCardRelay.nextQueuedPublic, {});
+  const layout = useQuery(api.settings.getCardLayout, {});
   const claim = useMutation(api.rentCardRelay.claim);
   const release = useMutation(api.rentCardRelay.release);
   const submitPdf = useMutation(api.rentCardRelay.submitPdf);
@@ -26,7 +27,7 @@ export function RentCardRelay() {
   const busy = useRef(false);
 
   useEffect(() => {
-    if (!job || busy.current) return;
+    if (!job || layout === undefined || busy.current) return;
     busy.current = true;
     setJobId(job._id);
     setCard(job.card);
@@ -39,7 +40,10 @@ export function RentCardRelay() {
         await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
         const el = document.getElementById("rent-card-relay-sheet");
         if (!el) throw new Error("relay sheet missing");
-        const { base64 } = await elementToPdfBase64(el as HTMLElement);
+        const { base64 } = await elementToPdfBase64(
+          (el as HTMLElement).querySelector<HTMLElement>("[data-qr-label]") ?? (el as HTMLElement),
+          layout ?? undefined,
+        );
         await submitPdf({ jobId: job._id, pdfBase64: base64 });
       } catch {
         try {
@@ -53,7 +57,7 @@ export function RentCardRelay() {
         setCard(null);
       }
     })();
-  }, [job, claim, release, submitPdf]);
+  }, [job, layout, claim, release, submitPdf]);
 
   return createPortal(
     // Off-screen but rendered (never display:none — snapdom needs layout).

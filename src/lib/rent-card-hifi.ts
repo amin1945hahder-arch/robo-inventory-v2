@@ -1,4 +1,9 @@
 import { snapdom } from "@zumer/snapdom";
+import {
+  pageMm,
+  placedCardMm,
+  type CardPrintLayout,
+} from "./card-print-layout";
 
 /**
  * Hi-fi rent-card PDF pipeline.
@@ -92,20 +97,73 @@ export function pngBytesToPdf(
 /**
  * Rasterize the card element and build the PDF bytes (JPEG-embedded so the
  * browser's own encoder does all compression; Arabic text is pixels — perfect).
+ *
+ * With a `layout` the card is PLACED on the configured paper (page size,
+ * card size, position from Admin Settings → Card print layout) instead of
+ * producing a page cut exactly to the card. The card is scaled to fit its
+ * box — never stretched.
  */
 export async function elementToPdfBytes(
   el: HTMLElement,
+  layout?: CardPrintLayout,
 ): Promise<{ pdf: Uint8Array; widthPx: number; heightPx: number }> {
   const canvas = await elementToCanvas(el);
   // 0.92 quality ≈ visually lossless at 3× scale, much smaller than PNG.
   const jpegUrl = canvas.toDataURL("image/jpeg", 0.92);
   const bytes = dataUrlToBytes(jpegUrl);
-  return { pdf: pngBytesToPdf(bytes, canvas.width, canvas.height), widthPx: canvas.width, heightPx: canvas.height };
+
+  if (!layout) {
+    return {
+      pdf: pngBytesToPdf(bytes, canvas.width, canvas.height),
+      widthPx: canvas.width,
+      heightPx: canvas.height,
+    };
+  }
+
+  // Map the card onto the configured page (mm → px at 96dpi, ×3 raster).
+  const MM_PER_PX = 25.4 / 96;
+  const placed = placedCardMm(layout, canvas.width / 3 * MM_PER_PX, canvas.height / 3 * MM_PER_PX);
+  const page = pageMm(layout);
+  const pageWPx = (page.w / MM_PER_PX) * 3;
+  const pageHPx = (page.h / MM_PER_PX) * 3;
+  // White page canvas, card drawn at its placed rect.
+  const sheet = document.createElement("canvas");
+  sheet.width = Math.round(pageWPx);
+  sheet.height = Math.round(pageHPx);
+  const ctx = sheet.getContext("2d");
+  if (!ctx) throw new Error("no 2d context");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, sheet.width, sheet.height);
+  const img = new Image();
+  await new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error("card raster failed"));
+    img.src = jpegUrl;
+  });
+  const S = 3; // raster scale
+  ctx.drawImage(
+    img,
+    (placed.x / MM_PER_PX) * S,
+    (placed.y / MM_PER_PX) * S,
+    (placed.w / MM_PER_PX) * S,
+    (placed.h / MM_PER_PX) * S,
+  );
+  const sheetUrl = sheet.toDataURL("image/jpeg", 0.92);
+  const sheetBytes = dataUrlToBytes(sheetUrl);
+  return {
+    pdf: pngBytesToPdf(sheetBytes, sheet.width, sheet.height),
+    widthPx: sheet.width,
+    heightPx: sheet.height,
+  };
 }
 
-/** Trigger a browser download of the card PDF. */
-export async function downloadCardPdf(el: HTMLElement, fileName: string): Promise<void> {
-  const { pdf } = await elementToPdfBytes(el);
+/** Trigger a browser download of the card PDF (optionally page-placed). */
+export async function downloadCardPdf(
+  el: HTMLElement,
+  fileName: string,
+  layout?: CardPrintLayout,
+): Promise<void> {
+  const { pdf } = await elementToPdfBytes(el, layout);
   const blob = new Blob([pdf as BlobPart], { type: "application/pdf" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -120,8 +178,9 @@ export async function downloadCardPdf(el: HTMLElement, fileName: string): Promis
 /** Build the card PDF for the Telegram relay (base64, no data: prefix). */
 export async function elementToPdfBase64(
   el: HTMLElement,
+  layout?: CardPrintLayout,
 ): Promise<{ base64: string; widthPx: number; heightPx: number }> {
-  const { pdf, widthPx, heightPx } = await elementToPdfBytes(el);
+  const { pdf, widthPx, heightPx } = await elementToPdfBytes(el, layout);
   let bin = "";
   const CHUNK = 0x8000;
   for (let i = 0; i < pdf.length; i += CHUNK) {

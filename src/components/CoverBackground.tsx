@@ -16,7 +16,7 @@ import { coverUrl } from "@/lib/cover";
 export function CoverBackground() {
   if (!coverUrl) return null;
   return (
-    <div aria-hidden className="pointer-events-none fixed inset-0 -z-10">
+    <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 no-print">
       {/* Side fill: same image, overscaled + blurred, only visible beyond
           the crisp layer's auto width (e.g. landscape monitors). */}
       <img
