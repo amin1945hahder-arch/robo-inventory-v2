@@ -602,7 +602,9 @@ export default function GroupDetail() {
               </p>
             )}
             {parts === undefined ? (
-              <p className="text-sm text-muted-foreground">Loading units…</p>
+              <div className="py-10">
+                <LoadingGif label="Loading units…" />
+              </div>
             ) : parts.length === 0 ? (
               <p className="rounded-lg border border-dashed px-6 py-10 text-center text-sm text-muted-foreground">
                 No units yet.

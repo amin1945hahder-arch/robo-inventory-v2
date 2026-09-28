@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { unitQr } from "@/lib/qr";
+import { LoadingGif } from "@/components/LoadingGif";
 import { describePackSize, isPackGroup, sumPiecesInUnits } from "@/lib/group-measure";
 import { Link } from "react-router";
 import { Beaker, PackageOpen, Pencil } from "lucide-react";
@@ -223,7 +224,9 @@ export function GroupDetailUnits({
         </p>
       </div>
       {parts === undefined ? (
-        <p className="text-sm text-muted-foreground">Loading units…</p>
+        <div className="py-10">
+          <LoadingGif label="Loading units…" />
+        </div>
       ) : units.length === 0 ? (
         <p className="rounded-lg border border-dashed px-6 py-10 text-center text-sm text-muted-foreground">
           {isPackGroup(group) ? "No packs yet — add the first pack." : "No units yet — add the first reel/spool with its amount."}

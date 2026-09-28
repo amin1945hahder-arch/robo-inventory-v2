@@ -11,6 +11,7 @@ import { GroupFormDialog } from "@/components/GroupFormDialog";
 import { QrScanDialog } from "@/components/QrScanDialog";
 import { InventorySearchDialog } from "@/components/InventorySearchDialog";
 import { QrChip } from "@/components/QrChip";
+import { LoadingGif } from "@/components/LoadingGif";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -351,7 +352,9 @@ export default function Inventory() {
         )}
 
         {groups === undefined ? (
-          <p className="py-16 text-center text-sm text-muted-foreground">Loading inventory…</p>
+          <div className="py-16">
+            <LoadingGif label="Loading inventory…" />
+          </div>
         ) : filtered.length === 0 ? (
           <div className="rounded-lg border border-dashed px-6 py-16 text-center">
             <p className="text-sm text-muted-foreground">
