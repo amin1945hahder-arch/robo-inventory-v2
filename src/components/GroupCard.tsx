@@ -2,6 +2,7 @@ import { memo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/StatusBadge";
 import { QrChip } from "@/components/QrChip";
+import { AppIcon } from "@/components/AppIcon";
 import { groupQr } from "@/lib/qr";
 import { cn } from "@/lib/utils";
 import { describePackSize, isPackGroup } from "@/lib/group-measure";
@@ -148,7 +149,10 @@ function GroupCardBase({
         )}
         <div className="flex items-start justify-between gap-3">
           <Link to={`/group/${group._id}`} className="min-w-0 flex-1">
-            <p className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
+            <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
+              {categoryName ? (
+                <AppIcon category={categoryName} fallback={Package} className="size-3.5 shrink-0" />
+              ) : null}
               {categoryName ?? "Component"}
             </p>
             <h3 className="mt-1 truncate text-base font-semibold leading-tight">

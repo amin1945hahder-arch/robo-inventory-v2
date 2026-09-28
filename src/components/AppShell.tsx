@@ -37,6 +37,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { normalizeScan } from "@/lib/qr";
+import { AppIcon } from "@/components/AppIcon";
 import { useSound } from "@/hooks/use-sound";
 import { useAppearance } from "@/hooks/use-appearance";
 import { usePush } from "@/hooks/use-push";
@@ -49,6 +50,18 @@ const NAV = [
   { to: "/rentals", label: "My rentals", icon: PackageSearch, studentBlocked: true },
   { to: "/3d-printing", label: "3D printing", icon: Box, studentBlocked: true },
   { to: "/courses", label: "Courses", icon: GraduationCap, studentBlocked: false },
+];
+
+/** Admin nav rows (mobile menu) — each has an icon-override slot:
+ *  src/assets/icons/nav/<route>.svg — see AppIcon for the exact list. */
+const ADMIN_LINKS = [
+  { to: "/admin/requests", label: "Requests", icon: Bell },
+  { to: "/people", label: "People", icon: Users },
+  { to: "/import", label: "Import CSV", icon: PackageSearch },
+  { to: "/labels", label: "Print labels", icon: QrCode },
+  { to: "/export", label: "Export", icon: FileDown },
+  { to: "/admin/reports", label: "Reports", icon: BarChart3 },
+  { to: "/settings", label: "Settings", icon: Settings },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -150,7 +163,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
                 )}
               >
-                <Icon className="size-4" />
+                <AppIcon route={to} fallback={Icon} className="size-4" />
                 {label}
                 {bubble ? (
                   <span className="ml-auto rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
@@ -292,7 +305,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 )}
                 title={label}
               >
-                <Icon className="size-4" />
+                <AppIcon route={to} fallback={Icon} className="size-4" />
               </Link>
             ))}
           </div>
@@ -383,20 +396,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <p className="mt-3 mb-1 px-3 text-[11px] font-medium uppercase tracking-widest text-muted-foreground">
                     Admin
                   </p>
-                  {([
-                    {
-                      to: "/admin/requests",
-                      label: "Requests",
-                      icon: Bell,
-                      bubble: notifData ?? undefined,
-                    },
-                    { to: "/people", label: "People", icon: Users },
-                    { to: "/import", label: "Import CSV", icon: PackageSearch },
-                    { to: "/labels", label: "Print labels", icon: QrCode },
-                    { to: "/export", label: "Export", icon: FileDown },
-                    { to: "/admin/reports", label: "Reports", icon: BarChart3 },
-                    { to: "/settings", label: "Settings", icon: Settings },
-                  ] as { to: string; label: string; icon: typeof Bell; bubble?: number }[]).map(({ to, label, icon: Icon, bubble }) => (
+                  {ADMIN_LINKS.map(({ to, label, icon }) => (
                     <Link
                       key={to}
                       to={to}
@@ -408,11 +408,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                           : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
                       )}
                     >
-                      <Icon className="size-4" />
+                      <AppIcon route={to} fallback={icon} className="size-4" />
                       {label}
-                      {bubble ? (
+                      {to === "/admin/requests" && notifData ? (
                         <span className="ml-auto rounded-full bg-foreground px-1.5 py-0.5 text-[10px] font-semibold text-background">
-                          {bubble}
+                          {notifData}
                         </span>
                       ) : null}
                     </Link>

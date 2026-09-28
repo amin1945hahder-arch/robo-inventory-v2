@@ -12,6 +12,7 @@ import { QrScanDialog } from "@/components/QrScanDialog";
 import { InventorySearchDialog } from "@/components/InventorySearchDialog";
 import { QrChip } from "@/components/QrChip";
 import { LoadingGif } from "@/components/LoadingGif";
+import { AppIcon } from "@/components/AppIcon";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -42,6 +43,7 @@ import { categoryQr, normalizeScan } from "@/lib/qr";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
 import {
+  FolderOpen,
   MoreVertical,
   PackagePlus,
   Pencil,
@@ -377,6 +379,7 @@ export default function Inventory() {
                   className="flex flex-col gap-3"
                 >
                   <div className="flex items-center gap-2">
+                    <AppIcon category={cat.name} fallback={FolderOpen} className="size-4 shrink-0 text-primary" />
                     <h2 className="text-sm font-semibold">{cat.name}</h2>
                     <span className="text-xs text-muted-foreground">· {catGroups.length}</span>
                     <div className="ml-1">
