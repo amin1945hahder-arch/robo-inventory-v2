@@ -17,6 +17,11 @@ import {
   type BackupMeta,
   type BackupTables,
 } from "../lib/app-backup";
+import {
+  buildConvexBackupZip,
+  convexBackupCounts,
+  convexBackupFileName,
+} from "../lib/convex-backup";
 
 /**
  * Full-app data backup.
@@ -182,10 +187,31 @@ async function buildAndSend(
   const fileName = backupFileName(generatedAt);
   const schedule = await ctx.runQuery(internal.appBackup.getBackupScheduleInternal, {});
 
+  // Second archive: the SAME data in the exact format `npx convex import
+  // <file>.zip --replace` understands — one <table>.json per table. Restore
+  // = download both zips, `convex import` the convex one, done.
+  let convexFileName: string | undefined;
+  let convexSent = false;
+  try {
+    const convexBase64 = await buildConvexBackupZip(tables, generatedAt);
+    convexFileName = convexBackupFileName(generatedAt);
+    const convexRes = (await ctx.runAction(internal.telegram.sendBackupFile, {
+      fileName: convexFileName,
+      dataBase64: convexBase64,
+      caption: `♻️ Convex import backup — restore with:\nnpx convex import ${convexFileName} --replace\n\n${convexBackupCounts(tables)}`,
+      bot: "app",
+      threadId: schedule?.threadId,
+    })) as { sent: boolean; reason?: string };
+    convexSent = convexRes.sent;
+  } catch {
+    // The human-readable archive above already succeeded — never fail the
+    // whole backup because the second file didn't go through.
+  }
+
   const res = (await ctx.runAction(internal.telegram.sendBackupFile, {
     fileName,
     dataBase64,    caption:
-      `🗂️ ${trigger === "manual" ? "Manual" : "Scheduled"} full backup — ${(
+      `🗂️ ${trigger === "manual" ? "Manual" : "Scheduled"} full backup${convexSent ? " + convex-import copy" : ""} — ${(
         Object.entries(tables) as [string, Record<string, unknown>[]][]
       )
         .filter(([, rows]) => rows.length > 0)

@@ -7,8 +7,9 @@
  * platform (browser, installed PWA, APK/desktop wrapper) and explains exactly
  * how to recover when something was denied.
  */
-import { AlertTriangle, Bell, Camera, Check, Database, RotateCw, ShieldCheck, Volume2, X } from "lucide-react";
+import { AlertTriangle, Bell, BellRing, Camera, Check, Database, RotateCw, ShieldCheck, Volume2, X } from "lucide-react";
 import { usePermissions, type PermissionKind, type PermissionStatus } from "@/hooks/use-permissions";
+import { usePushSubscription } from "@/hooks/use-push";
 import { LoadingGifInline } from "@/components/LoadingGif";
 import { Button } from "@/components/ui/button";
 import { AppIcon } from "@/components/AppIcon";
@@ -172,6 +173,75 @@ export function PermissionsManager() {
           </div>
         );
       })}
+      <PushCard platform={platform} />
+    </div>
+  );
+}
+
+/**
+ * Real server pushes (VAPID web-push). OS-level notifications delivered even
+ * when the app is closed — one subscription per device, standard Push API, so
+ * it works on browsers/PWA, Android webviews and iOS 16.4+ home-screen apps.
+ */
+function PushCard({ platform }: { platform: Platform }) {
+  const push = usePushSubscription();
+  if (!push.supported) return null; // platform has no Push API — in-app only
+  if (push.state === "unconfigured") {
+    return (
+      <div className="glass-3d flex flex-col gap-1 rounded-lg border border-dashed p-4">
+        <p className="flex items-center gap-2 text-sm font-semibold">
+          <BellRing className="size-4 text-primary" /> Real push notifications
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Supported on this device — waiting for the server's push keys
+          (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY in Settings → API keys).
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="glass-3d flex flex-col gap-3 rounded-lg border border-primary/30 p-4 sm:flex-row sm:items-center">
+      <AppIcon fallback={BellRing} className="size-9" />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-sm font-semibold">Real push notifications</p>
+          <span
+            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+              push.state === "on"
+                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
+                : "border-sky-500/40 bg-sky-500/10 text-sky-400"
+            }`}
+          >
+            {push.state === "on" ? <Check className="size-3" /> : <BellRing className="size-3" />}
+            {push.state === "on" ? "Active on this device" : "Off"}
+          </span>
+        </div>
+        <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+          {push.state === "on"
+            ? "This device receives OS-level pushes even when the app is closed."
+            : platform === "ios"
+              ? "On iPhone/iPad the app must be installed to the Home Screen first, then enable push here."
+              : "Enable once — this device then receives pushes even with the app fully closed."}
+        </p>
+        {push.error && (
+          <p className="mt-1.5 rounded-md border border-amber-500/30 bg-amber-500/5 px-2 py-1.5 text-[11px] leading-4 text-amber-500">
+            {push.error}
+          </p>
+        )}
+      </div>
+      <div className="flex shrink-0 items-center gap-2 sm:self-center">
+        {push.state === "working" ? (
+          <LoadingGifInline size={18} className="size-4" />
+        ) : push.state === "on" ? (
+          <Button variant="outline" size="sm" onClick={() => void push.disable()}>
+            Turn off
+          </Button>
+        ) : (
+          <Button size="sm" onClick={() => void push.enable()}>
+            <BellRing className="size-3.5" /> Enable push
+          </Button>
+        )}
+      </div>
     </div>
   );
 }

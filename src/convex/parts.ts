@@ -599,6 +599,13 @@ export const requestRental = mutation({
       `${studentLabel} requested to rent ${group?.name ?? "a part"} (${part.tag})`,
       `/admin/requests`,
     );
+    // OS-level push to every admin device (no-op until VAPID keys are set).
+    await ctx.scheduler.runAfter(0, internal.push.pushToAdmins, {
+      title: "New rental request",
+      body: `${studentLabel} requested to rent ${group?.name ?? "a part"} (${part.tag})`,
+      tag: "roboshelf-request",
+      url: "/admin/requests",
+    });
     await notifyAdminsByEmail(
       ctx,
       studentLabel,
@@ -2005,6 +2012,13 @@ export const createPackage = mutation({
     const label = user.name ?? user.email ?? "A member";
     const summary = await summarize(ctx, lines.map((l) => ({ groupId: l.groupId, count: Math.ceil(l.count) })));
     await notifyAdmin(ctx, `${label} requested a package rental (${summary})`, `/admin/requests`);
+    // OS-level push to every admin device (no-op until VAPID keys are set).
+    await ctx.scheduler.runAfter(0, internal.push.pushToAdmins, {
+      title: "New package request",
+      body: `${label} requested a package rental (${summary})`,
+      tag: "roboshelf-request",
+      url: "/admin/requests",
+    });
     const admins = await ctx.db.query("users").collect();
     await telegramGroup(
       ctx,
@@ -2124,8 +2138,11 @@ export const adminEditPackage = mutation({
     // pending/approved records can be removed this way — live/processed ones
     // are refused (they are managed per unit instead).
     removeRentalIds: v.optional(v.array(v.id("rentals"))),
+    // Re-assign the whole package (and every unit record in it) to another
+    // member — the bundle-level twin of the per-record renter edit.
+    userId: v.optional(v.id("users")),
   },
-  handler: async (ctx, { packageId, lines, note, pickupAt, removeRentalIds }) => {
+  handler: async (ctx, { packageId, lines, note, pickupAt, removeRentalIds, userId }) => {
     const admin = await requireAdmin(ctx);
     const pkg = await ctx.db.get(packageId);
     if (!pkg) throw new Error("Package not found");
@@ -2148,6 +2165,14 @@ export const adminEditPackage = mutation({
       .collect();
     const pkgRentals = myRentals.filter((r) => r.packageId === packageId);
     const member = await ctx.db.get(pkg.userId);
+    // Optional renter change — applies to the package row AND every unit
+    // record in it (pending re-pick inserts under the new member directly).
+    let renterId: any = pkg.userId;
+    if (userId !== undefined && userId !== pkg.userId) {
+      const newHolder = await ctx.db.get(userId);
+      if (!newHolder) throw new Error("New renter not found");
+      renterId = userId;
+    }
 
     if (pkg.status === "pending") {
       // Same full re-pick semantics as the member edit, but admin-side.
@@ -2188,13 +2213,14 @@ export const adminEditPackage = mutation({
         note: note?.trim() || undefined,
         lines: cleanLines,
         pickupAt: pickupAt === undefined ? pkg.pickupAt : (pickupAt ?? undefined),
+        userId: renterId,
       });
       for (const { partId } of chosen) {
         const part = await ctx.db.get(partId);
         if (!part) continue;
         await ctx.db.insert("rentals", {
           partId,
-          userId: pkg.userId,
+          userId: renterId,
           packageId,
           status: "pending",
           requestedAt: now,
@@ -2323,13 +2349,26 @@ export const adminEditPackage = mutation({
       }
     }
 
+    // Renter change: move every surviving record of the bundle to the new
+    // member and keep held units' holder pointers in sync.
+    if (renterId !== pkg.userId) {
+      for (const r of pkgRentals) {
+        if (removedIds.has(r._id) || released.includes(r._id)) continue;
+        await ctx.db.patch(r._id, { userId: renterId as any });
+        const part = r.partId ? await ctx.db.get(r.partId) : null;
+        if (part && part.status === "rented") {
+          await ctx.db.patch(part._id, { currentHolderId: renterId as any });
+        }
+      }
+    }
+
     // 6. Insert the new approved rentals for added units.
     for (const { partId } of claimed) {
       const part = await ctx.db.get(partId);
       if (!part) continue;
       await ctx.db.insert("rentals", {
         partId,
-        userId: pkg.userId,
+        userId: renterId,
         packageId,
         status: "approved",
         requestedAt: pkg.requestedAt,
@@ -2343,6 +2382,7 @@ export const adminEditPackage = mutation({
       note: note?.trim() || undefined,
       lines: cleanLines,
       pickupAt: pickupAt === undefined ? pkg.pickupAt : (pickupAt ?? undefined),
+      userId: renterId,
     });
 
     const summaryText = await summarize(ctx, cleanLines);
@@ -2671,6 +2711,8 @@ export const updateRentalRecord = mutation({
     dueAt: v.optional(v.union(v.number(), v.null())),
     pickupAt: v.optional(v.union(v.number(), v.null())),
     conditionReport: v.optional(v.string()),
+    // Re-assign the record to a different member (admin correction).
+    userId: v.optional(v.id("users")),
     // Move the record across statuses (e.g. fix a wrongly-marked return).
     status: v.optional(
       v.union(
@@ -2686,7 +2728,7 @@ export const updateRentalRecord = mutation({
   },
   handler: async (
     ctx,
-    { rentalId, requestedAt, decidedAt, pickedUpAt, returnedAt, dueAt, pickupAt, conditionReport, status },
+    { rentalId, requestedAt, decidedAt, pickedUpAt, returnedAt, dueAt, pickupAt, conditionReport, status, userId },
   ) => {
     await requireAdmin(ctx);
     const rental = await ctx.db.get(rentalId);
@@ -2700,11 +2742,24 @@ export const updateRentalRecord = mutation({
     if (pickupAt !== undefined) patch.pickupAt = pickupAt || undefined;
     if (conditionReport !== undefined) patch.conditionReport = conditionReport.trim() || undefined;
     if (status !== undefined) patch.status = status;
+    // Renter change: verify the target member exists, and keep the unit's
+    // holder pointers in sync (part.currentHolderId / project membership).
+    if (userId !== undefined && userId !== rental.userId) {
+      const newHolder = await ctx.db.get(userId);
+      if (!newHolder) throw new Error("New renter not found");
+      patch.userId = userId;
+    }
     await ctx.db.patch(rentalId, patch);
 
     // Keep a rented unit's lend dates (shown on cards + dashboards) in sync.
     const part = rental.partId ? await ctx.db.get(rental.partId) : null;
     if (part) {
+      if (patch.userId) {
+        // The unit follows its record's holder while it is out.
+        await ctx.db.patch(part._id, {
+          currentHolderId: patch.userId as any,
+        });
+      }
       if (dueAt !== undefined || pickedUpAt !== undefined) {
         await ctx.db.patch(part._id, {
           ...(dueAt !== undefined ? { dueAt: dueAt || undefined } : {}),

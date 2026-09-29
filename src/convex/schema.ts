@@ -397,6 +397,32 @@ const schema = defineSchema(
       read: v.optional(v.boolean()),
     }).index("by_read", ["read"]),
 
+    // Web-push subscriptions (VAPID): one row per browser/device that enabled
+    // push. endpoint is unique per device; keys holds the per-subscription
+    // p256dh/auth material. Platform-agnostic — works for PWA/browser, the
+    // Android APK webview, iOS 16.4+ home-screen PWAs and desktop wrappers
+    // that expose the standard Push API.
+    pushSubscriptions: defineTable({
+      userId: v.id("users"),
+      endpoint: v.string(),
+      keysP256dh: v.string(),
+      keysAuth: v.string(),
+      userAgent: v.optional(v.string()),
+      platform: v.optional(v.string()),
+      createdAt: v.number(),
+    })
+      .index("by_endpoint", ["endpoint"])
+      .index("by_user", ["userId"]),
+
+    // Which request/entity ids the admin has SEEN (acked) — powers the
+    // Updates tab: it lists unseen rows from every module and drops each one
+    // as soon as it is actioned or explicitly marked seen.
+    seenRequests: defineTable({
+      key: v.string(),
+      seenAt: v.number(),
+      seenBy: v.optional(v.id("users")),
+    }).index("by_key", ["key"]),
+
     settings: defineTable({
       key: v.string(),
       value: v.optional(v.string()),
