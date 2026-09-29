@@ -10,11 +10,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Slider } from "@/components/ui/slider";
 import { toast } from "sonner";
 import {
   Bell,
   Boxes,
   Check,
+  ClipboardList,
   DatabaseBackup,
   FolderTree,
   Hash,
@@ -25,13 +27,16 @@ import {
   Pencil,
   Plus,
   Printer,
+  RotateCcw,
   Save,
+  ScanLine,
   SendHorizonal,
   ShieldCheck,
   Sun,
   Trash2,
   TriangleAlert,
   Volume2,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -659,7 +664,7 @@ function MySoundsSection() {
     if (cfg !== undefined) setEnabled(cfg.enabled);
   }, [cfg]);
 
-  const previewTone = (freq: number, dur: number) => {
+  const previewTone = (freq: number, dur: number, vol?: number) => {
     try {
       const w = window as unknown as { webkitAudioContext?: typeof AudioContext };
       const Ctor = window.AudioContext ?? w.webkitAudioContext;
@@ -669,8 +674,9 @@ function MySoundsSection() {
       const gain = ctx.createGain();
       osc.type = "sine";
       osc.frequency.value = freq;
+      const peak = Math.min(1, Math.max(0, (vol ?? 18) / 100));
       gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), ctx.currentTime + 0.01);
       gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
       osc.connect(gain).connect(ctx.destination);
       osc.start();
@@ -678,6 +684,27 @@ function MySoundsSection() {
       osc.onended = () => void ctx.close();
     } catch {
       /* autoplay policy before first interaction */
+    }
+  };
+
+  const LABELS: Record<string, { label: string; hint: string; icon: React.ComponentType<{ className?: string }> }> = {
+    scan: { label: "Scan", hint: "Successful QR/barcode scan", icon: ScanLine },
+    rental_request: { label: "Rental request", hint: "You submit a new request", icon: ClipboardList },
+    approved: { label: "Approved", hint: "Request approved / picked up", icon: Check },
+    denied: { label: "Denied", hint: "Request denied", icon: X },
+    returned: { label: "Returned", hint: "Unit back on the shelf", icon: RotateCcw },
+    assigned: { label: "Assigned", hint: "Unit assigned to a project", icon: Boxes },
+    notification: { label: "Notification", hint: "Any other update", icon: Bell },
+  };
+
+  // One save per slider drag batch — local state keeps the drag smooth.
+  const patch = async (key: string, nextSpec: { freq: number; dur: number; vol?: number }) => {
+    if (!cfg) return;
+    const next = { ...cfg.sounds, [key]: nextSpec };
+    try {
+      await saveSounds({ enabled: cfg.enabled, sounds: next });
+    } catch {
+      /* keep the UI responsive even if the save fails */
     }
   };
 
@@ -701,7 +728,7 @@ function MySoundsSection() {
             try {
               await saveSounds({ enabled: v, sounds: cfg.sounds });
               toast.success(v ? "Sounds on for you" : "You muted all sounds");
-              if (v) previewTone(cfg.sounds.notification?.freq ?? 740, 0.1);
+              if (v) previewTone(cfg.sounds.notification?.freq ?? 740, 0.1, cfg.sounds.notification?.vol);
             } catch (e) {
               toast.error(e instanceof Error ? e.message : "Failed");
               setEnabled(!v);
@@ -715,43 +742,79 @@ function MySoundsSection() {
           <LoadingGifInline size={18} className="size-4" /> Loading your sound settings…
         </p>
       ) : (
-        <div className="grid gap-2">
-          {Object.entries(cfg.sounds).map(([key, spec]) => (
-            <div key={key} className="flex items-center gap-3 glass-3d rounded-md border px-3 py-2">
-              <span className="w-40 text-xs font-medium">{key.replace(/_/g, " ")}</span>
-              <span className="w-14 text-xs text-muted-foreground">{spec.freq} Hz</span>
-              <input
-                type="range"
-                min={150}
-                max={1400}
-                step={10}
-                value={spec.freq}
-                onChange={async (e) => {
-                  const next = {
-                    ...cfg.sounds,
-                    [key]: { ...spec, freq: Number(e.target.value) },
-                  };
-                  // Preview the NEW tone immediately, before it is saved.
-                  previewTone(Number(e.target.value), spec.dur);
-                  try {
-                    await saveSounds({ enabled: cfg.enabled, sounds: next });
-                  } catch {
-                    /* keep the UI responsive even if the save fails */
-                  }
-                }}
-                className="flex-1 accent-[var(--primary)]"
-              />
-              <Button
-                size="icon"
-                variant="ghost"
-                className="size-7"
-                title="Preview tone"
-                onClick={() => previewTone(spec.freq, spec.dur)}
-              >
-                <Volume2 className="size-3.5" />
-              </Button>
-            </div>
-          ))}
+        <div className="grid gap-3 sm:grid-cols-2">
+          {Object.entries(cfg.sounds).map(([key, spec]) => {
+            const meta = LABELS[key] ?? { label: key.replace(/_/g, " "), hint: "", icon: Volume2 };
+            const Icon = meta.icon;
+            return (
+              <div key={key} className="flex flex-col gap-3 glass-3d rounded-lg border p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10">
+                      <Icon className="size-4 text-primary" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold">{meta.label}</p>
+                      {meta.hint && (
+                        <p className="truncate text-[11px] text-muted-foreground">{meta.hint}</p>
+                      )}
+                    </div>
+                  </div>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-8 shrink-0"
+                    title="Preview tone"
+                    onClick={() => previewTone(spec.freq, spec.dur, spec.vol)}
+                  >
+                    <Volume2 className="size-4" />
+                  </Button>
+                </div>
+                {/* Three full-width sliders — pitch, length, volume. */}
+                <div className="flex flex-col gap-2.5">
+                  <div className="flex items-center gap-3">
+                    <span className="w-12 shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Pitch</span>
+                    <Slider
+                      min={150}
+                      max={1400}
+                      step={10}
+                      value={[spec.freq]}
+                      onValueChange={([freq]) => void patch(key, { ...spec, freq })}
+                      onValueCommit={() => previewTone(spec.freq, spec.dur, spec.vol)}
+                      className="flex-1"
+                    />
+                    <span className="w-16 shrink-0 text-right font-mono text-xs tabular-nums text-muted-foreground">{spec.freq} Hz</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="w-12 shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Length</span>
+                    <Slider
+                      min={0.03}
+                      max={0.8}
+                      step={0.01}
+                      value={[spec.dur]}
+                      onValueChange={([dur]) => void patch(key, { ...spec, dur })}
+                      onValueCommit={() => previewTone(spec.freq, spec.dur, spec.vol)}
+                      className="flex-1"
+                    />
+                    <span className="w-16 shrink-0 text-right font-mono text-xs tabular-nums text-muted-foreground">{spec.dur.toFixed(2)} s</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="w-12 shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Volume</span>
+                    <Slider
+                      min={0}
+                      max={100}
+                      step={1}
+                      value={[spec.vol ?? 18]}
+                      onValueChange={([vol]) => void patch(key, { ...spec, vol })}
+                      onValueCommit={() => previewTone(spec.freq, spec.dur, spec.vol)}
+                      className="flex-1"
+                    />
+                    <span className="w-16 shrink-0 text-right font-mono text-xs tabular-nums text-muted-foreground">{spec.vol ?? 18}%</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </section>

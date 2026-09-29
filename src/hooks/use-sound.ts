@@ -33,6 +33,9 @@ export function useSound() {
       if (cfg === undefined) return; // settings not loaded yet
       if (!cfg.enabled) return;
       const spec = cfg.sounds[key] ?? { freq: 660, dur: 0.1 };
+      // Volume is 0–100 (%) per category; default 18 matches the original mix.
+      const peak = Math.min(1, Math.max(0, (spec.vol ?? 18) / 100));
+      if (peak <= 0) return;
       try {
         const w = window as unknown as { webkitAudioContext?: typeof AudioContext };
         const Ctor = window.AudioContext ?? w.webkitAudioContext;
@@ -45,7 +48,7 @@ export function useSound() {
         osc.type = "sine";
         osc.frequency.value = spec.freq;
         gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + 0.01);
+        gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), ctx.currentTime + 0.01);
         gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + spec.dur);
         osc.connect(gain).connect(ctx.destination);
         osc.start();

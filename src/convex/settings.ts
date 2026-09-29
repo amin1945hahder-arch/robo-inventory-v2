@@ -140,7 +140,7 @@ export const setCardLayout = mutation({
 // Every member owns their sound settings (stored on their user row); the
 // DEFAULTS seed the tone list. There is no app-wide sound setting anymore.
 
-export type SoundSpec = { freq: number; dur: number };
+export type SoundSpec = { freq: number; dur: number; vol?: number };
 export type SoundSettings = { enabled: boolean; sounds: Record<string, SoundSpec> };
 
 export const DEFAULT_SOUNDS: SoundSettings = {
@@ -177,7 +177,10 @@ export const getMySounds = query({
 export const setMySounds = mutation({
   args: {
     enabled: v.boolean(),
-    sounds: v.record(v.string(), v.object({ freq: v.number(), dur: v.number() })),
+    sounds: v.record(
+      v.string(),
+      v.object({ freq: v.number(), dur: v.number(), vol: v.optional(v.number()) }),
+    ),
   },
   handler: async (ctx, { enabled, sounds }) => {
     const me = await requireUser(ctx);

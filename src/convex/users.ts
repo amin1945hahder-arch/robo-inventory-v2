@@ -1,5 +1,6 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import { internalQuery, mutation, query, QueryCtx } from "./_generated/server";
 import {
   hasPrinterPrivilege,
@@ -600,6 +601,13 @@ export const requestRankUpgrade = mutation({
       status: "pending",
       requestedAt: Date.now(),
     });
+    // OS-level push to every admin device.
+    await ctx.scheduler.runAfter(0, internal.push.pushToAdmins, {
+      title: "New rank request",
+      body: `${user.name ?? user.email ?? "A member"} requests: ${clean.join(", ")}`,
+      tag: "roboshelf-rank",
+      url: "/admin/requests",
+    });
   },
 });
 
@@ -704,6 +712,13 @@ export const requestPrinterRole = mutation({
       type: "printer_request",
       text: `${user.name ?? user.email ?? "A member"} requested printer access`,
       link: "/admin/requests",
+    });
+    // OS-level push to every admin device.
+    await ctx.scheduler.runAfter(0, internal.push.pushToAdmins, {
+      title: "New printer request",
+      body: `${user.name ?? user.email ?? "A member"} requested printer access`,
+      tag: "roboshelf-printer",
+      url: "/admin/requests",
     });
   },
 });
@@ -872,6 +887,13 @@ export const submitMyProfile = mutation({
       type: "profile",
       text: `${cleanName} submitted their profile for approval`,
       link: "/admin/requests",
+    });
+    // OS-level push to every admin device.
+    await ctx.scheduler.runAfter(0, internal.push.pushToAdmins, {
+      title: "Profile awaiting approval",
+      body: `${cleanName} submitted their profile for approval`,
+      tag: "roboshelf-profile",
+      url: "/admin/requests",
     });
     return { ok: true };
   },

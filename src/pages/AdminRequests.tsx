@@ -29,9 +29,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Award, Boxes, Check, IdCard, PackagePlus, Printer, RotateCcw, ScanLine, Search, SquarePen, X } from "lucide-react";
+import { Award, Bell, BellRing, Boxes, Check, History, IdCard, Inbox, PackagePlus, Printer, RotateCcw, ScanLine, Search, SquarePen, Trash2, X } from "lucide-react";
 import { EditRentalDialog } from "@/components/EditRentalDialog";
 import { EditPackageDialog } from "@/components/EditPackageDialog";
+import { PackageCardDialog } from "@/components/PackageCardDialog";
+import { type PackageCardData } from "@/components/PackageCardPaper";
 import { packageDisplayStatus } from "@/lib/package-status";
 import { PersonBadgeDialog, type PersonBadgeData } from "@/components/PersonBadgeDialog";
 import { RentCardDialog, type CardRow } from "@/components/RentCardDialog";
@@ -86,6 +88,12 @@ export default function AdminRequests() {
 
   const act = useMutation(api.parts.adminRentalAction);
   const decidePkg = useMutation(api.parts.decidePackage);
+  const bulkDeleteRecords = useMutation(api.bulk.bulkDeleteRentalRecords);
+  const clearHistory = useMutation(api.bulk.clearRentalHistory);
+  const historyStatsQ = useQuery(api.bulk.historyStats, {});
+  const markSeen = useMutation(api.bulk.markRequestsSeen);
+  const seenKeysQ = useQuery(api.bulk.allSeenKeys, {});
+  const seenKeys = useMemo(() => new Set(seenKeysQ ?? []), [seenKeysQ]);
   const unapproved = useQuery(api.users.listUnapprovedProfiles, {});
   // Scheduled pick-ups for approved rentals: reusable slots + a no-show list.
   const pickups = useQuery(api.parts.scheduledPickups, {});
@@ -131,6 +139,11 @@ export default function AdminRequests() {
 
   // ---- Search across EVERYTHING (all tabs) ----------------------------
   const [search, setSearch] = useState("");
+  // Active console tab (controlled so one-tap actions inside the Updates tab
+  // can jump straight to the matching dedicated tab).
+  const [tab, setTab] = useState<
+    "updates" | "pending" | "packages" | "active" | "projects" | "history" | "ranks" | "printers" | "profiles"
+  >("updates");
   const matchesSearch = useCallback(
     (haystacks: (string | number | undefined | null)[]) => {
       const s = search.trim().toLowerCase();
@@ -155,16 +168,50 @@ export default function AdminRequests() {
     if (!confirm(`Deny ${selected.size} selected request(s)? Units go back to the shelf.`)) return;
     setBulkBusy(true);
     try {
+      // Selections can mix rental rows and rank/printer requests — route by id.
+      const rankIds = new Set<string>((rankReqs ?? []).map((r) => r.request._id));
+      const printerIds = new Set<string>((printerReqs ?? []).map((r) => r.request._id));
+      const profileIds = new Set<string>((profileReqs ?? []).map((r) => r.request._id));
       let ok = 0;
       for (const id of selected) {
         try {
-          await act({ rentalId: id as never, action: "deny" });
+          if (rankIds.has(id)) await decideRank({ id: id as any, approve: false });
+          else if (printerIds.has(id)) await decidePrinter({ id: id as any, approve: false });
+          else if (profileIds.has(id)) await decideProfile({ id: id as any, approve: false });
+          else await act({ rentalId: id as never, action: "deny" });
           ok++;
         } catch {
           /* one failing row doesn't stop the rest */
         }
       }
       toast.success(`${ok} of ${selected.size} request(s) denied`);
+      setSelected(new Set());
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  // Bulk-approve: pending rentals get the scheduled pick-up dialog treatment
+  // skipped (instant approve), rank/printer requests get granted.
+  const bulkApprove = async () => {
+    if (selected.size === 0) return;
+    if (!confirm(`Approve ${selected.size} selected request(s)?`)) return;
+    setBulkBusy(true);
+    try {
+      const rankIds = new Set<string>((rankReqs ?? []).map((r) => r.request._id));
+      const printerIds = new Set<string>((printerReqs ?? []).map((r) => r.request._id));
+      let ok = 0;
+      for (const id of selected) {
+        try {
+          if (rankIds.has(id)) await decideRank({ id: id as any, approve: true });
+          else if (printerIds.has(id)) await decidePrinter({ id: id as any, approve: true });
+          else await act({ rentalId: id as never, action: "approve" });
+          ok++;
+        } catch {
+          /* one failing row doesn't stop the rest */
+        }
+      }
+      toast.success(`${ok} of ${selected.size} request(s) approved`);
       setSelected(new Set());
     } finally {
       setBulkBusy(false);
@@ -207,6 +254,89 @@ export default function AdminRequests() {
   const fActive = useMemo(() => filterRentalRows(active), [filterRentalRows, active]);
   const fOnProject = useMemo(() => filterRentalRows(onProject), [filterRentalRows, onProject]);
   const fHistory = useMemo(() => filterRentalRows(history), [filterRentalRows, history]);
+
+  // ---- Updates tab: every NEW request of every kind, newest first ----
+  // Keys mirror bulk.seenRequests entries: once an action lands (or the row
+  // is explicitly marked seen) it disappears from here but stays in its
+  // dedicated tab. Rendered as a notification inbox for the whole console.
+  type UpdateRow = {
+    kind: "single" | "package" | "rank" | "printer" | "profile" | "signup";
+    key: string;
+    at: number;
+    data: any;
+  };
+  const updateRows = useMemo<UpdateRow[]>(() => {
+    const out: UpdateRow[] = [];
+    for (const row of pendingSingles)
+      out.push({ kind: "single", key: `single:${row.rental._id}`, at: row.rental.requestedAt, data: row });
+    for (const p of packages ?? [])
+      if (p.package.status === "pending")
+        out.push({ kind: "package", key: `package:${p.package._id}`, at: p.package.requestedAt, data: p });
+    for (const e of rankReqs ?? [])
+      out.push({ kind: "rank", key: `rank:${e.request._id}`, at: e.request.requestedAt, data: e });
+    for (const e of printerReqs ?? [])
+      out.push({ kind: "printer", key: `printer:${e.request._id}`, at: e.request.requestedAt, data: e });
+    for (const e of profileReqs ?? [])
+      out.push({ kind: "profile", key: `profile:${e.request._id}`, at: e.request.requestedAt, data: e });
+    for (const u of unapproved ?? [])
+      out.push({ kind: "signup", key: `signup:${u._id}`, at: Date.now(), data: u });
+    return out.sort((a, b) => b.at - a.at);
+  }, [pendingSingles, packages, rankReqs, printerReqs, profileReqs, unapproved]);
+  const newUpdates = useMemo(() => updateRows.filter((u) => !seenKeys.has(u.key)), [updateRows, seenKeys]);
+  const seen = (key: string) => {
+    markSeen({ keys: [key] }).catch(() => undefined);
+  };
+
+  // Whole-package card (bundle-level receipt, like the per-unit rent card).
+  const [pkgCard, setPkgCard] = useState<PackageCardData | null>(null);
+  const pkgCardFor = (p: any): PackageCardData => {
+    const lines =
+      p.lines && p.lines.length > 0
+        ? p.lines.map((l: any) => ({
+            groupName: l.groupName ?? "Unit",
+            units: (l.units ?? []).map((u: any) => ({ tag: u.tag ?? "—", status: String(u.status ?? "") })),
+          }))
+        : Object.entries(
+            (p.units ?? []).reduce((acc: Record<string, { tag: string; status: string }[]>, u: any) => {
+              const g = u.groupName ?? "Unit";
+              (acc[g] ??= []).push({ tag: u.tag ?? "—", status: String(u.status ?? "") });
+              return acc;
+            }, {}),
+          ).map(([groupName, units]) => ({ groupName, units }));
+    return {
+      packageId: p.package._id,
+      lines,
+      holderName: p.requester?.name ?? p.student?.name ?? p.requester?.email ?? p.student?.email ?? "Member",
+      studentId: p.requester?.studentId ?? p.student?.studentId,
+      statusLabel: p.package.status,
+      requestedAt: p.package.requestedAt,
+      decidedAt: p.package.decidedAt,
+      pickupAt: p.package.pickupAt,
+      note: p.package.note,
+    };
+  };
+
+  // ---- Clear history (History tab) ----
+  const [clearOpen, setClearOpen] = useState(false);
+  const [clearLive, setClearLive] = useState(false);
+  const [clearRelease, setClearRelease] = useState(false);
+  const [clearBusy, setClearBusy] = useState(false);
+  const submitClearHistory = async () => {
+    setClearBusy(true);
+    try {
+      const res = await clearHistory({
+        includeLive: clearLive,
+        releaseUnits: clearLive ? clearRelease : undefined,
+        confirm: "DELETE",
+      });
+      toast.success(`Cleared ${res.deleted} rental record(s)`);
+      setClearOpen(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setClearBusy(false);
+    }
+  };
 
   // Whole-package return from the Packages tab (admin one-click).
   const [wholeFor, setWholeFor] = useState<any | null>(null);
@@ -519,18 +649,58 @@ export default function AdminRequests() {
           {selected.size > 0 && (
             <>
               <span className="text-xs text-muted-foreground">{selected.size} selected</span>
+              <Button size="sm" disabled={bulkBusy} onClick={bulkApprove}>
+                {bulkBusy ? <LoadingGifInline size={16} className="size-4" /> : <Check className="size-4" />}
+                Approve selected
+              </Button>
               <Button size="sm" variant="outline" disabled={bulkBusy} onClick={bulkDeny}>
                 {bulkBusy ? <LoadingGifInline size={16} className="size-4" /> : <X className="size-4" />}
                 Deny selected
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-destructive"
+                disabled={bulkBusy}
+                onClick={async () => {
+                  if (!confirm(`Delete ${selected.size} selected rental record(s)? Records holding a unit are kept unless you free their units.`))
+                    return;
+                  setBulkBusy(true);
+                  try {
+                    const res = await bulkDeleteRecords({ rentalIds: [...selected] as never, alsoFreePart: false });
+                    toast.success(
+                      res.skipped.length > 0
+                        ? `Deleted ${res.deleted}, kept ${res.skipped.length} (still holding a unit — free the unit first or edit per record)`
+                        : `Deleted ${res.deleted} record(s)`,
+                    );
+                    setSelected(new Set());
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : "Failed");
+                  } finally {
+                    setBulkBusy(false);
+                  }
+                }}
+              >
+                {bulkBusy ? <LoadingGifInline size={16} className="size-4" /> : <Trash2 className="size-4" />}
+                Delete selected
               </Button>
               <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
                 Clear
               </Button>
             </>
           )}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-muted-foreground"
+            onClick={() => setClearOpen(true)}
+            title="Clear processed rental history"
+          >
+            <History className="size-4" /> Clear history
+          </Button>
         </div>
 
-        <Tabs defaultValue="pending">
+        <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
           {/* Mobile: tabs wrap into rows under each other and the BAR itself
               scrolls horizontally if a single row is still too wide — the
               page never scrolls sideways. Desktop: one clean row. */}
@@ -539,6 +709,15 @@ export default function AdminRequests() {
               (flex-none beats the shared component's flex-1) and counts render
               as a separate chip so they never squeeze into the label. */}
           <TabsList className="flex h-auto max-w-full flex-wrap justify-start gap-1.5 p-1">
+            <TabsTrigger value="updates" className="flex-none gap-1.5">
+              <BellRing className="size-3.5" />
+              Updates
+              {newUpdates.length > 0 && (
+                <span className="rounded-full bg-primary px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-primary-foreground">
+                  {newUpdates.length}
+                </span>
+              )}
+            </TabsTrigger>
             <TabsTrigger value="pending" className="flex-none gap-1.5">
               Pending
               {pendingCount > 0 && (
@@ -598,6 +777,124 @@ export default function AdminRequests() {
             </TabsTrigger>
           </TabsList>
 
+          {/* Updates — the notification inbox for the whole console. Shows every
+              NEW request of every kind; acting on a row (or marking it seen)
+              removes it from here while it stays in its dedicated tab. */}
+          <TabsContent value="updates" className="mt-4">
+            {newUpdates.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed px-6 py-12 text-center">
+                <Inbox className="size-8 text-muted-foreground/60" />
+                <p className="text-sm text-muted-foreground">No new requests — everything is processed ✨</p>
+                <Button size="sm" variant="ghost" onClick={() => setTab("pending")}>
+                  Open pending queue
+                </Button>
+              </div>
+            ) : (
+              <>
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs text-muted-foreground">
+                    {newUpdates.length} new · acting on a row removes it from this feed (it stays in its own tab)
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => markSeen({ keys: newUpdates.map((u) => u.key) }).catch(() => undefined)}
+                  >
+                    <Check className="size-4" /> Mark all seen
+                  </Button>
+                </div>
+                <ul className="flex flex-col gap-3">
+                  {newUpdates.map((u) => (
+                    <li key={u.key} className="glass-3d rounded-lg border border-primary/30 p-4">
+                      <div className="flex flex-wrap items-center gap-3">
+                        {u.kind === "package" ? (
+                          <Boxes className="size-5 shrink-0 text-primary" />
+                        ) : u.kind === "rank" ? (
+                          <Award className="size-5 shrink-0 text-amber-500" />
+                        ) : u.kind === "printer" ? (
+                          <Printer className="size-5 shrink-0 text-sky-500" />
+                        ) : u.kind === "profile" || u.kind === "signup" ? (
+                          <IdCard className="size-5 shrink-0 text-violet-500" />
+                        ) : (
+                          <ScanLine className="size-5 shrink-0 text-primary" />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium">
+                            {u.kind === "single" &&
+                              `${u.data.student?.name ?? "Member"} requested ${u.data.group?.name ?? "a part"} (${u.data.part?.tag ?? "—"})`}
+                            {u.kind === "package" &&
+                              `${u.data.requester?.name ?? "Member"} requested a package · ${u.data.lines.reduce((n: number, l: any) => n + l.units.length, 0)} unit(s)`}
+                            {u.kind === "rank" &&
+                              `${u.data.user?.name ?? "Member"} requests rank/position: ${u.data.request.requestedRoles?.join(", ")}`}
+                            {u.kind === "printer" && `${u.data.user?.name ?? "Member"} requests printer access`}
+                            {u.kind === "profile" && `${u.data.user?.name ?? "Member"} requests profile changes`}
+                            {u.kind === "signup" && `${u.data.name ?? u.data.email ?? "A member"} awaits profile approval`}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            <span className="uppercase tracking-wide">{u.kind}</span>
+                            {" · "}
+                            {new Date(u.at).toLocaleString()}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {u.kind === "single" && (
+                            <>
+                              <Button size="sm" onClick={() => { setApproveFor(u.data as Row); setPickupLocal(""); }}>
+                                <Check className="size-4" /> Approve
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => deny(u.data as Row)}>
+                                <X className="size-4" /> Deny
+                              </Button>
+                            </>
+                          )}
+                          {u.kind === "package" && (
+                            <>
+                              <Button size="sm" onClick={() => { setApprovePkgFor({ key: u.data.package._id, unitCount: u.data.lines.reduce((n: number, l: any) => n + l.units.length, 0) }); setPickupLocal(""); }}>
+                                <Check className="size-4" /> Approve
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => setApprovePkgFor({ key: u.data.package._id, unitCount: u.data.lines.reduce((n: number, l: any) => n + l.units.length, 0) })}>
+                                <X className="size-4" /> Deny
+                              </Button>
+                            </>
+                          )}
+                          {u.kind === "rank" && (
+                            <>
+                              <Button size="sm" onClick={async () => { try { await decideRank({ id: u.data.request._id, approve: true }); toast.success("Rank granted"); } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); } }}>
+                                <Check className="size-4" /> Grant
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={async () => { try { await decideRank({ id: u.data.request._id, approve: false }); toast.success("Request denied"); } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); } }}>
+                                <X className="size-4" />
+                              </Button>
+                            </>
+                          )}
+                          {u.kind === "printer" && (
+                            <>
+                              <Button size="sm" onClick={async () => { try { await decidePrinter({ id: u.data.request._id, approve: true }); toast.success("Printer access granted"); } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); } }}>
+                                <Check className="size-4" /> Grant
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={async () => { try { await decidePrinter({ id: u.data.request._id, approve: false }); toast.success("Request denied"); } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); } }}>
+                                <X className="size-4" />
+                              </Button>
+                            </>
+                          )}
+                          {(u.kind === "profile" || u.kind === "signup") && (
+                            <Button size="sm" variant="outline" onClick={() => setTab("profiles")}>
+                              Review in Profiles
+                            </Button>
+                          )}
+                          {/* No action? just dismiss from the feed. */}
+                          <Button size="sm" variant="ghost" title="Mark seen (stays in its own tab)" onClick={() => seen(u.key)}>
+                            <Check className="size-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </TabsContent>
+
           <TabsContent value="pending" className="mt-4">
             {/* Scheduled pick-ups: awaiting handover, with reminder countdown. */}
             {(pickups ?? []).length > 0 && (
@@ -638,14 +935,6 @@ export default function AdminRequests() {
                     selectable
                     actions={
                       <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setEditRentalFor(row.rental)}
-                          title="Edit or delete this record"
-                        >
-                          <SquarePen className="size-4" />
-                        </Button>
                         <Button
                           size="sm"
                           variant="ghost"
@@ -698,17 +987,30 @@ export default function AdminRequests() {
                       </div>
                       <div className="flex gap-2">
                         {packages?.some((p) => p.package._id === row.key) && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            title="Edit this package request"
-                            onClick={() => {
-                              const full = packages?.find((p) => p.package._id === row.key);
-                              if (full) setEditPkgFor(full);
-                            }}
-                          >
-                            <SquarePen className="size-4" /> Edit
-                          </Button>
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              title="Print the whole-package card"
+                              onClick={() => {
+                                const full = packages?.find((p) => p.package._id === row.key);
+                                if (full) setPkgCard(pkgCardFor(full));
+                              }}
+                            >
+                              <Printer className="size-4" /> Card
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              title="Edit this package request"
+                              onClick={() => {
+                                const full = packages?.find((p) => p.package._id === row.key);
+                                if (full) setEditPkgFor(full);
+                              }}
+                            >
+                              <SquarePen className="size-4" /> Edit
+                            </Button>
+                          </>
                         )}
                         <Button
                           size="sm"
@@ -832,6 +1134,14 @@ export default function AdminRequests() {
                         </div>
                       ) : (
                         <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            title="Print the whole-package card — every unit listed on one receipt"
+                            onClick={() => setPkgCard(pkgCardFor({ package: pkg, lines, requester }))}
+                          >
+                            <Printer className="size-4" /> Card
+                          </Button>
                           {pkg.status === "approved" && (
                           <Button
                             size="sm"
@@ -1021,6 +1331,7 @@ export default function AdminRequests() {
                   <RowCard
                     key={row.rental._id}
                     row={row as Row}
+                    selectable
                     actions={
                       <div className="flex items-center gap-2">
                         <Button size="sm" variant="ghost" onClick={() => setEditRentalFor(row.rental)} title="Edit or delete this record">
@@ -1068,6 +1379,7 @@ export default function AdminRequests() {
                   <RowCard
                     key={row.rental._id}
                     row={row as Row}
+                    selectable
                     actions={
                       <div className="flex items-center gap-2">
                         <Button size="sm" variant="ghost" onClick={() => setEditRentalFor(row.rental)} title="Edit or delete this record">
@@ -1095,6 +1407,7 @@ export default function AdminRequests() {
                   <RowCard
                     key={row.rental._id}
                     row={row as Row}
+                    selectable
                     actions={
                       <div className="flex items-center gap-2">
                         <Button
@@ -1125,6 +1438,12 @@ export default function AdminRequests() {
               <ul className="divide-y glass-3d rounded-lg border">
                 {rankReqs.map(({ request, user }) => (
                   <li key={request._id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                    <Checkbox
+                      checked={selected.has(request._id)}
+                      onCheckedChange={() => toggleSel(request._id)}
+                      aria-label="Select rank request"
+                      className="mt-0.5 shrink-0"
+                    />
                     <Award className="size-4 shrink-0 text-violet-400" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">
@@ -1195,6 +1514,12 @@ export default function AdminRequests() {
               <ul className="divide-y glass-3d rounded-lg border">
                 {printerReqs.map(({ request, user }) => (
                   <li key={request._id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                    <Checkbox
+                      checked={selected.has(request._id)}
+                      onCheckedChange={() => toggleSel(request._id)}
+                      aria-label="Select printer request"
+                      className="mt-0.5 shrink-0"
+                    />
                     <Printer className="size-4 shrink-0 text-cyan-400" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">
@@ -1264,6 +1589,12 @@ export default function AdminRequests() {
               <ul className="divide-y glass-3d rounded-lg border">
                 {profileReqs.map(({ request, user }) => (
                   <li key={request._id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                    <Checkbox
+                      checked={selected.has(request._id)}
+                      onCheckedChange={() => toggleSel(request._id)}
+                      aria-label="Select profile request"
+                      className="mt-0.5 shrink-0"
+                    />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{user?.name ?? user?.email}</p>
                       <p className="text-xs text-muted-foreground">
@@ -1335,6 +1666,54 @@ export default function AdminRequests() {
             pkg={editPkgFor}
           />
         )}
+
+        {pkgCard && <PackageCardDialog card={pkgCard} onClose={() => setPkgCard(null)} />}
+
+        {/* Clear rental history — processed tail by default, everything with
+            the explicit live toggle (units optionally released to the shelf). */}
+        <Dialog open={clearOpen} onOpenChange={setClearOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Clear rental history</DialogTitle>
+              <DialogDescription>
+                Removes processed records (returned, on project, denied, canceled).
+                {historyStatsQ && ` ${historyStatsQ.processed} processed · ${historyStatsQ.live} live record(s).`}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-col gap-3">
+              <label className="flex items-start gap-2 text-sm">
+                <Checkbox checked={clearLive} onCheckedChange={(v) => setClearLive(v === true)} className="mt-0.5" />
+                <span>
+                  Also delete LIVE records (pending/approved/active/on project)
+                  {historyStatsQ ? ` — ${historyStatsQ.live} record(s)` : ""}
+                  <span className="block text-xs text-muted-foreground">
+                    Dangerous: current loans lose their paper trail. Units stay marked unless released below.
+                  </span>
+                </span>
+              </label>
+              {clearLive && (
+                <label className="flex items-start gap-2 text-sm">
+                  <Checkbox checked={clearRelease} onCheckedChange={(v) => setClearRelease(v === true)} className="mt-0.5" />
+                  <span>
+                    Release units still held by deleted records back to the shelf
+                    <span className="block text-xs text-muted-foreground">
+                      Leave unchecked to keep unit states untouched (shelf counts unchanged).
+                    </span>
+                  </span>
+                </label>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setClearOpen(false)}>
+                Cancel
+              </Button>
+              <Button variant="destructive" disabled={clearBusy} onClick={submitClearHistory}>
+                {clearBusy ? <LoadingGifInline size={18} className="size-4" /> : <Trash2 className="size-4" />}
+                Clear history
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Admin notifications: newest first; opening this page marks them read
             (bubbles in the sidebar/header decrease), tapping a row marks just

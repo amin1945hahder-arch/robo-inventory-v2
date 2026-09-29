@@ -91,8 +91,12 @@ export function EditPackageDialog({
   // Live availability per group — additions can only claim free units.
   const availability = useQuery(api.parts.availabilityByGroup, open ? {} : "skip");
   const groups = useQuery(api.catalog.listGroups, open ? {} : "skip");
+  // Renter re-assignment (whole bundle + every unit record in it).
+  const people = useQuery(api.users.listPeopleLite, open ? {} : "skip");
 
   const [status, setStatus] = useState<string>("pending");
+  const [renter, setRenter] = useState<string>("");
+  const [originalRenter, setOriginalRenter] = useState<string>("");
   const [lines, setLines] = useState<EditLine[]>([]);
   const [removedExtra, setRemovedExtra] = useState<Set<string>>(new Set());
   const [note, setNote] = useState("");
@@ -108,6 +112,8 @@ export function EditPackageDialog({
   useEffect(() => {
     if (!open || !pkg) return;
     setStatus(pkg.package?.status ?? "pending");
+    setRenter((pkg.package?.userId as string) ?? "");
+    setOriginalRenter((pkg.package?.userId as string) ?? "");
     setNote(pkg.package?.note ?? "");
     setPickupLocal(toLocalInput(pkg.package?.pickupAt ?? null));
     setPickupTouched(false);
@@ -244,6 +250,8 @@ export function EditPackageDialog({
         lines: clean.map((l) => ({ groupId: l.groupId as any, count: l.count, note: l.note || undefined })),
         note: note.trim() || undefined,
         pickupAt: pickupCleared ? null : pickupTouched && pickupLocal ? new Date(pickupLocal).getTime() : undefined,
+        // Renter: only sent when the admin picked a different member.
+        ...(renter && renter !== originalRenter ? { userId: renter as any } : {}),
         removeRentalIds:
           status === "approved" && removedExtra.size > 0 ? ([...removedExtra] as any) : undefined,
       });
@@ -272,6 +280,28 @@ export function EditPackageDialog({
               : "Approved package — add units from the shelf, remove ones that are not handed out yet, or fix the note and pick-up time. Handed-out and processed units are locked and are edited per unit."}
           </DialogDescription>
         </DialogHeader>
+
+        <div className="grid gap-2">
+          <Label>Renter — who the whole package belongs to</Label>
+          <Select value={renter || undefined} onValueChange={setRenter}>
+            <SelectTrigger>
+              <SelectValue placeholder="Package holder" />
+            </SelectTrigger>
+            <SelectContent>
+              {(people ?? []).map((p: any) => (
+                <SelectItem key={p._id} value={p._id}>
+                  {p.name ?? p.email}
+                  {p.email ? ` · ${p.email}` : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {renter !== originalRenter && (
+            <p className="text-xs font-medium text-amber-500">
+              Saving moves this package — and every unit record in it — to the selected member.
+            </p>
+          )}
+        </div>
 
         <div className="flex max-h-[45vh] flex-col gap-2 overflow-y-auto pr-1">
           {lines.map((line, i) => {

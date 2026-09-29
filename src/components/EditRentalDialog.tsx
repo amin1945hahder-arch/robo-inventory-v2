@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { api } from "@/convex/_generated/api";
 import {
@@ -108,9 +108,13 @@ export function EditRentalDialog({
 }) {
   const update = useMutation(api.parts.updateRentalRecord);
   const remove = useMutation(api.parts.deleteRentalRecord);
+  // Renter re-assignment: every non-student person is a legal holder.
+  const people = useQuery(api.users.listPeopleLite, open ? {} : "skip");
 
   const [status, setStatus] = useState<string>("pending");
   const [originalStatus, setOriginalStatus] = useState<string>("pending");
+  const [renter, setRenter] = useState<string>("");
+  const [originalRenter, setOriginalRenter] = useState<string>("");
   const [dates, setDates] = useState<Record<string, string>>({});
   const [pristineDates, setPristineDates] = useState<Record<string, string>>({});
   const [condition, setCondition] = useState("");
@@ -131,6 +135,8 @@ export function EditRentalDialog({
       };
       setStatus(rental.status ?? "pending");
       setOriginalStatus(rental.status ?? "pending");
+      setRenter((rental.userId as string) ?? "");
+      setOriginalRenter((rental.userId as string) ?? "");
       setDates(next);
       setPristineDates(next);
       setCondition(rental.conditionReport ?? "");
@@ -155,6 +161,9 @@ export function EditRentalDialog({
         // Only send the status when it changed — re-sending "returned" on an
         // old record would release a unit that may have been re-rented since.
         ...(status !== originalStatus ? { status: status as any } : {}),
+        // Renter: only sent when the admin actually picked a different member
+        // (also covers records whose renter was unknown to the client).
+        ...(renter && renter !== originalRenter ? { userId: renter as any } : {}),
         requestedAt: changedDate("requestedAt"),
         decidedAt: changedDate("decidedAt"),
         pickedUpAt: changedDate("pickedUpAt"),
@@ -228,6 +237,26 @@ export function EditRentalDialog({
                 Saving this also releases the unit back to the shelf.
               </p>
             )}
+          </div>
+
+          <div className="grid gap-2">
+            <Label>Renter</Label>
+            <Select value={renter || undefined} onValueChange={setRenter}>
+              <SelectTrigger>
+                <SelectValue placeholder="Who holds this unit?" />
+              </SelectTrigger>
+              <SelectContent>
+                {(people ?? []).map((p: any) => (
+                  <SelectItem key={p._id} value={p._id}>
+                    {p.name ?? p.email}
+                    {p.email ? ` · ${p.email}` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Change this to re-assign the loan to another member — the unit's holder follows.
+            </p>
           </div>
 
           <div className="grid gap-3">
