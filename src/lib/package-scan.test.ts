@@ -97,9 +97,9 @@ describe("package scan outcome", () => {
 });
 
 describe("package line upsert", () => {
-  it("bumps the count when the group is already listed", () => {
+  it("never duplicates a group that is already listed (dedupe on scan)", () => {
     const lines = upsertLine([{ groupId: "g1", count: 2 }], "g1");
-    expect(lines).toEqual([{ groupId: "g1", count: 3 }]);
+    expect(lines).toEqual([{ groupId: "g1", count: 2 }]);
   });
 
   it("appends a new line for an unseen group", () => {
@@ -112,8 +112,15 @@ describe("package line upsert", () => {
 
   it("never produces zero/negative counts", () => {
     expect(upsertLine([], "g1", 0)).toEqual([{ groupId: "g1", count: 1 }]);
+    expect(upsertLine([], "g1", -3)).toEqual([{ groupId: "g1", count: 1 }]);
+  });
+
+  it("repeats never mutate an existing line (count adjusted by hand)", () => {
+    expect(upsertLine([{ groupId: "g1", count: 4 }], "g1", 2)).toEqual([
+      { groupId: "g1", count: 4 },
+    ]);
     expect(upsertLine([{ groupId: "g1", count: 4 }], "g1", -3)).toEqual([
-      { groupId: "g1", count: 5 },
+      { groupId: "g1", count: 4 },
     ]);
   });
 });

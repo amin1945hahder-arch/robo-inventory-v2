@@ -455,21 +455,23 @@ export default function ExportStudio() {
   const csv = useMemo(() => (rows ? toCsv(cols, rows) : ""), [rows, cols]);
 
   useEffect(() => {
-    // Keep the printed sheet in sync with the chosen paper/margin/scale.
+    // Keep the printed sheet in sync with the chosen paper/margin. The scale
+    // itself is applied inline on the preview's content wrapper (zoom), so the
+    // on-screen preview and the printed sheet always match — no separate
+    // print-only zoom (that used to double-apply and left the preview stale).
     const p = PAPERS[paper];
     const style = document.createElement("style");
     style.id = "export-print-style";
     style.textContent = `
       @media print {
         @page { size: ${p.w}mm ${p.h}mm ${orientation === "portrait" ? "" : orientation === "landscape" ? "landscape" : orientation}; margin: ${margin}mm; }
-        #print-area { zoom: ${scale / 100}; }
       }
     `;
     const old = document.getElementById("export-print-style");
     if (old) old.remove();
     document.head.appendChild(style);
     return () => style.remove();
-  }, [paper, orientation, margin, scale]);
+  }, [paper, orientation, margin]);
 
   const download = () => {
     downloadCsv(`${dataset}-${new Date().toISOString().slice(0, 10)}.csv`, csv);
@@ -857,9 +859,9 @@ export default function ExportStudio() {
           </div>
         </div>
 
-        {/* Live print preview — capped to the FIRST PAGE of items so the
-            browser never chokes on hundreds of QR codes/rows. The full sheet
-            renders only at print time (hidden #print-area-full below). */}
+        {/* Live print preview — one page at a time (pager) so the browser
+            never chokes on hundreds of QR codes/rows. This #print-area is
+            what prints, with the scale zoom applied inline. */}
         {raw === undefined ? (
           <p className="py-16 text-center text-sm text-muted-foreground">
             <LoadingGifInline size={18} className="mr-2 inline size-4" /> Loading data…
@@ -884,6 +886,7 @@ export default function ExportStudio() {
             margin={margin}
             orientation={orientation as "portrait" | "landscape"}
             showGrid={showGrid}
+            scale={scale}
           />
         )}
       </div>
@@ -1125,6 +1128,7 @@ function TablePreview({
   margin,
   orientation,
   showGrid,
+  scale,
 }: {
   rows: Record<string, string>[];
   cols: Col[];
@@ -1133,6 +1137,7 @@ function TablePreview({
   margin: number;
   orientation: "portrait" | "landscape";
   showGrid: boolean;
+  scale: number;
 }) {
   const [page, setPage] = useState(0);
   const pages = Math.max(1, Math.ceil(rows.length / PREVIEW_PAGE_ROWS));
@@ -1147,7 +1152,8 @@ function TablePreview({
       header={
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs text-muted-foreground">
-            {PAPERS[paper].label} · {rows.length} rows · page {p + 1}/{pages} · real scale
+            {PAPERS[paper].label} · {rows.length} rows · page {p + 1}/{pages} ·{" "}
+            {scale === 100 ? "real scale" : `scale ${scale}%`}
           </p>
           {pages > 1 && (
             <div className="flex items-center gap-1">
@@ -1172,10 +1178,15 @@ function TablePreview({
           bottom: mm(margin),
         }}
       >
-        <p className="mb-2 font-semibold uppercase tracking-widest text-neutral-500" style={{ fontSize: mm(2.6) }}>
-          Robotics Club · {datasetLabel} · page {p + 1}/{pages} · {new Date().toLocaleDateString()}
-        </p>
-        <PaperTable cols={cols} rows={slice} showGrid={showGrid} />
+        {/* Zoom wrapper: the scale slider resizes the sheet content live on
+            screen AND at print time (inline zoom survives printing; the page
+            size/margin come from the injected @page rule). */}
+        <div style={{ zoom: `${scale / 100}` }}>
+          <p className="mb-2 font-semibold uppercase tracking-widest text-neutral-500" style={{ fontSize: mm(2.6) }}>
+            Robotics Club · {datasetLabel} · page {p + 1}/{pages} · {new Date().toLocaleDateString()}
+          </p>
+          <PaperTable cols={cols} rows={slice} showGrid={showGrid} />
+        </div>
       </div>
     </PaperPreview>
   );

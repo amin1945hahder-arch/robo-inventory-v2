@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LoadingGifInline } from "@/components/LoadingGif";
 import { Link, useNavigate } from "react-router";
 import { useMutation, useQuery } from "convex/react";
@@ -30,6 +30,7 @@ import {
   UserRound,
   ScanLine,
   Search,
+  ShieldAlert,
 } from "lucide-react";
 
 /**
@@ -67,6 +68,53 @@ export default function RentScan() {
   const assignProject = useMutation(api.parts.assignPartToProject);
   const projects = useQuery(api.projects.listProjects, { status: "active" });
   const [projectId, setProjectId] = useState("");
+  // Center-screen popup: explains a scanned unit the member can't request.
+  const [block, setBlock] = useState<{ title: string; reason: string } | null>(null);
+
+  // Any non-available status pops an explanation over the result card.
+  useEffect(() => {
+    if (isAdmin) return;
+    setBlock(null); // reset when another unit loads or the scan is cleared
+    if (!partData?.part) return;
+    const st = partData.part.status;
+    const rental = partData.shownRental;
+    if (st === "available") return;
+    if (st === "pending") {
+      setBlock(
+        rental?.mine
+          ? {
+              title: "Your request is pending",
+              reason: "You already requested this unit — it stays reserved for you until Dr. Essa decides. You'll be notified once it's approved.",
+            }
+          : {
+              title: "Unit is pending",
+              reason: "Another member already requested this unit — the request is awaiting the admin's decision, so it can't be requested right now.",
+            },
+      );
+    } else if (st === "rented") {
+      setBlock(
+        rental?.mine
+          ? {
+              title: "This unit is rented to you",
+              reason: "You already hold this unit. Bring it back to the lab when you're done — the admin confirms the return and its condition.",
+            }
+          : {
+              title: "Unit is currently rented",
+              reason: `This unit is rented to ${rental?.holderName ?? "another member"}, so it can't be requested until it comes back to the shelf.`,
+            },
+      );
+    } else if (st === "on_project") {
+      setBlock({
+        title: "Unit is checked out to a project",
+        reason: `This unit is checked out to ${rental?.projectName ?? "a project"} until it is dismantled, so it can't be requested.`,
+      });
+    } else if (st === "broken") {
+      setBlock({
+        title: "Unit is broken",
+        reason: "This unit is marked broken and waiting on repair — it can't be requested until an admin fixes its status.",
+      });
+    }
+  }, [isAdmin, partData?.part?._id, partData?.part?.status, partData?.shownRental?.mine, partData?.shownRental?.holderName, partData?.shownRental?.projectName]);
 
   const handleScan = (text: string) => {
     setScanOpen(false);
@@ -407,6 +455,24 @@ export default function RentScan() {
         onResult={handleScan}
         hint={isAdmin ? "Scan a unit to approve or process its return." : "Scan a unit tag to request it."}
       />
+
+      {/* Center-screen popup: tells the member why this unit can't be requested. */}
+      <Dialog open={!!block} onOpenChange={(v) => !v && setBlock(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="size-5 text-destructive" />
+              {block?.title}
+            </DialogTitle>
+            <DialogDescription>{block?.reason}</DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end">
+            <Button variant="outline" onClick={() => setBlock(null)}>
+              Understood
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }

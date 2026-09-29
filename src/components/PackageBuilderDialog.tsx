@@ -33,7 +33,7 @@ import {
 } from "@/lib/package-scan";
 import { toast } from "sonner";
 import { describePackSize, isPackGroup } from "@/lib/group-measure";
-import { Loader2, Package, Plus, ScanLine, Trash2, X } from "lucide-react";
+import { Loader2, Package, Plus, ScanLine, ShieldAlert, Trash2, X } from "lucide-react";
 
 type Line = PackageLine;
 
@@ -131,21 +131,52 @@ export function PackageBuilderDialog({
     scanPayload ? { payload: scanPayload } : "skip",
   );
 
+  // Center-screen explanation modal for scans that cannot be lent (rented,
+  // pending, on a project, broken, or a non-lendable label).
+  const [scanBlock, setScanBlock] = useState<{ title: string; reason: string; tag?: string } | null>(null);
+
   useEffect(() => {
     if (!scanPayload || scanResolved === undefined) return;
     setScanPayload(null);
     const out = scanOutcome(scanResolved as any);
     if (out.action === "add-line") {
       const g = (groups ?? []).find((x: any) => x._id === out.groupId);
+      const alreadyListed = lines.some((l) => l.groupId === out.groupId);
+      const max = maxFor(out.groupId);
+      if (max < 1) {
+        const free = availability?.[out.groupId];
+        const total = free
+          ? free.available + free.broken + free.pending + free.rented + free.onProject
+          : 0;
+        setScanOpen(false); // stop the camera so the same code can't re-fire
+        setScanBlock({
+          title: "Item not available",
+          tag: g?.name,
+          reason:
+            total > 0
+              ? `All ${total} unit(s) of ${g?.name ?? "this item"} are currently rented out, on a project, pending or broken. It can't be added to the package until some come back.`
+              : `There are no units of ${g?.name ?? "this item"} in the inventory yet, so it can't be added to the package.`,
+        });
+        return;
+      }
       setLines((prev) => upsertLine(prev, out.groupId));
-      toast.success(g ? `Added ${g.name}` : "Item added to the package");
+      if (alreadyListed) {
+        // Scanning the same item again never adds a duplicate or bumps the
+        // count — the line is already in the list (adjust the quantity by hand).
+        toast.info(`${g?.name ?? "That item"} is already in the package — adjust its quantity in the list`);
+      } else {
+        toast.success(g ? `Added ${g.name}` : "Item added to the package");
+      }
+      setScanOpen(false); // close the scanner, the item is now visible in the list
     } else if (out.action === "set-filter") {
       setScanFilter(out.filter);
       toast.success(
         out.filter.type === "category" ? "Showing that category only" : "Showing that storage only",
       );
+      setScanOpen(false); // close the scanner so the filtered list is visible
     } else {
-      toast.info(out.reason);
+      setScanOpen(false); // stop the camera so the same code can't re-fire
+      setScanBlock({ title: "Can't lend from that QR", reason: out.reason });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scanResolved, scanPayload]);
@@ -194,8 +225,13 @@ export function PackageBuilderDialog({
     }
   };
 
+  // The scanner and the scan-block popup live OUTSIDE the form's <Dialog>
+  // (siblings, via the fragment). If they were nested inside it, Radix would
+  // route their Close/Escape/outside-dismiss to the form's onOpenChange too —
+  // closing the whole form when you only meant to close the scanner.
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -374,13 +410,38 @@ export function PackageBuilderDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+      </Dialog>
 
+      {/* Sibling of the form content (not nested inside it) so the scanner's
+          own close button can never dismiss the whole form. */}
       <QrScanDialog
         open={scanOpen}
         onOpenChange={setScanOpen}
         onResult={(text) => setScanPayload(normalizeScan(text))}
         hint="Unit/group labels add items · category/storage labels filter the list"
       />
-    </Dialog>
+
+      {/* Center-screen popup: explains why a scanned QR can't be lent. Rendered
+          after the scanner so it stacks on top of the camera dialog. */}
+      <Dialog open={!!scanBlock} onOpenChange={(v) => !v && setScanBlock(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="size-5 text-destructive" />
+              {scanBlock?.title}
+            </DialogTitle>
+            <DialogDescription>
+              {scanBlock?.tag && <span className="font-medium text-foreground">{scanBlock.tag} — </span>}
+              {scanBlock?.reason}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end">
+            <Button variant="outline" onClick={() => setScanBlock(null)}>
+              Understood
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

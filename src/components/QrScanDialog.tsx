@@ -16,7 +16,17 @@ interface QrScanDialogProps {
   hint?: string;
 }
 
-/** Camera scanner dialog used everywhere QR codes are scanned. */
+/**
+ * Camera scanner dialog used everywhere QR codes are scanned.
+ *
+ * IMPORTANT for parents: when you open this scanner from inside another
+ * dialog (a lend form, an admin dialog, …), render <QrScanDialog> as a
+ * SIBLING of that form's <DialogContent> — inside the component but outside
+ * its <Dialog> root. If it is nested inside the form's Dialog, Radix routes
+ * the scanner's Escape/outside-dismiss to the form's onOpenChange as well
+ * and closing the scanner closes the whole form. (The Close button here
+ * stops click propagation as extra insurance for nested setups.)
+ */
 export function QrScanDialog({ open, onOpenChange, onResult, hint }: QrScanDialogProps) {
   const { videoRef, canvasRef, scanning, error } = useQrScanner(onResult, open);
 
@@ -45,7 +55,14 @@ export function QrScanDialog({ open, onOpenChange, onResult, hint }: QrScanDialo
         </div>
         {error && <p className="text-sm text-destructive">{error}</p>}
         <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            onClick={(e) => {
+              // Don't let the click reach a parent dialog's dismiss layer.
+              e.stopPropagation();
+              onOpenChange(false);
+            }}
+          >
             Close
           </Button>
           <Button variant="outline" onClick={() => window.location.reload()}>

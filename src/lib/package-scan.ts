@@ -6,13 +6,15 @@ export type PackageLine = { groupId: string; count: number; note?: string };
 /** A scanned category/closet label narrows the item dropdown to that scope. */
 export type ScanFilter = { type: "category" | "closet"; id: string } | null;
 
-/** Upsert a line for a group: bump the count when the group is already listed. */
+/**
+ * Upsert a line for a group: appending is deduped — scanning the same item
+ * again never stacks a duplicate line or silently bumps the quantity; the
+ * caller decides how to tell the user (the line stays exactly as it is and
+ * the quantity is adjusted by hand in the form).
+ */
 export function upsertLine(lines: PackageLine[], groupId: string, count = 1): PackageLine[] {
   if (!groupId) return lines;
-  const idx = lines.findIndex((l) => l.groupId === groupId);
-  if (idx >= 0) {
-    return lines.map((l, i) => (i === idx ? { ...l, count: l.count + Math.max(1, count) } : l));
-  }
+  if (lines.some((l) => l.groupId === groupId)) return lines;
   return [...lines, { groupId, count: Math.max(1, count) }];
 }
 
