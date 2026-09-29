@@ -2,7 +2,9 @@
  * AppIcon — one component for every icon slot that supports user overrides.
  *
  * Renders the user's .svg (src/assets/icons/…) when one exists for the slot;
- * otherwise falls back to the given built-in Lucide icon.
+ * otherwise falls back to the given built-in Lucide icon. Either way the
+ * glyph sits inside a 3D GLASS TILE (frosted square, top specular edge,
+ * floating shadow) — the app's icon treatment.
  *
  * Locations (replace files, same names, .svg):
  *   • Categories: src/assets/icons/categories/<category-name>.svg
@@ -25,6 +27,7 @@ export function AppIcon({
   route,
   category,
   fallback: Fallback,
+  glass = true,
 }: {
   className?: string;
   /** Route for nav tab icons ("/dashboard", "/inventory"…). */
@@ -33,10 +36,36 @@ export function AppIcon({
   category?: string;
   /** Built-in icon used when no custom .svg exists for the slot. */
   fallback: ComponentType<{ className?: string }>;
+  /** Wrap in the 3D glass tile (default true). Plain glyphs in tiny spots. */
+  glass?: boolean;
 }) {
   const custom = route ? navIconUrl(route) : category ? categoryIconUrl(category) : undefined;
+  const size = className ?? "size-4";
   if (custom) {
-    return <img src={custom} alt="" aria-hidden className={cn("shrink-0 object-contain", className)} draggable={false} />;
+    return (
+      <span
+        aria-hidden
+        className={cn(
+          "inline-flex shrink-0 items-center justify-center rounded-md",
+          glass && "icon-glass",
+          size,
+        )}
+      >
+        <img src={custom} alt="" className="size-[72%] object-contain" draggable={false} />
+      </span>
+    );
   }
-  return <Fallback className={className} />;
+  const Glyph = Fallback;
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "inline-flex shrink-0 items-center justify-center rounded-md",
+        glass && "icon-glass",
+        size,
+      )}
+    >
+      <Glyph className="icon-3d size-[68%]" />
+    </span>
+  );
 }

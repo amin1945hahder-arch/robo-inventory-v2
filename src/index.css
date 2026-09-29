@@ -36,8 +36,6 @@
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
   --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 }
@@ -120,6 +118,12 @@ html {
   --sidebar-ring: oklch(0.7 0.1 195);
 }
 
+/* =========================================================================
+   GLASS 3D DESIGN SYSTEM
+   Classic glassmorphism + tactile 3D depth on top of the SAME palette.
+   (No colors are changed here — everything mixes the existing tokens.)
+   ========================================================================= */
+
 /* Light-mode polish for the neon utilities (they assume a dark canvas). */
 html:not(.dark) .neon-text {
   text-shadow:
@@ -162,21 +166,214 @@ html:not(.dark) .neon-glow {
   ::-webkit-scrollbar-thumb {
     background: color-mix(in oklab, var(--primary) 22%, transparent);
     border-radius: 8px;
-    border: 2px solid var(--background);
+    border: 2px solid transparent;
+    background-clip: padding-box;
   }
   ::-webkit-scrollbar-track {
     background: transparent;
   }
+
+  /* Glass depth needs real layering context everywhere. */
+  [data-slot="card"],
+  [data-slot="dialog-content"] {
+    transform: translateZ(0);
+  }
+
+  /* Subtle 3D text feel without changing color. */
+  h1, h2, h3 {
+    text-shadow:
+      0 1px 0 color-mix(in oklab, var(--background) 60%, transparent),
+      0 2px 6px color-mix(in oklab, var(--foreground) 12%, transparent);
+  }
 }
 
 @layer utilities {
-  /* Glassmorphism panel */
+  /* ── Glassmorphism panel ─────────────────────────────────────────── */
   .glass {
     background: color-mix(in oklab, var(--card) 55%, transparent);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px) saturate(1.25);
+    -webkit-backdrop-filter: blur(14px) saturate(1.25);
     border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
   }
+
+  /* Stronger glass for elevated surfaces (dialogs, headers, sidebar).
+     Adds a top specular highlight like polished glass. */
+  .glass-strong {
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in oklab, var(--card) 42%, transparent) 0%,
+        color-mix(in oklab, var(--card) 68%, transparent) 100%
+      );
+    backdrop-filter: blur(22px) saturate(1.35);
+    -webkit-backdrop-filter: blur(22px) saturate(1.35);
+    border: 1px solid color-mix(in oklab, var(--foreground) 14%, transparent);
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklab, white 28%, transparent),
+      inset 0 -1px 0 color-mix(in oklab, var(--foreground) 10%, transparent),
+      0 12px 34px -12px color-mix(in oklab, black 55%, transparent);
+  }
+  html:not(.dark) .glass-strong {
+    box-shadow:
+      inset 0 1px 0 white,
+      inset 0 -1px 0 color-mix(in oklab, var(--foreground) 8%, transparent),
+      0 12px 30px -14px color-mix(in oklab, var(--foreground) 30%, transparent);
+  }
+
+  /* ── 3D glass card: raised, lit from above, edge-lit ─────────────── */
+  .glass-3d {
+    position: relative;
+    background:
+      linear-gradient(
+        165deg,
+        color-mix(in oklab, white 10%, transparent) 0%,
+        transparent 38%
+      ),
+      color-mix(in oklab, var(--card) 72%, transparent);
+    backdrop-filter: blur(16px) saturate(1.3);
+    -webkit-backdrop-filter: blur(16px) saturate(1.3);
+    border: 1px solid color-mix(in oklab, var(--foreground) 12%, transparent);
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklab, white 22%, transparent),
+      0 1px 2px color-mix(in oklab, black 18%, transparent),
+      0 8px 22px -10px color-mix(in oklab, black 45%, transparent),
+      0 24px 48px -24px color-mix(in oklab, black 40%, transparent);
+    transition:
+      transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1),
+      box-shadow 0.25s cubic-bezier(0.2, 0.8, 0.2, 1),
+      border-color 0.25s ease;
+  }
+  html:not(.dark) .glass-3d {
+    box-shadow:
+      inset 0 1px 0 white,
+      0 1px 2px color-mix(in oklab, var(--foreground) 12%, transparent),
+      0 10px 24px -12px color-mix(in oklab, var(--foreground) 25%, transparent),
+      0 24px 48px -28px color-mix(in oklab, var(--foreground) 20%, transparent);
+  }
+
+  /* Hover: the card lifts toward the viewer (classic 3D press). */
+  .lift-3d {
+    transform: translateY(-2px);
+  }
+  .lift-3d:hover {
+    transform: translateY(-5px);
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklab, white 30%, transparent),
+      0 2px 4px color-mix(in oklab, black 20%, transparent),
+      0 16px 32px -12px color-mix(in oklab, black 50%, transparent),
+      0 32px 64px -28px color-mix(in oklab, black 45%, transparent);
+  }
+  html:not(.dark) .lift-3d:hover {
+    box-shadow:
+      inset 0 1px 0 white,
+      0 2px 4px color-mix(in oklab, var(--foreground) 14%, transparent),
+      0 18px 36px -14px color-mix(in oklab, var(--foreground) 28%, transparent),
+      0 36px 72px -32px color-mix(in oklab, var(--foreground) 22%, transparent);
+  }
+
+  /* Specular sheen sweeping across a glass surface on hover. */
+  .sheen {
+    position: relative;
+    overflow: hidden;
+  }
+  .sheen::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      115deg,
+      transparent 32%,
+      color-mix(in oklab, white 14%, transparent) 47%,
+      color-mix(in oklab, white 4%, transparent) 53%,
+      transparent 68%
+    );
+    transform: translateX(-120%);
+    transition: transform 0.9s cubic-bezier(0.2, 0.8, 0.2, 1);
+    pointer-events: none;
+  }
+  .sheen:hover::before {
+    transform: translateX(120%);
+  }
+
+  /* ── 3D pressable (buttons): extruded key that depresses ─────────── */
+  .press-3d {
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklab, white 30%, transparent),
+      inset 0 -2px 0 color-mix(in oklab, black 22%, transparent),
+      0 3px 8px -2px color-mix(in oklab, black 45%, transparent);
+    transition:
+      transform 0.12s ease,
+      box-shadow 0.12s ease,
+      filter 0.15s ease;
+  }
+  .press-3d:hover {
+    filter: brightness(1.06);
+  }
+  .press-3d:active {
+    transform: translateY(1.5px) scale(0.99);
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklab, white 12%, transparent),
+      inset 0 -1px 0 color-mix(in oklab, black 15%, transparent),
+      0 1px 3px -1px color-mix(in oklab, black 40%, transparent);
+  }
+  html:not(.dark) .press-3d {
+    box-shadow:
+      inset 0 1px 0 white,
+      inset 0 -2px 0 color-mix(in oklab, var(--foreground) 12%, transparent),
+      0 3px 8px -2px color-mix(in oklab, var(--foreground) 22%, transparent);
+  }
+
+  /* ── Glass icon tile: the 3D glassy icon treatment ───────────────── */
+  .icon-glass {
+    background:
+      linear-gradient(
+        160deg,
+        color-mix(in oklab, white 26%, transparent) 0%,
+        color-mix(in oklab, white 6%, transparent) 34%,
+        transparent 60%
+      ),
+      color-mix(in oklab, var(--card) 45%, transparent);
+    border: 1px solid color-mix(in oklab, white 22%, transparent);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklab, white 38%, transparent),
+      0 2px 6px -1px color-mix(in oklab, black 30%, transparent),
+      0 6px 16px -6px color-mix(in oklab, black 35%, transparent);
+  }
+  html:not(.dark) .icon-glass {
+    border-color: color-mix(in oklab, var(--foreground) 14%, transparent);
+    box-shadow:
+      inset 0 1px 0 white,
+      0 2px 5px -1px color-mix(in oklab, var(--foreground) 18%, transparent),
+      0 6px 14px -6px color-mix(in oklab, var(--foreground) 20%, transparent);
+  }
+
+  /* Drop shadow under glyph icons (lucide) so they sit "on" the glass. */
+  .icon-3d {
+    filter:
+      drop-shadow(0 1px 1px color-mix(in oklab, black 35%, transparent))
+      drop-shadow(0 3px 6px color-mix(in oklab, black 25%, transparent));
+  }
+  html:not(.dark) .icon-3d {
+    filter:
+      drop-shadow(0 1px 1px color-mix(in oklab, var(--foreground) 20%, transparent))
+      drop-shadow(0 3px 6px color-mix(in oklab, var(--foreground) 12%, transparent));
+  }
+
+  /* Deep inset for wells/inputs (pressed into the glass). */
+  .inset-glass {
+    background: color-mix(in oklab, var(--foreground) 6%, transparent);
+    box-shadow:
+      inset 0 2px 4px color-mix(in oklab, black 25%, transparent),
+      inset 0 -1px 0 color-mix(in oklab, white 8%, transparent);
+  }
+  html:not(.dark) .inset-glass {
+    box-shadow:
+      inset 0 2px 4px color-mix(in oklab, var(--foreground) 12%, transparent),
+      inset 0 -1px 0 white;
+  }
+
   .neon-text {
     color: var(--primary);
     text-shadow:

@@ -83,10 +83,10 @@ export default function Dashboard() {
         <section className="grid grid-cols-2 gap-4 lg:grid-cols-3">
           {statCards.map(({ label, value, icon: Icon, to, tone }) => (
             <Link key={label} to={to}>
-              <Card className="group relative overflow-hidden border-border/80 shadow-none transition-colors hover:border-primary/40">
+              <Card className="group relative overflow-hidden border-border/80">
                 <CardContent className="flex items-center gap-4 p-5">
-                  <div className={`flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted ${tone}`}>
-                    <Icon className="size-5" />
+                  <div className={`icon-glass flex size-11 shrink-0 items-center justify-center rounded-lg ${tone}`}>
+                    <Icon className="icon-3d size-5" />
                   </div>
                   <div>
                     <p className="text-2xl font-bold tabular-nums leading-none">{value}</p>
@@ -100,7 +100,7 @@ export default function Dashboard() {
 
         <div className="grid gap-6 lg:grid-cols-2">
           {/* pending requests (admin) or my requests (member) */}
-          <section className="rounded-lg border">
+          <section className="glass-3d rounded-lg">
             <div className="flex items-center justify-between border-b px-5 py-3">
               <h2 className="text-sm font-semibold">
                 {isAdmin ? "Pending rental requests" : "My requests"}
@@ -153,7 +153,7 @@ export default function Dashboard() {
           </section>
 
           {/* quick links */}
-          <section className="rounded-lg border">
+          <section className="glass-3d rounded-lg">
             <div className="border-b px-5 py-3">
               <h2 className="text-sm font-semibold">Quick access</h2>
             </div>
@@ -193,7 +193,7 @@ export default function Dashboard() {
 
         {/* print QR labels for storages and projects straight from the dashboard */}
         {isAdmin && ((closets?.length ?? 0) > 0 || (projects?.length ?? 0) > 0) && (
-          <section className="rounded-lg border p-5">
+          <section className="glass-3d rounded-lg p-5">
             <h2 className="text-sm font-semibold">Print lab labels</h2>
             <p className="mt-1 text-xs text-muted-foreground">
               Every storage and project has its own QR — print and stick them on the doors.

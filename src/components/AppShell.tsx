@@ -133,10 +133,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-dvh overflow-hidden bg-transparent">
-      <aside className="hidden h-dvh w-60 shrink-0 flex-col overflow-y-auto border-r bg-card/50 px-4 py-6 md:flex">
+      <aside className="glass-strong hidden h-dvh w-60 shrink-0 flex-col overflow-y-auto border-r px-4 py-6 md:flex">
         <Link to="/dashboard" className="mb-8 flex items-center gap-2 px-2">
-          <div className="flex size-8 items-center justify-center rounded-lg bg-primary/15 text-primary neon-ring">
-            <Boxes className="size-4" />
+          <div className="icon-glass flex size-9 items-center justify-center rounded-lg text-primary">
+            <Boxes className="icon-3d size-4" />
           </div>
           <div className="leading-tight">
             <p className="text-sm font-semibold">RoboShelf</p>
@@ -163,7 +163,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
                 )}
               >
-                <AppIcon route={to} fallback={Icon} className="size-4" />
+                <AppIcon route={to} fallback={Icon} className="size-6" />
                 {label}
                 {bubble ? (
                   <span className="ml-auto rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
@@ -278,7 +278,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       <div ref={scrollRef} className="flex h-dvh min-w-0 flex-1 flex-col overflow-y-auto">
-        <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b bg-background/60 px-4 backdrop-blur md:px-8">
+        <header className="glass-strong sticky top-0 z-20 flex h-14 items-center justify-between border-b px-4 md:px-8">
           <div className="flex items-center gap-1 md:hidden">
             {/* Hamburger: opens the full mobile menu (everything in the
                 sidebar, laid out as a dropdown panel). */}
@@ -361,7 +361,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         {/* ===== Mobile menu dropdown (below md) ===== */}
         {mobileMenuOpen && (
-          <div className="sticky top-14 z-30 border-b bg-background/95 backdrop-blur md:hidden">
+          <div className="glass-strong sticky top-14 z-30 border-b md:hidden">
             <nav className="flex max-h-[70dvh] flex-col gap-1 overflow-y-auto px-4 py-3">
               {NAV.filter(({ studentBlocked }) => !studentBlocked || !isStudent).map(
                 ({ to, label, icon: Icon }) => {

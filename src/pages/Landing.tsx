@@ -160,7 +160,7 @@ export default function Landing() {
           className="glass mt-16 w-full max-w-xl rounded-2xl p-6 text-left"
         >
           <div className="flex items-center gap-3 border-b border-border/60 pb-4">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-primary/15 text-primary">
+            <div className="icon-glass flex size-11 items-center justify-center rounded-lg text-primary">
               <QrCode className="size-5" />
             </div>
             <div>
@@ -202,10 +202,10 @@ export default function Landing() {
         <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {FEATURES.map(({ icon: Icon, title, body }, i) => (
             <motion.div key={title} {...fadeUp} transition={{ duration: 0.45, delay: i * 0.06 }}>
-              <Card className="h-full border-border/80 bg-card/60 shadow-none backdrop-blur transition-colors hover:border-primary/40">
+              <Card className="h-full border-border/80">
                 <CardContent className="flex flex-col gap-3 p-6">
-                  <div className="flex size-10 items-center justify-center rounded-lg bg-primary/12 text-primary">
-                    <Icon className="size-5" />
+                  <div className="icon-glass flex size-11 items-center justify-center rounded-lg text-primary">
+                    <Icon className="icon-3d size-5" />
                   </div>
                   <h3 className="font-semibold tracking-tight">{title}</h3>
                   <p className="text-sm leading-6 text-muted-foreground">{body}</p>
@@ -241,7 +241,7 @@ export default function Landing() {
       <section id="roles" className="relative z-10 mx-auto w-full max-w-6xl px-6 py-20">
         <div className="grid gap-4 md:grid-cols-2">
           <motion.div {...fadeUp} transition={{ duration: 0.5 }}>
-            <Card className="h-full border-border/80 bg-card/60 shadow-none">
+            <Card className="h-full border-border/80">
               <CardContent className="flex flex-col gap-4 p-8">
                 <Badge variant="outline" className="w-fit border-primary/40 text-primary">For members</Badge>
                 <h3 className="text-xl font-semibold tracking-tight">Find it, request it, build it</h3>
@@ -261,7 +261,7 @@ export default function Landing() {
             </Card>
           </motion.div>
           <motion.div {...fadeUp} transition={{ duration: 0.5, delay: 0.1 }}>
-            <Card className="h-full border-border/80 bg-card/60 shadow-none">
+            <Card className="h-full border-border/80">
               <CardContent className="flex flex-col gap-4 p-8">
                 <Badge variant="outline" className="w-fit border-violet-500/40 text-violet-400">For the admin</Badge>
                 <h3 className="text-xl font-semibold tracking-tight">Total oversight, zero chasing</h3>
