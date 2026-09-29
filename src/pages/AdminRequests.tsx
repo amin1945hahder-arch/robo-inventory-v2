@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
@@ -591,6 +592,7 @@ export default function AdminRequests() {
                   <RowCard
                     key={row.key}
                     row={row as Row}
+                    selectable
                     actions={
                       <div className="flex gap-2">
                         <Button

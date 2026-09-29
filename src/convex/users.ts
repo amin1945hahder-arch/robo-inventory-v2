@@ -161,8 +161,13 @@ export const updatePersonProfile = mutation({
     telegramChatId: v.optional(v.string()),
     dateOfBirth: v.optional(v.string()),
     githubUrl: v.optional(v.string()),
+    // Admin-editable email: updates the sign-in identity for this member.
+    email: v.optional(v.string()),
   },
-  handler: async (ctx, { userId, role, clubRoles, academicState, major, telegramChatId, dateOfBirth, githubUrl }) => {
+  handler: async (
+    ctx,
+    { userId, role, clubRoles, academicState, major, telegramChatId, dateOfBirth, githubUrl, email },
+  ) => {
     const admin = await requireAdmin(ctx);
     // The last line of defence for the admin role: an admin cannot demote
     // themselves (member/student) — another admin must do it, so the club can
@@ -184,6 +189,23 @@ export const updatePersonProfile = mutation({
       patch.dateOfBirth = iso || undefined;
     }
     if (githubUrl !== undefined) patch.githubUrl = githubUrl.trim() || undefined;
+    if (email !== undefined) {
+      const clean = email.trim().toLowerCase();
+      if (clean && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) {
+        throw new Error("Email format looks wrong");
+      }
+      if (clean) {
+        // No two accounts may share one email.
+        const dup = await ctx.db
+          .query("users")
+          .withIndex("email", (q) => q.eq("email", clean))
+          .first();
+        if (dup && dup._id !== userId) {
+          throw new Error(`That email is already used by ${dup.name ?? "another account"}`);
+        }
+        patch.email = clean;
+      }
+    }
     await ctx.db.patch(userId, patch);
   },
 });

@@ -1082,6 +1082,9 @@ export const adminRentalAction = mutation({
         await ctx.db.patch(rentalId, {
           status: "active",
           pickedUpAt: now,
+          // Manual hand-over: align the paper trail to now (see count branch).
+          requestedAt: rental.requestedAt ?? now,
+          decidedAt: now,
           allocations: plan.plan.map((p) => ({ partId: p.unitId as any, amount: p.amount })),
         });
         // Keep the group's headline stock in sync with the per-unit ledger.
@@ -1109,7 +1112,15 @@ export const adminRentalAction = mutation({
           "rentals",
         );
       } else {
-        await ctx.db.patch(rentalId, { status: "active", pickedUpAt: now });
+        // Manual hand-over: the admin is marking the unit rented NOW, so the
+        // paper trail should read like it happened at this moment — the
+        // request, decision and pick-up timestamps all align to this date.
+        await ctx.db.patch(rentalId, {
+          status: "active",
+          pickedUpAt: now,
+          requestedAt: rental.requestedAt ?? now,
+          decidedAt: now,
+        });
         await ctx.db.patch(part._id, { status: "rented", currentHolderId: rental.userId });
       }
       if (student?.telegramChatId || student?.telegramUsername) {

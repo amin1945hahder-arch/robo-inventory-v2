@@ -378,6 +378,7 @@ export default function AdminPeople() {
   const [editTelegram, setEditTelegram] = useState("");
   const [editDob, setEditDob] = useState("");
   const [editGithub, setEditGithub] = useState("");
+  const [editEmail, setEditEmail] = useState("");
 
   const openEdit = (p: Person) => {
     setEditing(p);
@@ -391,6 +392,7 @@ export default function AdminPeople() {
     setEditTelegram(p.user.telegramChatId ?? "");
     setEditDob(p.user.dateOfBirth ?? "");
     setEditGithub(p.user.githubUrl ?? "");
+    setEditEmail(p.user.email ?? "");
   };
 
   const toggleRole = (r: string) => {
@@ -424,6 +426,7 @@ export default function AdminPeople() {
         telegramChatId: editTelegram.trim() || undefined,
         dateOfBirth: editDob || undefined,
         githubUrl: editGithub.trim() || undefined,
+        email: editEmail !== (editing.user.email ?? "") ? editEmail.trim() : undefined,
       });
       toast.success("Profile updated");
       setEditing(null);
@@ -779,6 +782,19 @@ export default function AdminPeople() {
                     placeholder="https://github.com/…"
                   />
                 </div>
+              </div>
+              <div className="grid gap-2">
+                <Label>Email (sign-in address)</Label>
+                <Input
+                  type="email"
+                  value={editEmail}
+                  onChange={(e) => setEditEmail(e.target.value)}
+                  placeholder="member@club.org"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Changing this moves the member's sign-in email — they'll use the new address for
+                  the next email-code sign-in. Must not belong to another account.
+                </p>
               </div>
               <div className="grid gap-2">
                 <Label>Telegram chat ID</Label>
