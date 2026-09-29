@@ -1,1 +1,0 @@
-function o(n,i){if(!n?.parentGroupId)return"";const e=new Map(i.map(a=>[a._id,a])),r=[];let t=e.get(n.parentGroupId),p=0;for(;t&&p<10;)r.unshift(t.name),t=t.parentGroupId?e.get(t.parentGroupId):void 0,p+=1;return r.join(" > ")}export{o as c};

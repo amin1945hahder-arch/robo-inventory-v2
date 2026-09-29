@@ -4,6 +4,8 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { StatusBadge } from "@/components/StatusBadge";
 import { asMessage, toLocalInput } from "@/components/EditRentalDialog";
+import { PackageItemSelectContent } from "@/components/PackageItemSelectContent";
+import { buildPackageDropdown } from "@/lib/package-dropdown";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -91,6 +93,7 @@ export function EditPackageDialog({
   // Live availability per group — additions can only claim free units.
   const availability = useQuery(api.parts.availabilityByGroup, open ? {} : "skip");
   const groups = useQuery(api.catalog.listGroups, open ? {} : "skip");
+  const categories = useQuery(api.catalog.listCategories, open ? {} : "skip");
   // Renter re-assignment (whole bundle + every unit record in it).
   const people = useQuery(api.users.listPeopleLite, open ? {} : "skip");
 
@@ -157,6 +160,14 @@ export function EditPackageDialog({
     for (const g of groups ?? []) m.set(g._id, g);
     return m;
   }, [groups]);
+
+  // Same professional dropdown as the member builder: category sections with
+  // fixed labels, container → name → brand → model ordering, containers
+  // excluded, search box inside the dropdown.
+  const dropdownSections = useMemo(
+    () => buildPackageDropdown((groups ?? []) as any, categories ?? []),
+    [groups, categories],
+  );
 
   /** Free units of a group NOT already in this package (additions see the
    *  real headroom — the package's own held units are not "free", but units
@@ -323,12 +334,12 @@ export function EditPackageDialog({
                     <SelectTrigger className="flex-1">
                       <SelectValue placeholder="Choose an item" />
                     </SelectTrigger>
-                    <SelectContent>
-                      {(groups ?? []).map((gr: any) => (
-                        <SelectItem key={gr._id} value={gr._id}>
-                          {gr.name} · {availability?.[gr._id] ? `${availability[gr._id].available} free` : "…"}
-                        </SelectItem>
-                      ))}
+                    <SelectContent className="max-h-[60vh]">
+                      <PackageItemSelectContent
+                        sections={dropdownSections}
+                        availability={availability}
+                        value={line.groupId}
+                      />
                     </SelectContent>
                   </Select>
                 )}

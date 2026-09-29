@@ -22,17 +22,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { QrScanDialog } from "@/components/QrScanDialog";
+import { PackageItemSelectContent } from "@/components/PackageItemSelectContent";
 import { normalizeScan } from "@/lib/qr";
-import { matchesSearch } from "@/lib/searchText";
-import {
-  groupAllowedByFilter,
-  scanOutcome,
-  upsertLine,
-  type PackageLine,
-  type ScanFilter,
-} from "@/lib/package-scan";
+import { buildPackageDropdown } from "@/lib/package-dropdown";
+import { groupAllowedByFilter, scanOutcome, upsertLine, type PackageLine, type ScanFilter } from "@/lib/package-scan";
 import { toast } from "sonner";
-import { describePackSize, isPackGroup } from "@/lib/group-measure";
 import { Loader2, Package, Plus, ScanLine, ShieldAlert, Trash2, X } from "lucide-react";
 
 type Line = PackageLine;
@@ -55,8 +49,7 @@ export function PackageBuilderDialog({
   onDone?: () => void;
 }) {
   const groups = useQuery(api.catalog.listGroups, open ? {} : "skip");
-  // Unit tags/notes join into the search: typing a unit tag finds its group.
-  const unitRows = useQuery(api.parts.listPartsByGroups, open ? {} : "skip");
+  const categories = useQuery(api.catalog.listCategories, open ? {} : "skip");
   const availability = useQuery(api.parts.availabilityByGroup, open ? {} : "skip");
   const existing = useQuery(
     api.parts.getPackage,
@@ -73,7 +66,6 @@ export function PackageBuilderDialog({
   // narrows the item dropdown to the available items of that scope.
   const [scanOpen, setScanOpen] = useState(false);
   const [scanFilter, setScanFilter] = useState<ScanFilter>(null);
-  const [scanQuery, setScanQuery] = useState("");
 
   // Load an existing pending package for editing, or seed with the group the
   // user came from (quantity pre-set to 1 so they just bump the number).
@@ -96,7 +88,6 @@ export function PackageBuilderDialog({
   useEffect(() => {
     if (!open) {
       setScanFilter(null);
-      setScanQuery("");
       setScanOpen(false);
     }
   }, [open]);
@@ -109,19 +100,15 @@ export function PackageBuilderDialog({
 
   const maxFor = (groupId: string) => availability?.[groupId]?.available ?? 0;
 
-  // Dropdown content: groups filtered by the scanned category/storage (and the
-  // free-text search), each with its live availability count.
-  const dropdownGroups = useMemo(() => {
-    const unitsByGroup = new Map<string, string>();
-    for (const p of unitRows ?? []) {
-      unitsByGroup.set(p.groupId, [unitsByGroup.get(p.groupId), p.tag, p.note].filter(Boolean).join(" "));
-    }
-    return (groups ?? []).filter(
-      (g: any) =>
-        groupAllowedByFilter({ categoryId: g.categoryId, closetId: g.closetId }, scanFilter) &&
-        matchesSearch(g, scanQuery, unitsByGroup.get(g._id)),
+  // Dropdown content: lendable groups sectioned by category (fixed labels),
+  // sorted container → name → brand → model; the scanned category/storage
+  // filter narrows the pool.
+  const dropdownSections = useMemo(() => {
+    const pool = (groups ?? []).filter((g: any) =>
+      groupAllowedByFilter({ categoryId: g.categoryId, closetId: g.closetId }, scanFilter),
     );
-  }, [groups, unitRows, scanFilter, scanQuery]);
+    return buildPackageDropdown(pool as any, categories ?? []);
+  }, [groups, categories, scanFilter]);
 
   // QR scans resolve through the server lookup query (same resolver the QR
   // route uses): set the payload, the query resolves, the effect applies it.
@@ -245,34 +232,19 @@ export function PackageBuilderDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {(scanFilter || scanQuery.trim()) && (
+        {scanFilter && (
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            {scanFilter && (
-              <span className="inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-primary">
-                {scanFilter.type === "category" ? "Category" : "Storage"} filter
-                <button
-                  type="button"
-                  onClick={() => setScanFilter(null)}
-                  className="rounded-full p-0.5 hover:bg-primary/20"
-                  title="Clear scan filter"
-                >
-                  <X className="size-3" />
-                </button>
-              </span>
-            )}
-            {scanQuery.trim() && (
-              <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5">
-                “{scanQuery.trim()}”
-                <button
-                  type="button"
-                  onClick={() => setScanQuery("")}
-                  className="rounded-full p-0.5 hover:bg-muted"
-                  title="Clear search"
-                >
-                  <X className="size-3" />
-                </button>
-              </span>
-            )}
+            <span className="inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-primary">
+              {scanFilter.type === "category" ? "Category" : "Storage"} filter
+              <button
+                type="button"
+                onClick={() => setScanFilter(null)}
+                className="rounded-full p-0.5 hover:bg-primary/20"
+                title="Clear scan filter"
+              >
+                <X className="size-3" />
+              </button>
+            </span>
           </div>
         )}
 
@@ -285,22 +257,12 @@ export function PackageBuilderDialog({
                   <SelectTrigger className="flex-1">
                     <SelectValue placeholder="Choose an item" />
                   </SelectTrigger>
-                  <SelectContent>
-                    {dropdownGroups.length === 0 ? (
-                      <div className="px-3 py-2 text-xs text-muted-foreground">
-                        No items match the filter — clear it or scan another label.
-                      </div>
-                    ) : (
-                      dropdownGroups.map((g: any) => {
-                        const a = availability?.[g._id];
-                        return (
-                          <SelectItem key={g._id} value={g._id}>
-                            {g.name}
-                            {isPackGroup(g) ? ` (${describePackSize(g)})` : ""} · {a ? `${a.available} free` : "…"}
-                          </SelectItem>
-                        );
-                      })
-                    )}
+                  <SelectContent className="max-h-[60vh]">
+                    <PackageItemSelectContent
+                      sections={dropdownSections}
+                      availability={availability}
+                      value={line.groupId}
+                    />
                   </SelectContent>
                 </Select>
                 <div className="flex w-28 items-center gap-1">
@@ -363,12 +325,6 @@ export function PackageBuilderDialog({
             >
               <Plus className="size-4" /> Add item
             </Button>
-            <Input
-              value={scanQuery}
-              onChange={(e) => setScanQuery(e.target.value)}
-              placeholder="Search items…"
-              className="h-8 w-40"
-            />
             <Button
               type="button"
               variant="outline"
