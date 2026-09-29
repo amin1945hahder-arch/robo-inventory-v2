@@ -53,8 +53,12 @@ export function NavArrows({
     // page scrolls to the top on mount anyway.
   };
 
+  // Vertically centered, pinned to the screen edges. On desktop the LEFT
+  // arrow is offset past the floating sidebar (14.75rem) so it never covers
+  // the tab panel; on phones both arrows sit at the true edges, sized to fit
+  // (size-9) so they never overlap each other or the content.
   const cls =
-    "fixed top-1/2 z-40 size-10 -translate-y-1/2 rounded-full border-border bg-background/90 shadow-lg backdrop-blur transition-colors hover:border-primary/60 hover:text-primary";
+    "fixed top-1/2 z-40 -translate-y-1/2 rounded-full border-border bg-background/90 shadow-lg backdrop-blur transition-colors hover:border-primary/60 hover:text-primary max-md:size-9 md:size-10";
 
   return (
     <>
@@ -62,7 +66,7 @@ export function NavArrows({
         aria-label="Previous item"
         variant="outline"
         size="icon"
-        className={`${cls} left-2 md:left-3`}
+        className={`${cls} left-1 md:left-[calc(14.75rem+0.75rem)]`}
         onClick={() => go(-1)}
       >
         <ChevronLeft className="size-5" />
@@ -71,7 +75,7 @@ export function NavArrows({
         aria-label="Next item"
         variant="outline"
         size="icon"
-        className={`${cls} right-2 md:right-3`}
+        className={`${cls} right-1 md:right-3`}
         onClick={() => go(1)}
       >
         <ChevronRight className="size-5" />

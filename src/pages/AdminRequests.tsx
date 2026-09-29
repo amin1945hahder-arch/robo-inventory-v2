@@ -525,29 +525,32 @@ export default function AdminRequests() {
         </div>
 
         <Tabs defaultValue="pending">
-          <TabsList>
-            <TabsTrigger value="pending">
+          {/* Mobile: tabs wrap into rows under each other and the BAR itself
+              scrolls horizontally if a single row is still too wide — the
+              page never scrolls sideways. Desktop: one clean row. */}
+          <TabsList className="flex h-auto max-w-full flex-wrap justify-start gap-1 overflow-x-auto p-1 md:flex-nowrap md:overflow-hidden">
+            <TabsTrigger value="pending" className="shrink-0">
               Pending {pendingCount ? `(${pendingCount})` : ""}
             </TabsTrigger>
-            <TabsTrigger value="packages">
+            <TabsTrigger value="packages" className="shrink-0">
               Packages {(packages ?? []).filter((p) => p.package.status === "pending").length
                 ? `(${(packages ?? []).filter((p) => p.package.status === "pending").length})`
                 : ""}
             </TabsTrigger>
-            <TabsTrigger value="active">
+            <TabsTrigger value="active" className="shrink-0">
               Active {active?.length ? `(${active.length})` : ""}
             </TabsTrigger>
-            <TabsTrigger value="projects">
+            <TabsTrigger value="projects" className="shrink-0">
               On projects {onProject?.length ? `(${onProject.length})` : ""}
             </TabsTrigger>
-            <TabsTrigger value="history">History</TabsTrigger>
-            <TabsTrigger value="ranks">
+            <TabsTrigger value="history" className="shrink-0">History</TabsTrigger>
+            <TabsTrigger value="ranks" className="shrink-0">
               Ranks {rankReqs?.length ? `(${rankReqs.length})` : ""}
             </TabsTrigger>
-            <TabsTrigger value="printers">
+            <TabsTrigger value="printers" className="shrink-0">
               Printer {printerReqs?.length ? `(${printerReqs.length})` : ""}
             </TabsTrigger>
-            <TabsTrigger value="profiles">
+            <TabsTrigger value="profiles" className="shrink-0">
               Profiles
               {(profileReqs?.length ?? 0) + (unapproved?.length ?? 0)
                 ? `(${(profileReqs?.length ?? 0) + (unapproved?.length ?? 0)})`

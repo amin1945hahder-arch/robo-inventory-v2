@@ -242,50 +242,56 @@ export function GroupDetailUnits({
               const low = !isPack && remaining > 0 && remaining <= lowAt;
               const consumed = p.consumedAt !== undefined;
               return (
-                <li key={p._id} className="flex flex-wrap items-center gap-3 px-4 py-3">
-                  <QrChip payload={unitQr(p.tag)} label={`${group.name} · ${p.tag}`} />
-                  <Link to={`/part/${p._id}`} className="min-w-0 flex-1">
-                    <p className="font-mono text-sm font-medium">{p.tag}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {isPack
-                        ? `${fmt(remaining)} of ${Math.round(Number(group.packSize) || 0)} pieces`
-                        : `${fmtAmount(remaining)} ${unitLabel}`}
-                      {!isPack && lowAt > 0 ? ` · min ${fmtAmount(lowAt)}` : ""}
-                      {p.note ? ` · ${p.note}` : ""}
-                    </p>
-                  </Link>
-                  {low && (
-                    <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-400">
-                      at minimum
-                    </span>
-                  )}
-                  {remaining <= 0 && (
-                    <span className="rounded bg-zinc-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-400">
-                      empty
-                    </span>
-                  )}
-                  {consumed && (
-                    <span className="rounded bg-orange-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-orange-400">
-                      fully consumed
-                    </span>
-                  )}
-                  <StatusBadge status={p.status} />
-                  {isAdmin && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={p.status === "rented"}
-                      title={p.status === "rented" ? "Process the rental return first" : "Log routine consumption"}
-                      onClick={() => onConsume(p)}
-                    >
-                      <Beaker className="size-3.5" /> Update consumption
-                    </Button>
-                  )}
-                  {isAdmin && p.status !== "rented" && (
-                    <Button size="sm" variant="outline" onClick={() => onEdit(p)}>
-                      <Pencil className="size-3.5" /> Edit
-                    </Button>
-                  )}
+                <li key={p._id} className="flex flex-col gap-2 px-4 py-3">
+                  {/* Top: QR chip + the text (wraps cleanly on phones). */}
+                  <div className="flex min-w-0 items-start gap-3">
+                    <QrChip payload={unitQr(p.tag)} label={`${group.name} · ${p.tag}`} />
+                    <Link to={`/part/${p._id}`} className="min-w-0 flex-1">
+                      <p className="break-all font-mono text-sm font-medium">{p.tag}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {isPack
+                          ? `${fmt(remaining)} of ${Math.round(Number(group.packSize) || 0)} pieces`
+                          : `${fmtAmount(remaining)} ${unitLabel}`}
+                        {!isPack && lowAt > 0 ? ` · min ${fmtAmount(lowAt)}` : ""}
+                        {p.note ? ` · ${p.note}` : ""}
+                      </p>
+                    </Link>
+                  </div>
+                  {/* Bottom: chips then buttons — own row, never squeezed. */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {low && (
+                      <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-400">
+                        at minimum
+                      </span>
+                    )}
+                    {remaining <= 0 && (
+                      <span className="rounded bg-zinc-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-400">
+                        empty
+                      </span>
+                    )}
+                    {consumed && (
+                      <span className="rounded bg-orange-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-orange-400">
+                        fully consumed
+                      </span>
+                    )}
+                    <StatusBadge status={p.status} />
+                    {isAdmin && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={p.status === "rented"}
+                        title={p.status === "rented" ? "Process the rental return first" : "Log routine consumption"}
+                        onClick={() => onConsume(p)}
+                      >
+                        <Beaker className="size-3.5" /> Update consumption
+                      </Button>
+                    )}
+                    {isAdmin && p.status !== "rented" && (
+                      <Button size="sm" variant="outline" onClick={() => onEdit(p)}>
+                        <Pencil className="size-3.5" /> Edit
+                      </Button>
+                    )}
+                  </div>
                 </li>
               );
             })}
