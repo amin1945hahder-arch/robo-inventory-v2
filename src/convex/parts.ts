@@ -2096,6 +2096,279 @@ export const editPackage = mutation({
   },
 });
 
+/**
+ * ADMIN package record editor — the package-level twin of EditRentalDialog.
+ * - Pending package: full re-pick (release every claimed unit, then re-claim
+ *   for the new lines), exactly like the member's own editPackage.
+ * - Approved/active package: surgical diff — added units are claimed from the
+ *   shelf ("approved" from the start, they are part of an approved bundle);
+ *   surplus pending/approved units are released. Units that are active,
+ *   on a project or already processed are NEVER touched — live records are
+ *   edited/deleted per unit through the normal record editor instead.
+ * note / pickupAt are upserted; a null pickupAt clears the schedule for the
+ * whole bundle.
+ */
+export const adminEditPackage = mutation({
+  args: {
+    packageId: v.id("rentalPackages"),
+    lines: v.array(
+      v.object({
+        groupId: v.id("groups"),
+        count: v.number(),
+        note: v.optional(v.string()),
+      }),
+    ),
+    note: v.optional(v.string()),
+    pickupAt: v.optional(v.union(v.number(), v.null())),
+    // Units the admin explicitly un-tagged in the package editor. Only
+    // pending/approved records can be removed this way — live/processed ones
+    // are refused (they are managed per unit instead).
+    removeRentalIds: v.optional(v.array(v.id("rentals"))),
+  },
+  handler: async (ctx, { packageId, lines, note, pickupAt, removeRentalIds }) => {
+    const admin = await requireAdmin(ctx);
+    const pkg = await ctx.db.get(packageId);
+    if (!pkg) throw new Error("Package not found");
+    if (pkg.status !== "pending" && pkg.status !== "approved") {
+      throw new Error("Only pending or approved packages can be edited");
+    }
+    if (!lines.length) throw new Error("Add at least one item");
+    if (lines.length > MAX_PACKAGE_LINES) throw new Error(`Packages are limited to ${MAX_PACKAGE_LINES} items`);
+
+    const now = Date.now();
+    const cleanLines = lines.map((l) => ({
+      groupId: l.groupId,
+      count: Math.ceil(l.count),
+      note: l.note?.trim() || undefined,
+    }));
+
+    const myRentals = await ctx.db
+      .query("rentals")
+      .withIndex("by_user", (q) => q.eq("userId", pkg.userId))
+      .collect();
+    const pkgRentals = myRentals.filter((r) => r.packageId === packageId);
+    const member = await ctx.db.get(pkg.userId);
+
+    if (pkg.status === "pending") {
+      // Same full re-pick semantics as the member edit, but admin-side.
+      // Safety: a pending package must not hold handed-out units — if a
+      // per-unit edit moved one to approved/active/on_project, a blanket
+      // re-pick would delete a record that still holds its unit.
+      const holding = pkgRentals.filter((r) => ["approved", "active", "on_project"].includes(r.status));
+      if (holding.length > 0) {
+        throw new Error(
+          "This package has units already handed out — edit or return those records per unit instead of re-picking the package",
+        );
+      }
+      for (const r of pkgRentals) {
+        const part = await ctx.db.get(r.partId);
+        if (part && part.status === "pending") await ctx.db.patch(part._id, { status: "available" });
+        await ctx.db.delete(r._id);
+      }
+      const chosen: { partId: Id<"parts">; groupId: Id<"groups"> }[] = [];
+      for (const line of cleanLines) {
+        if (line.count < 1) throw new Error("Each line needs at least 1 unit");
+        if (line.count > MAX_UNITS_PER_LINE) throw new Error(`Max ${MAX_UNITS_PER_LINE} units per item`);
+        const group = await ctx.db.get(line.groupId);
+        await assertGroupLendable(ctx, line.groupId);
+        if (!group || group.deleted) throw new Error(`"${group?.name ?? "item"}" no longer exists`);
+        const candidates = await ctx.db
+          .query("parts")
+          .withIndex("by_group", (q) => q.eq("groupId", line.groupId))
+          .filter((q) => q.neq(q.field("deleted"), true))
+          .collect();
+        const wanted = Math.ceil(line.count);
+        const free = candidates.filter((p) => p.status === "available");
+        if (free.length < wanted) {
+          throw new Error(`Not enough free units of ${group.name}: need ${wanted}, only ${free.length} available`);
+        }
+        for (const part of free.slice(0, wanted)) chosen.push({ partId: part._id, groupId: line.groupId });
+      }
+      await ctx.db.patch(packageId, {
+        note: note?.trim() || undefined,
+        lines: cleanLines,
+        pickupAt: pickupAt === undefined ? pkg.pickupAt : (pickupAt ?? undefined),
+      });
+      for (const { partId } of chosen) {
+        const part = await ctx.db.get(partId);
+        if (!part) continue;
+        await ctx.db.insert("rentals", {
+          partId,
+          userId: pkg.userId,
+          packageId,
+          status: "pending",
+          requestedAt: now,
+          rentBroken: part.status === "broken" ? true : undefined,
+        });
+        await ctx.db.patch(partId, { status: "pending" });
+      }
+      await telegramGroup(
+        ctx,
+        `✏️ ${admin.name ?? admin.email} edited the pending package request of ${member?.name ?? member?.email ?? "a member"} (${cleanLines.length} item(s)).`,
+        undefined,
+        "requests",
+      );
+      return { ok: true as const, changed: "pending" as const };
+    }
+
+    // ===== Approved package: surgical add/remove diff =====
+    // Units the admin must not touch through a lines edit: live or processed.
+    const IMMUTABLE = new Set(["active", "on_project", "returned", "denied", "canceled"]);
+
+    // 1. Validate every line (lendable + enough shelf stock) BEFORE touching data.
+    for (const line of cleanLines) {
+      if (line.count < 1) throw new Error("Each line needs at least 1 unit");
+      if (line.count > MAX_UNITS_PER_LINE) throw new Error(`Max ${MAX_UNITS_PER_LINE} units per item`);
+      const group = await ctx.db.get(line.groupId);
+      await assertGroupLendable(ctx, line.groupId);
+      if (!group || group.deleted) throw new Error(`"${group?.name ?? "item"}" no longer exists`);
+    }
+
+    // 2. Remove exactly the units the admin un-tagged in the editor (only
+    // pending/approved records — anything else is refused).
+    const removedIds = new Set<string>();
+    for (const rentalId of removeRentalIds ?? []) {
+      const r = pkgRentals.find((x) => x._id === rentalId);
+      if (!r) throw new Error("That unit is not part of this package");
+      if (r.status !== "pending" && r.status !== "approved") {
+        throw new Error(
+          "Units already handed out or processed cannot be removed by a package edit — edit those records per unit instead",
+        );
+      }
+      const part = await ctx.db.get(r.partId);
+      if (part && part.status === "pending") await ctx.db.patch(part._id, { status: "available" });
+      await ctx.db.delete(r._id);
+      removedIds.add(r._id);
+    }
+
+    const releaseable = pkgRentals.filter(
+      (r) => !removedIds.has(r._id) && (r.status === "pending" || r.status === "approved"),
+    );
+
+    // 3. Plan adds: wanted minus (locked + still-held) units per group.
+    const keepCountByGroup = new Map<Id<"groups">, number>();
+    for (const r of releaseable) {
+      const part = await ctx.db.get(r.partId);
+      if (!part) continue;
+      keepCountByGroup.set(part.groupId, (keepCountByGroup.get(part.groupId) ?? 0) + 1);
+    }
+    const lockedByGroup = new Map<Id<"groups">, number>();
+    for (const r of pkgRentals) {
+      if (removedIds.has(r._id) || !IMMUTABLE.has(r.status)) continue;
+      const part = await ctx.db.get(r.partId);
+      if (!part) continue;
+      lockedByGroup.set(part.groupId, (lockedByGroup.get(part.groupId) ?? 0) + 1);
+    }
+    const adds: { groupId: Id<"groups">; wanted: number }[] = [];
+    for (const line of cleanLines) {
+      const locked = lockedByGroup.get(line.groupId) ?? 0;
+      const keep = keepCountByGroup.get(line.groupId) ?? 0;
+      // A package edit can add units or release spare ones — it can never pull
+      // a line below the units already handed out or processed (those live
+      // records are managed per unit, via the per-unit record editor).
+      if (locked > line.count) {
+        const group = await ctx.db.get(line.groupId);
+        throw new Error(
+          `"${group?.name ?? "item"}" has ${locked} unit(s) already handed out or processed — a package edit cannot remove live units (edit those records per unit instead).`,
+        );
+      }
+      const needed = line.count - locked;
+      if (keep < needed) adds.push({ groupId: line.groupId, wanted: needed - keep });
+    }
+
+    // 4. Claim fresh shelf units for the adds (broken units are never silently included).
+    const claimed: { partId: Id<"parts">; groupId: Id<"groups"> }[] = [];
+    for (const add of adds) {
+      const candidates = await ctx.db
+        .query("parts")
+        .withIndex("by_group", (q) => q.eq("groupId", add.groupId))
+        .filter((q) => q.neq(q.field("deleted"), true))
+        .collect();
+      const free = candidates.filter((p) => p.status === "available");
+      if (free.length < add.wanted) {
+        const group = await ctx.db.get(add.groupId);
+        throw new Error(`Not enough free units of ${group?.name ?? "item"}: need ${add.wanted} more, only ${free.length} available`);
+      }
+      for (const part of free.slice(0, add.wanted)) claimed.push({ partId: part._id, groupId: add.groupId });
+    }
+
+    // 5. Release surplus held units (oldest first) — only pending/approved.
+    const keepTargetByGroup = new Map<Id<"groups">, number>();
+    for (const line of cleanLines) {
+      const locked = lockedByGroup.get(line.groupId) ?? 0;
+      keepTargetByGroup.set(line.groupId, Math.max(0, line.count - locked));
+    }
+    const released: string[] = [];
+    const byGroup = new Map<Id<"groups">, typeof releaseable>();
+    for (const r of releaseable) {
+      const part = await ctx.db.get(r.partId);
+      if (!part) continue;
+      const list = byGroup.get(part.groupId) ?? [];
+      list.push(r);
+      byGroup.set(part.groupId, list);
+    }
+    for (const [groupId, held] of byGroup) {
+      const target = keepTargetByGroup.get(groupId) ?? 0;
+      // Oldest first, so the newest reservations are the ones released.
+      const sorted = held.sort((a, b) => a.requestedAt - b.requestedAt);
+      for (let i = 0; i < sorted.length - target; i++) {
+        const r = sorted[i];
+        const part = await ctx.db.get(r.partId);
+        if (part && part.status === "pending") await ctx.db.patch(part._id, { status: "available" });
+        // Pending units go back to the shelf; approved ones were reserved for
+        // this bundle only. Either way the record is deleted so the package
+        // row matches the new lines exactly.
+        await ctx.db.delete(r._id);
+        released.push(r._id);
+      }
+    }
+
+    // 6. Insert the new approved rentals for added units.
+    for (const { partId } of claimed) {
+      const part = await ctx.db.get(partId);
+      if (!part) continue;
+      await ctx.db.insert("rentals", {
+        partId,
+        userId: pkg.userId,
+        packageId,
+        status: "approved",
+        requestedAt: pkg.requestedAt,
+        decidedAt: now,
+        pickupAt: pickupAt === undefined ? pkg.pickupAt : (pickupAt ?? undefined),
+      });
+      await ctx.db.patch(partId, { status: "pending" });
+    }
+
+    await ctx.db.patch(packageId, {
+      note: note?.trim() || undefined,
+      lines: cleanLines,
+      pickupAt: pickupAt === undefined ? pkg.pickupAt : (pickupAt ?? undefined),
+    });
+
+    const summaryText = await summarize(ctx, cleanLines);
+    const bits: string[] = [];
+    if (claimed.length) bits.push(`+${claimed.length} unit(s) added`);
+    if (released.length) bits.push(`−${released.length} unit(s) released`);
+    if (!bits.length) bits.push("details updated");
+    if (member?.telegramChatId || member?.telegramUsername) {
+      await telegramDM(
+        ctx,
+        { name: member?.name ?? member?.email, telegramUsername: member?.telegramUsername, telegramChatId: member?.telegramChatId },
+        `✏️ An admin edited your approved package rental (${bits.join(", ")}): ${summaryText}.`,
+        { name: admin.name ?? admin.email },
+        "rentals",
+      );
+    }
+    await telegramGroup(
+      ctx,
+      `✏️ ${admin.name ?? admin.email} edited ${member?.name ?? member?.email ?? "a member"}'s approved package (${bits.join(", ")}): ${summaryText}.`,
+      undefined,
+      "rentals",
+    );
+    return { ok: true as const, changed: "approved" as const };
+  },
+});
+
 /** Member cancels their pending package entirely (units go back to available). */
 export const cancelPackage = mutation({
   args: { packageId: v.id("rentalPackages") },

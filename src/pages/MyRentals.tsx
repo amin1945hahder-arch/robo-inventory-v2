@@ -10,6 +10,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { RentCardDialog, type CardRow } from "@/components/RentCardDialog";
 import { EditRentalDialog } from "@/components/EditRentalDialog";
 import { containerChainOf } from "@/lib/container-chain";
+import { packageDisplayStatus } from "@/lib/package-status";
 import { PackageBuilderDialog } from "@/components/PackageBuilderDialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -104,20 +105,16 @@ export default function MyRentals() {
                               Requested {new Date(pkg.requestedAt).toLocaleDateString()} ·{" "}
                               {totalUnits} unit(s)
                               {pkg.status === "approved"
-                                ? ` · ${activeUnits} still out${approvedUnits > 0 ? `, ${approvedUnits} awaiting pick-up` : ""}, ${returnedUnits} processed`
+                                ? ` · ${activeUnits} still out${approvedUnits > 0 ? `, ${approvedUnits} awaiting pick-up` : ""}, ${returnedUnits} processed${
+                                    activeUnits === 0 && approvedUnits === 0 && returnedUnits > 0 ? " — fully returned" : ""
+                                  }`
                                 : ""}
                               {pkg.note ? ` · ${pkg.note}` : ""}
                             </p>
                           </div>
                           <StatusBadge
                             status={
-                              pkg.status === "canceled"
-                                ? "canceled"
-                                : pkg.status === "pending"
-                                  ? "pending"
-                                  : activeUnits > 0
-                                    ? "active"
-                                    : "approved"
+                              packageDisplayStatus(pkg.status, { approvedUnits, activeUnits, returnedUnits })
                             }
                           />
                           {isPending && (

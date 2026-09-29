@@ -1,0 +1,466 @@
+import { useEffect, useMemo, useState } from "react";
+import { LoadingGifInline } from "@/components/LoadingGif";
+import { useMutation, useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { StatusBadge } from "@/components/StatusBadge";
+import { asMessage, toLocalInput } from "@/components/EditRentalDialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  packageDisplayStatus,
+  type PackageDisplayStatus,
+} from "@/lib/package-status";
+import { toast } from "sonner";
+import { CalendarClock, Package, Plus, Trash2 } from "lucide-react";
+
+/**
+ * Admin editor for a whole package record — the bundle-level twin of the
+ * per-unit EditRentalDialog. Two editing modes, chosen by the package's own
+ * state, so every edit stays truthful to what physically happened:
+ *
+ * - PENDING package → full re-pick, exactly like the member's own edit:
+ *   every claimed unit is released and fresh ones are claimed for the new
+ *   lines when the admin approves.
+ * - APPROVED package → surgical unit-level diff: add units from the shelf
+ *   (inserted as "approved", they belong to an approved bundle), remove
+ *   units that are only pending/approved, update note and scheduled
+ *   pick-up. Units already handed out or processed are shown read-only —
+ *   those live records are edited per unit (EditRentalDialog), never
+ *   silently deleted by a lines edit.
+ */
+
+type UnitRow = {
+  rentalId: string;
+  partId: string;
+  tag?: string;
+  status: string;
+  rentBroken: boolean;
+  returnRequestedAt?: number;
+  /** Which line of pkg.lines this unit belongs to. */
+  groupId: string;
+};
+
+type EditLine = {
+  groupId: string;
+  count: number;
+  note?: string;
+  /** Current actual units in the package for this group (set on load). */
+  existing: number;
+  /** Rentals that this edit should remove (un-tagged by the admin). */
+  removed: Set<string>;
+};
+
+/** Unit statuses a package edit may remove. */
+const REMOVABLE = new Set(["pending", "approved"]);
+
+/** Unit statuses whose part is still held by the package (counts against
+ *  availability). Returned/on_project units are back on the shelf or in a
+ *  project — their shelf slots must NOT be subtracted from headroom. */
+const HOLDS_PART = new Set(["pending", "approved", "active", "on_project"]);
+
+
+export function EditPackageDialog({
+  open,
+  onOpenChange,
+  pkg,
+  onDone,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  pkg: any;
+  onDone?: () => void;
+}) {
+  const adminEdit = useMutation(api.parts.adminEditPackage);
+  // Live availability per group — additions can only claim free units.
+  const availability = useQuery(api.parts.availabilityByGroup, open ? {} : "skip");
+  const groups = useQuery(api.catalog.listGroups, open ? {} : "skip");
+
+  const [status, setStatus] = useState<string>("pending");
+  const [lines, setLines] = useState<EditLine[]>([]);
+  const [removedExtra, setRemovedExtra] = useState<Set<string>>(new Set());
+  const [note, setNote] = useState("");
+  const [pickupLocal, setPickupLocal] = useState("");
+  const [pickupTouched, setPickupTouched] = useState(false);
+  const [pickupCleared, setPickupCleared] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  // Hydrate the editor from the package row when it opens — keyed on the
+  // package id (NOT the row object) so a live-query refetch never wipes the
+  // admin's in-progress edits mid-dialog.
+  const pkgId: string | undefined = pkg?.package?._id;
+  useEffect(() => {
+    if (!open || !pkg) return;
+    setStatus(pkg.package?.status ?? "pending");
+    setNote(pkg.package?.note ?? "");
+    setPickupLocal(toLocalInput(pkg.package?.pickupAt ?? null));
+    setPickupTouched(false);
+    setPickupCleared(false);
+    setRemovedExtra(new Set());
+    const next: EditLine[] = (pkg.lines ?? []).map((l: any) => ({
+      groupId: l.groupId as string,
+      count: l.requested as number,
+      note: l.note as string | undefined,
+      existing: l.units.length as number,
+      removed: new Set<string>(),
+    }));
+    setLines(next);
+    // pkgId (not the pkg object): live-query refetches keep a new object
+    // identity — rehydrating on that would wipe the admin's open edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, pkgId]);
+
+  // The per-line unit list: pkg.lines carries the units, but the dialog's
+  // own removals must be reflected immediately, so join + filter here.
+  const unitRows: UnitRow[] = useMemo(() => {
+    const rows: UnitRow[] = [];
+    for (const l of pkg?.lines ?? []) {
+      for (const u of l.units ?? []) {
+        rows.push({
+          rentalId: u.rentalId,
+          partId: u.partId,
+          tag: u.tag,
+          status: u.status,
+          rentBroken: Boolean(u.rentBroken),
+          returnRequestedAt: u.returnRequestedAt,
+          groupId: l.groupId,
+        });
+      }
+    }
+    return rows;
+  }, [pkg]);
+
+  const groupById = useMemo(() => {
+    const m = new Map<string, { _id: string; name: string }>();
+    for (const g of groups ?? []) m.set(g._id, g);
+    return m;
+  }, [groups]);
+
+  /** Free units of a group NOT already in this package (additions see the
+   *  real headroom — the package's own held units are not "free", but units
+   *  already returned to the shelf are). */
+  const freeOutside = (groupId: string) => {
+    const a = availability?.[groupId];
+    if (!a) return 0;
+    const heldInside = unitRows.filter(
+      (u) => u.groupId === groupId && HOLDS_PART.has(u.status) && !removedExtra.has(u.rentalId),
+    ).length;
+    return Math.max(0, a.available - heldInside);
+  };
+
+  const isPending = status === "pending";
+  const removableCount = unitRows.filter((u) => REMOVABLE.has(u.status) && !removedExtra.has(u.rentalId)).length;
+  const removedCount = removedExtra.size;
+  const displayStatus: PackageDisplayStatus = packageDisplayStatus(status, {
+    approvedUnits: unitRows.filter((u) => u.status === "approved").length,
+    activeUnits: unitRows.filter((u) => u.status === "active").length,
+    returnedUnits: unitRows.filter((u) => u.status === "returned" || u.status === "on_project").length,
+  });
+
+  const setLine = (i: number, patch: Partial<EditLine>) =>
+    setLines((prev) => prev.map((l, j) => (j === i ? { ...l, ...patch } : l)));
+
+  const plannedUnits = lines.reduce(
+    (n, l) => n + (l.groupId && l.count >= 1 ? l.count : 0),
+    0,
+  );
+  const shortages = lines.filter((l) => {
+    if (!l.groupId || l.count < 1) return false;
+    if (isPending) {
+      const a = availability?.[l.groupId];
+      return l.count > (a?.available ?? 0);
+    }
+    return l.count > l.existing - l.removed.size + freeOutside(l.groupId);
+  });
+
+  const toggleRemoved = (u: UnitRow) => {
+    setRemovedExtra((prev) => {
+      const next = new Set(prev);
+      if (next.has(u.rentalId)) next.delete(u.rentalId);
+      else next.add(u.rentalId);
+      return next;
+    });
+    // The line's kept count shrinks by one when its unit is un-tagged. Only
+    // ORIGINAL lines (existing > 0) own units — a freshly re-added line for
+    // the same group is a new claim and must not be adjusted.
+    setLines((prev) =>
+      prev.map((l) => {
+        if (l.groupId !== u.groupId || l.existing === 0) return l;
+        const going = !l.removed.has(u.rentalId);
+        return { ...l, removed: going ? new Set([...l.removed, u.rentalId]) : new Set([...l.removed].filter((x) => x !== u.rentalId)), count: going ? Math.max(0, l.count - 1) : l.count + 1 };
+      }),
+    );
+  };
+
+  const addLine = () =>
+    setLines((prev) => [...prev, { groupId: "", count: 1, existing: 0, removed: new Set() }]);
+
+  const removeLine = (i: number) => {
+    const line = lines[i];
+    // Removing a line un-tags every removable unit of that group.
+    const doomed = unitRows.filter((u) => u.groupId === line.groupId && REMOVABLE.has(u.status));
+    setRemovedExtra((prev) => {
+      const next = new Set(prev);
+      for (const u of doomed) next.add(u.rentalId);
+      return next;
+    });
+    setLines((prev) => prev.filter((_, j) => j !== i));
+  };
+
+  const submit = async () => {
+    const clean = lines.filter((l) => l.groupId && l.count >= 1);
+    if (clean.length === 0) {
+      toast.error("Add at least one item");
+      return;
+    }
+    if (shortages.length > 0) {
+      toast.error(
+        `Not enough units available for: ${shortages
+          .map((l) => `${groupById.get(l.groupId)?.name ?? "item"} (planned ${l.count})`)
+          .join(", ")}`,
+      );
+      return;
+    }
+    setBusy(true);
+    try {
+      await adminEdit({
+        packageId: pkg.package._id as any,
+        lines: clean.map((l) => ({ groupId: l.groupId as any, count: l.count, note: l.note || undefined })),
+        note: note.trim() || undefined,
+        pickupAt: pickupCleared ? null : pickupTouched && pickupLocal ? new Date(pickupLocal).getTime() : undefined,
+        removeRentalIds:
+          status === "approved" && removedExtra.size > 0 ? ([...removedExtra] as any) : undefined,
+      });
+      toast.success("Package updated");
+      onOpenChange(false);
+      onDone?.();
+    } catch (e) {
+      toast.error(asMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Package className="size-4 text-primary" />
+            Edit package
+            <StatusBadge status={displayStatus} className="ml-1" />
+          </DialogTitle>
+          <DialogDescription>
+            {isPending
+              ? "This request is still pending — rework its lines freely; units are re-claimed when it is approved."
+              : "Approved package — add units from the shelf, remove ones that are not handed out yet, or fix the note and pick-up time. Handed-out and processed units are locked and are edited per unit."}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex max-h-[45vh] flex-col gap-2 overflow-y-auto pr-1">
+          {lines.map((line, i) => {
+            // Pending: how many units are on the shelf. Approved: the line's
+            // real headroom — kept units + free units NOT already in the pkg.
+            const max = isPending
+              ? (availability?.[line.groupId]?.available ?? 0)
+              : line.existing - line.removed.size + freeOutside(line.groupId);
+            const g = groupById.get(line.groupId);
+            return (
+              <div key={i} className="glass-3d flex items-center gap-2 rounded-md border p-2">
+                {g ? (
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{g.name}</span>
+                ) : (
+                  <Select
+                    value={line.groupId || undefined}
+                    onValueChange={(v) => setLine(i, { groupId: v, count: 1, note: undefined, existing: 0, removed: new Set() })}
+                  >
+                    <SelectTrigger className="flex-1">
+                      <SelectValue placeholder="Choose an item" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(groups ?? []).map((gr: any) => (
+                        <SelectItem key={gr._id} value={gr._id}>
+                          {gr.name} · {availability?.[gr._id] ? `${availability[gr._id].available} free` : "…"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                <div className="flex w-28 items-center gap-1">
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
+                    className="size-7"
+                    onClick={() => setLine(i, { count: Math.max(1, line.count - 1) })}
+                  >
+                    −
+                  </Button>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={line.count}
+                    onChange={(e) =>
+                      setLine(i, { count: Math.max(1, Math.floor(Number(e.target.value) || 1)) })
+                    }
+                    className="h-7 text-center"
+                  />
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
+                    className="size-7"
+                    onClick={() => setLine(i, { count: line.count + 1 })}
+                  >
+                    +
+                  </Button>
+                </div>
+                <span
+                  className={`w-20 shrink-0 text-right text-[11px] ${
+                    shortages.some((s) => s.groupId === line.groupId)
+                      ? "font-semibold text-rose-400"
+                      : "text-muted-foreground"
+                  }`}
+                >
+                  {isPending
+                    ? `${max} free`
+                    : `${line.existing - line.removed.size} in pkg · ${freeOutside(line.groupId)} free`}
+                </span>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="size-7 text-destructive"
+                  title="Remove this item (its not-yet-handed-out units are released)"
+                  onClick={() => removeLine(i)}
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
+              </div>
+            );
+          })}
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={addLine}>
+              <Plus className="size-4" /> Add item
+            </Button>
+          </div>
+        </div>
+
+        {/* Unit-level view: full history for approved packages, plain list for
+            pending ones. Removable units can be un-tagged; locked ones link
+            to the per-unit record editor by rule (the admin closes this
+            dialog and uses the unit's ✏️ in the row). */}
+        {status !== "pending" && (
+          <div className="flex flex-col gap-1">
+            <Label className="text-xs text-muted-foreground">
+              Units in this package — un-tag the ones to release ({removableCount} removable, {removedCount} marked)
+            </Label>
+            <ul className="flex max-h-40 flex-col gap-1 overflow-y-auto rounded-md border p-2">
+              {unitRows.map((u) => {
+                const removable = REMOVABLE.has(u.status);
+                const marked = removedExtra.has(u.rentalId);
+                return (
+                  <li key={u.rentalId} className="flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={marked}
+                      disabled={!removable}
+                      onChange={() => toggleRemoved(u)}
+                      className="size-3.5 accent-primary"
+                      title={removable ? "Release this unit" : "Handed-out or processed units cannot be removed by a package edit"}
+                    />
+                    <span className="font-mono">{u.tag ?? "?"}</span>
+                    <StatusBadge status={u.status} />
+                    {u.rentBroken && (
+                      <span className="rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-rose-400">broken</span>
+                    )}
+                    {!removable && (
+                      <span className="ml-auto text-[10px] text-muted-foreground">
+                        {u.status === "active" || u.status === "on_project" ? "locked — edit per unit" : "processed"}
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+
+        <div className="grid gap-2">
+          <Label>Note</Label>
+          <Textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            rows={2}
+            placeholder="What's the package for?"
+          />
+        </div>
+
+        <div className="grid gap-2">
+          <Label className="flex items-center gap-1.5">
+            <CalendarClock className="size-3.5" /> Scheduled pick-up
+          </Label>
+          <Input
+            type="datetime-local"
+            value={pickupLocal}
+            onChange={(e) => {
+              setPickupLocal(e.target.value);
+              setPickupTouched(true);
+              setPickupCleared(false);
+            }}
+            className="h-8 sm:w-64"
+          />
+          {(pkg?.package?.pickupAt || pickupLocal) && (
+            <button
+              type="button"
+              className="self-start text-xs text-muted-foreground underline-offset-2 hover:underline"
+              onClick={() => {
+                setPickupLocal("");
+                setPickupTouched(false);
+                setPickupCleared(true);
+              }}
+            >
+              Clear pick-up time (whole bundle)
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>
+            {lines.filter((l) => l.groupId).length} item(s) · planned {plannedUnits} unit(s)
+            {removedCount > 0 ? ` · ${removedCount} unit(s) to release` : ""}
+          </span>
+          {shortages.length > 0 && (
+            <span className="font-medium text-rose-400">Some items exceed availability</span>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={busy || lines.length === 0 || shortages.length > 0}>
+            {busy ? <LoadingGifInline size={18} className="size-4" /> : <Package className="size-4" />}
+            Save changes
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

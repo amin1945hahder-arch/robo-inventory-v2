@@ -52,8 +52,9 @@ const HOLDING = new Set(["pending", "approved", "active", "on_project"]);
 
 const pad = (x: number) => String(x).padStart(2, "0");
 
-/** ms timestamp → value for <input type="datetime-local"> (local time). */
-const toLocalInput = (n?: number | null) => {
+/** ms timestamp → value for <input type="datetime-local"> (local time).
+ *  Exported for the other admin record editors. */
+export const toLocalInput = (n?: number | null) => {
   if (!n) return "";
   const d = new Date(n);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -73,8 +74,9 @@ const FIELDS: { key: string; label: string }[] = [
 ];
 
 /** Server error → human message: strips the "[CONVEX M(fn)] …/Called by
- *  client" decoration and unwraps ConvexError data payloads. */
-const asMessage = (e: unknown): string => {
+ *  client" decoration and unwraps ConvexError data payloads. Exported for the
+ *  other admin record editors (package editing shows the same errors). */
+export const asMessage = (e: unknown): string => {
   if (e instanceof ConvexError) {
     const d = e.data as any;
     if (typeof d === "string") return d;

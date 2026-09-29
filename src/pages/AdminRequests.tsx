@@ -31,6 +31,8 @@ import {
 import { toast } from "sonner";
 import { Award, Boxes, Check, IdCard, PackagePlus, Printer, RotateCcw, ScanLine, Search, SquarePen, X } from "lucide-react";
 import { EditRentalDialog } from "@/components/EditRentalDialog";
+import { EditPackageDialog } from "@/components/EditPackageDialog";
+import { packageDisplayStatus } from "@/lib/package-status";
 import { PersonBadgeDialog, type PersonBadgeData } from "@/components/PersonBadgeDialog";
 import { RentCardDialog, type CardRow } from "@/components/RentCardDialog";
 import { containerChainOf } from "@/lib/container-chain";
@@ -92,6 +94,8 @@ export default function AdminRequests() {
   // Approve flow: pick the pick-up date/time (or reuse a scheduled slot).
   const [approveFor, setApproveFor] = useState<Row | null>(null);
   const [editRentalFor, setEditRentalFor] = useState<any>(null);
+  // Whole-package record editor (admin) — pkg row from api.parts.listPackages.
+  const [editPkgFor, setEditPkgFor] = useState<any>(null);
   // Print rent card for any request row.
   const [card, setCard] = useState<CardRow | null>(null);
   // Member badge card (Ranks / Printer / Profiles tabs).
@@ -171,6 +175,8 @@ export default function AdminRequests() {
   // The grouped pending query already collapses them into package rows.
   const pendingRows = pendingSingles;
   const pendingCount = pendingRowsQ?.length ?? 0;
+  // Counter chip for the Packages tab.
+  const pendingPkgCount = (packages ?? []).filter((p) => p.package.status === "pending").length;
 
   /** Filter any rental row list by the global search box (every field). */
   const filterRentalRows = useCallback(
@@ -528,33 +534,67 @@ export default function AdminRequests() {
           {/* Mobile: tabs wrap into rows under each other and the BAR itself
               scrolls horizontally if a single row is still too wide — the
               page never scrolls sideways. Desktop: one clean row. */}
-          <TabsList className="flex h-auto max-w-full flex-wrap justify-start gap-1 overflow-x-auto p-1 md:flex-nowrap md:overflow-hidden">
-            <TabsTrigger value="pending" className="shrink-0">
-              Pending {pendingCount ? `(${pendingCount})` : ""}
+          {/* Tabs adapt to the window: the list wraps onto extra rows whenever a
+              row would overflow, every trigger keeps its natural text width
+              (flex-none beats the shared component's flex-1) and counts render
+              as a separate chip so they never squeeze into the label. */}
+          <TabsList className="flex h-auto max-w-full flex-wrap justify-start gap-1.5 p-1">
+            <TabsTrigger value="pending" className="flex-none gap-1.5">
+              Pending
+              {pendingCount > 0 && (
+                <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums">
+                  {pendingCount}
+                </span>
+              )}
             </TabsTrigger>
-            <TabsTrigger value="packages" className="shrink-0">
-              Packages {(packages ?? []).filter((p) => p.package.status === "pending").length
-                ? `(${(packages ?? []).filter((p) => p.package.status === "pending").length})`
-                : ""}
+            <TabsTrigger value="packages" className="flex-none gap-1.5">
+              Packages
+              {pendingPkgCount > 0 && (
+                <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums">
+                  {pendingPkgCount}
+                </span>
+              )}
             </TabsTrigger>
-            <TabsTrigger value="active" className="shrink-0">
-              Active {active?.length ? `(${active.length})` : ""}
+            <TabsTrigger value="active" className="flex-none gap-1.5">
+              Active
+              {(active?.length ?? 0) > 0 && (
+                <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums">
+                  {active?.length ?? 0}
+                </span>
+              )}
             </TabsTrigger>
-            <TabsTrigger value="projects" className="shrink-0">
-              On projects {onProject?.length ? `(${onProject.length})` : ""}
+            <TabsTrigger value="projects" className="flex-none gap-1.5">
+              On projects
+              {(onProject?.length ?? 0) > 0 && (
+                <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums">
+                  {onProject?.length ?? 0}
+                </span>
+              )}
             </TabsTrigger>
-            <TabsTrigger value="history" className="shrink-0">History</TabsTrigger>
-            <TabsTrigger value="ranks" className="shrink-0">
-              Ranks {rankReqs?.length ? `(${rankReqs.length})` : ""}
+            <TabsTrigger value="history" className="flex-none">History</TabsTrigger>
+            <TabsTrigger value="ranks" className="flex-none gap-1.5">
+              Ranks
+              {(rankReqs?.length ?? 0) > 0 && (
+                <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums">
+                  {rankReqs?.length ?? 0}
+                </span>
+              )}
             </TabsTrigger>
-            <TabsTrigger value="printers" className="shrink-0">
-              Printer {printerReqs?.length ? `(${printerReqs.length})` : ""}
+            <TabsTrigger value="printers" className="flex-none gap-1.5">
+              Printer
+              {(printerReqs?.length ?? 0) > 0 && (
+                <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums">
+                  {printerReqs?.length ?? 0}
+                </span>
+              )}
             </TabsTrigger>
-            <TabsTrigger value="profiles" className="shrink-0">
+            <TabsTrigger value="profiles" className="flex-none gap-1.5">
               Profiles
-              {(profileReqs?.length ?? 0) + (unapproved?.length ?? 0)
-                ? `(${(profileReqs?.length ?? 0) + (unapproved?.length ?? 0)})`
-                : ""}
+              {(profileReqs?.length ?? 0) + (unapproved?.length ?? 0) > 0 && (
+                <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums">
+                  {(profileReqs?.length ?? 0) + (unapproved?.length ?? 0)}
+                </span>
+              )}
             </TabsTrigger>
           </TabsList>
 
@@ -657,6 +697,19 @@ export default function AdminRequests() {
                         </p>
                       </div>
                       <div className="flex gap-2">
+                        {packages?.some((p) => p.package._id === row.key) && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            title="Edit this package request"
+                            onClick={() => {
+                              const full = packages?.find((p) => p.package._id === row.key);
+                              if (full) setEditPkgFor(full);
+                            }}
+                          >
+                            <SquarePen className="size-4" /> Edit
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           disabled={approveBusy}
@@ -709,7 +762,12 @@ export default function AdminRequests() {
               </p>
             ) : (
               <ul className="flex flex-col gap-3">
-                {packages.map(({ package: pkg, lines, requester, openUnits, totalUnits, returnedUnits }) => (
+                {packages.map(({ package: pkg, lines, requester, openUnits, totalUnits, returnedUnits, approvedUnits, activeUnits }) => {
+                  // Truthful badge: derived from the unit stages, not the frozen
+                  // stored status — a fully returned package must not read
+                  // "Active" forever.
+                  const pkgStatus = packageDisplayStatus(pkg.status, { approvedUnits, activeUnits, returnedUnits });
+                  return (
                   <li key={pkg._id} className="glass-3d rounded-lg border p-4">
                     <div className="flex flex-wrap items-center gap-3">
                       <Boxes className="size-5 shrink-0 text-primary" />
@@ -744,6 +802,14 @@ export default function AdminRequests() {
                         <div className="flex gap-2">
                           <Button
                             size="sm"
+                            variant="outline"
+                            title="Edit this package request"
+                            onClick={() => setEditPkgFor({ package: pkg, lines, requester })}
+                          >
+                            <SquarePen className="size-4" /> Edit
+                          </Button>
+                          <Button
+                            size="sm"
                             disabled={approveBusy}
                             onClick={() => {
                               setApprovePkgFor({ key: pkg._id, unitCount: totalUnits });
@@ -766,6 +832,16 @@ export default function AdminRequests() {
                         </div>
                       ) : (
                         <div className="flex gap-2">
+                          {pkg.status === "approved" && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            title="Edit this package record — add or release units, fix note and pick-up"
+                            onClick={() => setEditPkgFor({ package: pkg, lines, requester })}
+                          >
+                            <SquarePen className="size-4" /> Edit
+                          </Button>
+                          )}
                           {pkg.status === "approved" && openUnits > 0 && (
                             <Button
                               size="sm"
@@ -785,7 +861,7 @@ export default function AdminRequests() {
                               <RotateCcw className="size-4" /> Return all units
                             </Button>
                           )}
-                          <StatusBadge status={pkg.status === "approved" ? "active" : "canceled"} />
+                          <StatusBadge status={pkgStatus} />
                         </div>
                       )}
                     </div>
@@ -876,7 +952,8 @@ export default function AdminRequests() {
                       )}
                     </ul>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
           </TabsContent>
@@ -1248,6 +1325,14 @@ export default function AdminRequests() {
             open={Boolean(editRentalFor)}
             onOpenChange={(v) => !v && setEditRentalFor(null)}
             rental={editRentalFor}
+          />
+        )}
+
+        {editPkgFor && (
+          <EditPackageDialog
+            open={Boolean(editPkgFor)}
+            onOpenChange={(v) => !v && setEditPkgFor(null)}
+            pkg={editPkgFor}
           />
         )}
 
