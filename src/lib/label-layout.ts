@@ -37,7 +37,7 @@ export const LABEL_PAD_MM = 4;
 /** Gap between grid columns, in mm. */
 export const LABEL_GAP_MM = 2;
 
-export const SIZE_OPTIONS = [12, 15, 18, 20, 25, 30, 40, 50] as const;
+export const SIZE_OPTIONS = [15, 20, 25, 30, 35, 40, 45, 50, 55, 60] as const;
 
 export const DEFAULT_SIZES: SectionSizes = {
   closets: 30,

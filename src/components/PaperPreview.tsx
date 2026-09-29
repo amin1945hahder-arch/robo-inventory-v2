@@ -100,12 +100,24 @@ export function PaperPreview({
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
+    // Round to whole px: sub-pixel width changes caused measure→render→
+    // measure loops (the "app freezes" bug) in zoomed/scroll containers.
+    let raf = 0;
     const ro = new ResizeObserver((entries) => {
-      for (const e of entries) setContainerW(e.contentRect.width);
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        for (const e of entries) {
+          const w = Math.floor(e.contentRect.width);
+          setContainerW((prev) => (prev === w ? prev : w));
+        }
+      });
     });
     ro.observe(el);
-    setContainerW(el.getBoundingClientRect().width);
-    return () => ro.disconnect();
+    setContainerW(Math.floor(el.getBoundingClientRect().width));
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
   }, []);
 
   const dims = orientation === "landscape" ? { w: pageMm.h, h: pageMm.w } : pageMm;

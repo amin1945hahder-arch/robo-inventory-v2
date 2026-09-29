@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { AppShell } from "@/components/AppShell";
-import { LoadingGif } from "@/components/LoadingGif";
+import { LoadingGif, LoadingGifInline } from "@/components/LoadingGif";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -28,7 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Award, Boxes, Check, IdCard, PackagePlus, Printer, RotateCcw, ScanLine, SquarePen, X } from "lucide-react";
+import { Award, Boxes, Check, IdCard, PackagePlus, Printer, RotateCcw, ScanLine, Search, SquarePen, X } from "lucide-react";
 import { EditRentalDialog } from "@/components/EditRentalDialog";
 import { PersonBadgeDialog, type PersonBadgeData } from "@/components/PersonBadgeDialog";
 import { RentCardDialog, type CardRow } from "@/components/RentCardDialog";
@@ -124,10 +124,82 @@ export default function AdminRequests() {
   // Bulk consumable return: how much of the taken amount came back.
   const [recovered, setRecovered] = useState("");
 
+  // ---- Search across EVERYTHING (all tabs) ----------------------------
+  const [search, setSearch] = useState("");
+  const matchesSearch = useCallback(
+    (haystacks: (string | number | undefined | null)[]) => {
+      const s = search.trim().toLowerCase();
+      if (!s) return true;
+      return haystacks.some((h) => String(h ?? "").toLowerCase().includes(s));
+    },
+    [search],
+  );
+
+  // ---- Multi-select (like Inventory): apply one action to many rows ----
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const toggleSel = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const bulkDeny = async () => {
+    if (selected.size === 0) return;
+    if (!confirm(`Deny ${selected.size} selected request(s)? Units go back to the shelf.`)) return;
+    setBulkBusy(true);
+    try {
+      let ok = 0;
+      for (const id of selected) {
+        try {
+          await act({ rentalId: id as never, action: "deny" });
+          ok++;
+        } catch {
+          /* one failing row doesn't stop the rest */
+        }
+      }
+      toast.success(`${ok} of ${selected.size} request(s) denied`);
+      setSelected(new Set());
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   // Package units are decided as a bundle in the Packages tab (all-or-nothing).
   // The grouped pending query already collapses them into package rows.
   const pendingRows = pendingSingles;
   const pendingCount = pendingRowsQ?.length ?? 0;
+
+  /** Filter any rental row list by the global search box (every field). */
+  const filterRentalRows = useCallback(
+    (list: any[] | undefined) => {
+      if (!list) return undefined;
+      if (!search.trim()) return list;
+      return list.filter((row: any) =>
+        matchesSearch([
+          row.group?.name,
+          row.part?.tag,
+          row.student?.name,
+          row.student?.email,
+          row.student?.studentId,
+          row.student?.studentCode,
+          row.rental?.status,
+          row.rental?.amount,
+          row.rental?.conditionReport,
+          row.rental?.projectName,
+          row.rental?.requestedAt && new Date(row.rental.requestedAt).toLocaleDateString(),
+        ]),
+      );
+    },
+    [matchesSearch],
+  );
+
+  const fPending = useMemo(() => filterRentalRows(pendingRows), [filterRentalRows, pendingRows]);
+  const fAwaiting = useMemo(() => filterRentalRows(awaiting), [filterRentalRows, awaiting]);
+  const fActive = useMemo(() => filterRentalRows(active), [filterRentalRows, active]);
+  const fOnProject = useMemo(() => filterRentalRows(onProject), [filterRentalRows, onProject]);
+  const fHistory = useMemo(() => filterRentalRows(history), [filterRentalRows, history]);
 
   // Whole-package return from the Packages tab (admin one-click).
   const [wholeFor, setWholeFor] = useState<any | null>(null);
@@ -352,8 +424,25 @@ export default function AdminRequests() {
     amountUnit: row.group?.measureUnit,
   });
 
-  const RowCard = ({ row, actions }: { row: Row; actions: React.ReactNode }) => (
+  const RowCard = ({
+    row,
+    actions,
+    selectable,
+  }: {
+    row: Row;
+    actions: React.ReactNode;
+    /** Show the multi-select checkbox (requests bulk actions). */
+    selectable?: boolean;
+  }) => (
     <li className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center">
+      {selectable && (
+        <Checkbox
+          checked={selected.has(row.rental._id)}
+          onCheckedChange={() => toggleSel(row.rental._id)}
+          aria-label={`Select ${row.group?.name ?? "request"}`}
+          className="mt-0.5 shrink-0 self-start sm:self-center"
+        />
+      )}
       <Avatar className="size-8 shrink-0">
         <AvatarImage src={row.student?.image} />
         <AvatarFallback className="text-xs font-semibold">
@@ -408,6 +497,31 @@ export default function AdminRequests() {
             </Link>
           </Button>
         </header>
+
+        {/* Search across everything + bulk action bar (like Inventory). */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-56 flex-1">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search requests — part, tag, student, ID, status, date…"
+              className="pl-8"
+            />
+          </div>
+          {selected.size > 0 && (
+            <>
+              <span className="text-xs text-muted-foreground">{selected.size} selected</span>
+              <Button size="sm" variant="outline" disabled={bulkBusy} onClick={bulkDeny}>
+                {bulkBusy ? <LoadingGifInline size={16} className="size-4" /> : <X className="size-4" />}
+                Deny selected
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
+                Clear
+              </Button>
+            </>
+          )}
+        </div>
 
         <Tabs defaultValue="pending">
           <TabsList>
@@ -473,7 +587,7 @@ export default function AdminRequests() {
               </p>
             ) : (
               <ul className="flex flex-col gap-3">
-                {pendingRows.map((row: any) => (
+                {(fPending ?? []).map((row: any) => (
                   <RowCard
                     key={row.key}
                     row={row as Row}
@@ -764,13 +878,13 @@ export default function AdminRequests() {
 
           <TabsContent value="active" className="mt-4">
             {/* Awaiting pick-up: approved, not yet handed over. */}
-            {(awaiting ?? []).length > 0 && (
+            {(fAwaiting ?? []).length > 0 && (
               <section className="mb-5">
                 <h2 className="mb-2 text-xs font-semibold uppercase tracking-widest text-amber-400">
-                  Awaiting pick-up · {(awaiting ?? []).length}
+                  Awaiting pick-up · {(fAwaiting ?? []).length}
                 </h2>
                 <ul className="divide-y glass-3d rounded-lg border border-amber-500/30">
-                  {(awaiting ?? []).map((row) => (
+                  {(fAwaiting ?? []).map((row) => (
                     <RowCard
                       key={row.rental._id}
                       row={row as Row}
@@ -813,15 +927,15 @@ export default function AdminRequests() {
                 </ul>
               </section>
             )}
-            {active === undefined ? (
+            {fActive === undefined ? (
               <LoadingGif size={48} label={null} />
-            ) : active.length === 0 && (awaiting?.length ?? 0) === 0 ? (
+            ) : fActive.length === 0 && (fAwaiting?.length ?? 0) === 0 ? (
               <p className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
                 Nothing is out on rental right now.
               </p>
             ) : (
               <ul className="divide-y glass-3d rounded-lg border">
-                {active.map((row) => (
+                {(fActive ?? []).map((row) => (
                   <RowCard
                     key={row.rental._id}
                     row={row as Row}
@@ -860,15 +974,15 @@ export default function AdminRequests() {
           </TabsContent>
 
           <TabsContent value="projects" className="mt-4">
-            {onProject === undefined ? (
+            {fOnProject === undefined ? (
               <LoadingGif size={48} label={null} />
-            ) : onProject.length === 0 ? (
+            ) : fOnProject.length === 0 ? (
               <p className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
                 No parts are checked out to projects.
               </p>
             ) : (
               <ul className="divide-y glass-3d rounded-lg border">
-                {onProject.map((row) => (
+                {(fOnProject ?? []).map((row) => (
                   <RowCard
                     key={row.rental._id}
                     row={row as Row}
@@ -887,15 +1001,15 @@ export default function AdminRequests() {
           </TabsContent>
 
           <TabsContent value="history" className="mt-4">
-            {history === undefined ? (
+            {fHistory === undefined ? (
               <LoadingGif size={48} label={null} />
-            ) : history.length === 0 ? (
+            ) : fHistory.length === 0 ? (
               <p className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
                 No completed rentals yet.
               </p>
             ) : (
               <ul className="divide-y glass-3d rounded-lg border">
-                {history.slice(0, 40).map((row) => (
+                {(fHistory ?? []).slice(0, 40).map((row) => (
                   <RowCard
                     key={row.rental._id}
                     row={row as Row}

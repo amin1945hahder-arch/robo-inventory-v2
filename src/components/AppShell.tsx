@@ -133,7 +133,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-dvh overflow-hidden bg-transparent">
-      <aside className="glass-strong hidden h-dvh w-60 shrink-0 flex-col overflow-y-auto border-r px-4 py-6 md:flex">
+      {/* Floating glass sidebar — Telegram-style: inset from the screen edge
+          with its own rounded 3D glass panel + deep floating shadow. */}
+      <div className="hidden shrink-0 py-3 pl-3 md:block">
+        <aside className="glass-strong flex h-[calc(100dvh-1.5rem)] w-56 flex-col overflow-y-auto rounded-2xl border px-4 py-6">
         <Link to="/dashboard" className="mb-8 flex items-center gap-2 px-2">
           <div className="icon-glass flex size-9 items-center justify-center rounded-lg text-primary">
             <Boxes className="icon-3d size-4" />
@@ -272,10 +275,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           )}
         </nav>
 
-        <Button className="mt-4 w-full gap-2" onClick={() => setScanOpen(true)}>
+        <Button className="press-3d mt-4 w-full gap-2" onClick={() => setScanOpen(true)}>
           <ScanLine className="size-4" /> Scan QR
         </Button>
-      </aside>
+        </aside>
+      </div>
 
       <div ref={scrollRef} className="flex h-dvh min-w-0 flex-1 flex-col overflow-y-auto">
         <header className="glass-strong sticky top-0 z-20 flex h-14 items-center justify-between border-b px-4 md:px-8">

@@ -789,22 +789,19 @@ export default function ExportStudio() {
                 <div className="grid gap-1">
                   <Label className="text-[11px] text-muted-foreground">Card width (mm)</Label>
                   <div className="flex items-stretch">
-                    <Input
-                      type="number"
-                      min={30}
-                      max={200}
-                      step={1}
-                      value={cardW}
-                      onChange={(e) =>
-                        setCardW(Math.max(30, Math.min(200, Number(e.target.value) || 60)))
-                      }
-                      className="w-16 rounded-r-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                    />
+                    <MmField
+                    ariaLabel="Card width"
+                    min={30}
+                    max={200}
+                    value={cardW}
+                    onChange={setCardW}
+                    className="w-16 rounded-r-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                  />
                     <div className="flex flex-col">
                       <button
                         type="button"
                         aria-label="Increase width"
-                        onClick={() => setCardW((w) => Math.min(200, w + 1))}
+                        onClick={() => setCardW((w) => Math.min(200, w + 5))}
                         className="flex h-1/2 items-center justify-center rounded-tr-md border border-l-0 px-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
                       >
                         <ChevronUp className="size-3.5" />
@@ -812,7 +809,7 @@ export default function ExportStudio() {
                       <button
                         type="button"
                         aria-label="Decrease width"
-                        onClick={() => setCardW((w) => Math.max(30, w - 1))}
+                        onClick={() => setCardW((w) => Math.max(30, w - 5))}
                         className="flex h-1/2 items-center justify-center rounded-br-md border border-l-0 px-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
                       >
                         <ChevronDown className="size-3.5" />
@@ -823,22 +820,19 @@ export default function ExportStudio() {
                 <div className="grid gap-1">
                   <Label className="text-[11px] text-muted-foreground">Card height (mm)</Label>
                   <div className="flex items-stretch">
-                    <Input
-                      type="number"
-                      min={20}
-                      max={150}
-                      step={1}
-                      value={cardH}
-                      onChange={(e) =>
-                        setCardH(Math.max(20, Math.min(150, Number(e.target.value) || 40)))
-                      }
-                      className="w-16 rounded-r-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                    />
+                    <MmField
+                    ariaLabel="Card height"
+                    min={20}
+                    max={150}
+                    value={cardH}
+                    onChange={setCardH}
+                    className="w-16 rounded-r-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                  />
                     <div className="flex flex-col">
                       <button
                         type="button"
                         aria-label="Increase height"
-                        onClick={() => setCardH((h) => Math.min(150, h + 1))}
+                        onClick={() => setCardH((h) => Math.min(150, h + 5))}
                         className="flex h-1/2 items-center justify-center rounded-tr-md border border-l-0 px-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
                       >
                         <ChevronUp className="size-3.5" />
@@ -846,7 +840,7 @@ export default function ExportStudio() {
                       <button
                         type="button"
                         aria-label="Decrease height"
-                        onClick={() => setCardH((h) => Math.max(20, h - 1))}
+                        onClick={() => setCardH((h) => Math.max(20, h - 5))}
                         className="flex h-1/2 items-center justify-center rounded-br-md border border-l-0 px-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
                       >
                         <ChevronDown className="size-3.5" />
@@ -863,89 +857,89 @@ export default function ExportStudio() {
           </div>
         </div>
 
-        {/* Live print preview */}
+        {/* Live print preview — capped to the FIRST PAGE of items so the
+            browser never chokes on hundreds of QR codes/rows. The full sheet
+            renders only at print time (hidden #print-area-full below). */}
         {raw === undefined ? (
           <p className="py-16 text-center text-sm text-muted-foreground">
             <LoadingGifInline size={18} className="mr-2 inline size-4" /> Loading data…
           </p>
         ) : activeMode === "cards" ? (
-          <PaperPreview
-            pageMm={PAPERS[paper]}
-            marginMm={margin}
+          <CardsPreview
+            rows={rows}
+            cardFor={cardFor}
+            paper={paper}
+            margin={margin}
             orientation={orientation as "portrait" | "landscape"}
-            header={
-              <p className="mb-2 text-xs text-muted-foreground">
-                {PAPERS[paper].label} · {rows.length} cards · {new Date().toLocaleDateString()} · real scale — width fits your screen
-              </p>
-            }
-          >
-            <div
-              id="print-area"
-              className="absolute flex flex-wrap content-start"
-              style={{
-                top: mm(margin),
-                left: mm(margin),
-                right: mm(margin),
-                bottom: mm(margin),
-                gap: mm(2),
-              }}
-            >
-              {rows.map((r, i) => {
-                const c = cardFor(r);
-                return (
-                  <div key={i} className="print-cell" style={showGrid ? { boxShadow: "0 0 0 0.5px #a3a3a3" } : undefined}>
-                    <ScaledBox wMm={cardW} hMm={cardH}>
-                      <PrintCard
-                        image={c.image}
-                        qrPayload={c.qr}
-                        title={c.title}
-                        sub={c.sub}
-                        container={c.container}
-                        widthMm={cardW}
-                        heightMm={cardH}
-                      />
-                    </ScaledBox>
-                  </div>
-                );
-              })}
-              {rows.length === 0 && (
-                <p className="text-center text-neutral-500" style={{ fontSize: mm(3), padding: mm(4) }}>
-                  No rows match the filters.
-                </p>
-              )}
-            </div>
-          </PaperPreview>
+            cardW={cardW}
+            cardH={cardH}
+            showGrid={showGrid}
+          />
         ) : (
-          <PaperPreview
-            pageMm={PAPERS[paper]}
-            marginMm={margin}
+          <TablePreview
+            rows={rows}
+            cols={cols}
+            datasetLabel={datasets.find(([k]) => k === dataset)?.[1] ?? dataset}
+            paper={paper}
+            margin={margin}
             orientation={orientation as "portrait" | "landscape"}
-            header={
-              <p className="mb-2 text-xs text-muted-foreground">
-                {PAPERS[paper].label} · {rows.length} rows · {new Date().toLocaleDateString()} · real scale — width fits your screen
-              </p>
-            }
-          >
-            <div
-              id="print-area"
-              className="absolute overflow-hidden"
-              style={{
-                top: mm(margin),
-                left: mm(margin),
-                right: mm(margin),
-                bottom: mm(margin),
-              }}
-            >
-              <p className="mb-2 font-semibold uppercase tracking-widest text-neutral-500" style={{ fontSize: mm(2.6) }}>
-                Robotics Club · {datasets.find(([k]) => k === dataset)?.[1]} · {rows.length} rows ·{" "}
-                {new Date().toLocaleDateString()}
-              </p>
-              <PaperTable cols={cols} rows={rows} showGrid={showGrid} />
-            </div>
-          </PaperPreview>
+            showGrid={showGrid}
+          />
         )}
       </div>
     </AppShell>
+  );
+}
+
+/**
+ * Commit-on-blur mm number field — typing is never hijacked by clamping;
+ * the value is validated when you finish (blur / Enter).
+ */
+function MmField({
+  value,
+  onChange,
+  min,
+  max,
+  ariaLabel,
+  className,
+}: {
+  value: number;
+  onChange: (n: number) => void;
+  min: number;
+  max: number;
+  ariaLabel?: string;
+  className?: string;
+}) {
+  const [text, setText] = useState<string | null>(null);
+  const commit = () => {
+    if (text !== null) {
+      const n = Number(text);
+      if (text.trim() !== "" && Number.isFinite(n)) {
+        onChange(Math.min(max, Math.max(min, n)));
+      }
+    }
+    setText(null);
+  };
+  return (
+    <Input
+      type="number"
+      inputMode="decimal"
+      min={min}
+      max={max}
+      step={5}
+      aria-label={ariaLabel}
+      value={text ?? String(value)}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        if (e.key === "Escape") {
+          setText(null);
+          (e.target as HTMLInputElement).blur();
+        }
+      }}
+      className={className}
+    />
   );
 }
 
@@ -1020,5 +1014,169 @@ function PaperTable({
         )}
       </tbody>
     </table>
+  );
+}
+
+/** How many items render inside the live paper preview (performance cap).
+ *  The FULL sheet still prints/downloads — only the on-screen preview is
+ *  limited, with a pager to flip through pages. */
+const PREVIEW_PAGE_CARDS = 24;
+const PREVIEW_PAGE_ROWS = 40;
+
+/** Card-sheet preview: paper-fit width, one page of real cards at a time. */
+function CardsPreview({
+  rows,
+  cardFor,
+  paper,
+  margin,
+  orientation,
+  cardW,
+  cardH,
+  showGrid,
+}: {
+  rows: any[];
+  cardFor: (r: any) => { image?: string; qr: string; title: string; sub?: string; container?: string };
+  paper: string;
+  margin: number;
+  orientation: "portrait" | "landscape";
+  cardW: number;
+  cardH: number;
+  showGrid: boolean;
+}) {
+  const [page, setPage] = useState(0);
+  // Recompute per-page capacity from the paper + card size (mm).
+  const dims = orientation === "landscape" ? { w: PAPERS[paper].h, h: PAPERS[paper].w } : PAPERS[paper];
+  const printableW = dims.w - margin * 2;
+  const printableH = dims.h - margin * 2;
+  const cols = Math.max(1, Math.floor((printableW + 2) / (cardW + 2)));
+  const rowsPerPage = Math.max(1, Math.floor((printableH + 2) / (cardH + 2)));
+  const perPage = Math.min(PREVIEW_PAGE_CARDS, cols * rowsPerPage);
+  const pages = Math.max(1, Math.ceil(rows.length / perPage));
+  const p = Math.min(page, pages - 1);
+  const slice = rows.slice(p * perPage, p * perPage + perPage);
+
+  return (
+    <PaperPreview
+      pageMm={PAPERS[paper]}
+      marginMm={margin}
+      orientation={orientation}
+      header={
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-muted-foreground">
+            {PAPERS[paper].label} · {rows.length} cards · page {p + 1}/{pages} · real scale
+          </p>
+          {pages > 1 && (
+            <div className="flex items-center gap-1">
+              <Button variant="outline" size="sm" disabled={p === 0} onClick={() => setPage(p - 1)}>
+                ‹ Prev
+              </Button>
+              <Button variant="outline" size="sm" disabled={p >= pages - 1} onClick={() => setPage(p + 1)}>
+                Next ›
+              </Button>
+            </div>
+          )}
+        </div>
+      }
+    >
+      <div
+        className="absolute flex flex-wrap content-start"
+        style={{
+          top: mm(margin),
+          left: mm(margin),
+          right: mm(margin),
+          bottom: mm(margin),
+          gap: mm(2),
+        }}
+      >
+        {slice.map((r, i) => {
+          const c = cardFor(r);
+          return (
+            <div key={p * perPage + i} className="print-cell" style={showGrid ? { boxShadow: "0 0 0 0.5px #a3a3a3" } : undefined}>
+              <ScaledBox wMm={cardW} hMm={cardH}>
+                <PrintCard
+                  image={c.image}
+                  qrPayload={c.qr}
+                  title={c.title}
+                  sub={c.sub}
+                  container={c.container}
+                  widthMm={cardW}
+                  heightMm={cardH}
+                />
+              </ScaledBox>
+            </div>
+          );
+        })}
+        {rows.length === 0 && (
+          <p className="text-center text-neutral-500" style={{ fontSize: mm(3), padding: mm(4) }}>
+            No rows match the filters.
+          </p>
+        )}
+      </div>
+    </PaperPreview>
+  );
+}
+
+/** Table-sheet preview: first N rows on-screen (pager for the rest). */
+function TablePreview({
+  rows,
+  cols,
+  datasetLabel,
+  paper,
+  margin,
+  orientation,
+  showGrid,
+}: {
+  rows: Record<string, string>[];
+  cols: Col[];
+  datasetLabel: string;
+  paper: string;
+  margin: number;
+  orientation: "portrait" | "landscape";
+  showGrid: boolean;
+}) {
+  const [page, setPage] = useState(0);
+  const pages = Math.max(1, Math.ceil(rows.length / PREVIEW_PAGE_ROWS));
+  const p = Math.min(page, pages - 1);
+  const slice = rows.slice(p * PREVIEW_PAGE_ROWS, p * PREVIEW_PAGE_ROWS + PREVIEW_PAGE_ROWS);
+
+  return (
+    <PaperPreview
+      pageMm={PAPERS[paper]}
+      marginMm={margin}
+      orientation={orientation}
+      header={
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-muted-foreground">
+            {PAPERS[paper].label} · {rows.length} rows · page {p + 1}/{pages} · real scale
+          </p>
+          {pages > 1 && (
+            <div className="flex items-center gap-1">
+              <Button variant="outline" size="sm" disabled={p === 0} onClick={() => setPage(p - 1)}>
+                ‹ Prev
+              </Button>
+              <Button variant="outline" size="sm" disabled={p >= pages - 1} onClick={() => setPage(p + 1)}>
+                Next ›
+              </Button>
+            </div>
+          )}
+        </div>
+      }
+    >
+      <div
+        id="print-area"
+        className="absolute overflow-hidden"
+        style={{
+          top: mm(margin),
+          left: mm(margin),
+          right: mm(margin),
+          bottom: mm(margin),
+        }}
+      >
+        <p className="mb-2 font-semibold uppercase tracking-widest text-neutral-500" style={{ fontSize: mm(2.6) }}>
+          Robotics Club · {datasetLabel} · page {p + 1}/{pages} · {new Date().toLocaleDateString()}
+        </p>
+        <PaperTable cols={cols} rows={slice} showGrid={showGrid} />
+      </div>
+    </PaperPreview>
   );
 }

@@ -1152,7 +1152,7 @@ export default function AdminSettings() {
         </header>
 
         {/* ===== button-bar navigation ===== */}
-        <nav className="flex flex-wrap gap-1.5 glass-3d rounded-lg border bg-card/60 p-2">
+        <nav className="glass flex flex-wrap gap-1.5 rounded-lg border p-2">
           {SECTIONS.map(({ id, label, icon: Icon, hint }) => (
             <button
               key={id}
@@ -1160,10 +1160,10 @@ export default function AdminSettings() {
               title={hint}
               onClick={() => setSection(id)}
               className={cn(
-                "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all",
                 section === id
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                  ? "press-3d bg-primary text-primary-foreground"
+                  : "icon-glass text-muted-foreground hover:text-foreground",
                 id === "danger" && section !== id && "hover:text-destructive",
               )}
             >

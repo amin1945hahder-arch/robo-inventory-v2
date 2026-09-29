@@ -35,7 +35,12 @@ const PRESET_MM: Record<Exclude<CardPrintLayout["pageSize"], "custom">, [number,
   Legal: [215.9, 355.6],
 };
 
-/** Millimetre input with clamping. */
+/**
+ * Millimetre input that commits ONLY when you finish (blur / Enter / arrows),
+ * not on every keystroke — so typing "12" never gets hijacked mid-type and
+ * width/height never fight each other through clamping. Invalid/empty input
+ * falls back to the previous committed value.
+ */
 function MmInput({
   id,
   value,
@@ -49,6 +54,16 @@ function MmInput({
   min: number;
   max: number;
 }) {
+  const [text, setText] = useState<string | null>(null); // null = not editing
+  const shown = text ?? String(value);
+  const commit = () => {
+    if (text === null) return;
+    const n = Number(text);
+    if (text.trim() !== "" && Number.isFinite(n)) {
+      onChange(Math.min(max, Math.max(min, n)));
+    }
+    setText(null); // fall back to the committed value display
+  };
   return (
     <Input
       id={id}
@@ -56,10 +71,15 @@ function MmInput({
       inputMode="decimal"
       min={min}
       max={max}
-      value={Number.isFinite(value) ? value : ""}
-      onChange={(e) => {
-        const n = e.target.value === "" ? 0 : Number(e.target.value);
-        if (Number.isFinite(n)) onChange(Math.min(max, Math.max(min, n)));
+      value={shown}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        if (e.key === "Escape") {
+          setText(null);
+          (e.target as HTMLInputElement).blur();
+        }
       }}
       className="h-8"
     />
