@@ -44,7 +44,7 @@ export default function Courses() {
           {modules.map(({ icon: Icon, title, body }) => (
             <div
               key={title}
-              className="rounded-xl border border-border/80 bg-card/60 p-6 backdrop-blur transition-colors hover:border-primary/40"
+              className="glass-3d rounded-xl border border-border/80 bg-card/60 p-6 backdrop-blur transition-colors hover:border-primary/40"
             >
               <div className="flex size-10 items-center justify-center rounded-lg bg-primary/15 text-primary neon-ring">
                 <Icon className="size-5" />

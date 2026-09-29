@@ -232,7 +232,7 @@ export function GroupDetailUnits({
           {isPackGroup(group) ? "No packs yet — add the first pack." : "No units yet — add the first reel/spool with its amount."}
         </p>
       ) : (
-        <ul className="divide-y rounded-lg border">
+        <ul className="divide-y glass-3d rounded-lg border">
           {units
             .slice()
             .sort((a, b) => a.tag.localeCompare(b.tag))

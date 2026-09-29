@@ -32,7 +32,7 @@ export function RequireNonStudent({ children }: { children: ReactNode }) {
   if (user?.role === "student") {
     return (
       <main className="grid-bg flex min-h-screen items-center justify-center px-6">
-        <div className="flex max-w-sm flex-col items-center gap-3 rounded-xl border border-border/80 bg-card/60 p-10 text-center backdrop-blur">
+        <div className="flex max-w-sm flex-col items-center gap-3 glass-3d rounded-xl border border-border/80 bg-card/60 p-10 text-center backdrop-blur">
           <div className="flex size-12 items-center justify-center rounded-xl bg-amber-500/12 text-amber-400">
             <ShieldAlert className="size-6" />
           </div>

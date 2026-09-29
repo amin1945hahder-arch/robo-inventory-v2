@@ -111,7 +111,7 @@ function StatTile({
   danger?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg border bg-card/60 p-3">
+    <div className="flex items-center gap-3 glass-3d rounded-lg border bg-card/60 p-3">
       <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10">
         <Icon className={`size-4 ${danger ? "text-amber-400" : "text-primary"}`} />
       </div>
@@ -313,7 +313,7 @@ export default function Printing3D() {
                     </CardHeader>
                     <CardContent className="flex flex-col gap-3">
                       {current ? (
-                        <div className="flex flex-col gap-2 rounded-lg border bg-background/60 p-3">
+                        <div className="flex flex-col gap-2 glass-3d rounded-lg border bg-background/60 p-3">
                           <div className="flex items-center justify-between gap-2">
                             <p className="truncate text-sm font-medium">{current.name}</p>
                             <span className="shrink-0 text-xs text-muted-foreground">
@@ -603,7 +603,7 @@ export default function Printing3D() {
                   <Card key={f._id} className={low ? "border-amber-500/40" : undefined}>
                     <CardHeader className="pb-2">
                       <div className="flex items-center gap-3">
-                        <span className="size-8 shrink-0 rounded-lg border shadow-inner" style={{ background: f.colorHex ?? "#666" }} />
+                        <span className="size-8 shrink-0 glass-3d rounded-lg border shadow-inner" style={{ background: f.colorHex ?? "#666" }} />
                         <div className="min-w-0 flex-1">
                           <CardTitle className="truncate text-base">
                             {f.material} · {f.colorName}
@@ -668,14 +668,14 @@ export default function Printing3D() {
                     {printers.map((p) => {
                       const current = activeJobs.find((j) => j.printerId === p._id);
                       return (
-                        <div key={p._id} className="flex flex-col gap-2 rounded-lg border bg-zinc-950/60 p-3">
+                        <div key={p._id} className="flex flex-col gap-2 glass-3d rounded-lg border bg-zinc-950/60 p-3">
                           <div className="flex items-center justify-between gap-2">
                             <p className="truncate text-sm font-medium">{p.name}</p>
                             <Badge variant="outline" className="text-[10px]">
                               {current ? `printing ${current.name}` : "idle"}
                             </Badge>
                           </div>
-                          <div className="flex aspect-video items-center justify-center rounded-md border border-dashed bg-background/40 text-xs text-muted-foreground">
+                          <div className="flex aspect-video items-center justify-center glass-3d rounded-md border border-dashed bg-background/40 text-xs text-muted-foreground">
                             <span className="flex flex-col items-center gap-1.5">
                               <Video className="size-5" />
                               camera feed not configured
@@ -776,7 +776,7 @@ export default function Printing3D() {
               </DialogDescription>
             </DialogHeader>
             {decideJob && (
-              <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              <div className="glass-3d rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                 {decideJob.requesterName}
                 {decideJob.fileName && ` · ${decideJob.fileName}`}
                 {decideJob.details && ` — ${decideJob.details.split("\n")[0]}`}

@@ -186,7 +186,7 @@ export function NewJobDialog({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="flex w-full items-center gap-3 rounded-lg border border-dashed border-border/70 bg-muted/30 px-4 py-4 text-left transition-colors hover:border-primary/60 hover:bg-primary/5"
+              className="flex w-full items-center gap-3 glass-3d rounded-lg border border-dashed border-border/70 bg-muted/30 px-4 py-4 text-left transition-colors hover:border-primary/60 hover:bg-primary/5"
             >
               <span className="grid size-10 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
                 {fileKind === "gcode" ? (
@@ -232,7 +232,7 @@ export function NewJobDialog({
 
           {/* Guidance card that reacts to the picked file type */}
           {fileKind === "gcode" && (
-            <div className="flex items-start gap-2.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 text-xs">
+            <div className="flex items-start gap-2.5 glass-3d rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 text-xs">
               <PrinterCheck className="mt-0.5 size-4 shrink-0 text-primary" />
               <p>
                 <span className="font-medium text-primary">Ready to print.</span> On submit, the
@@ -242,7 +242,7 @@ export function NewJobDialog({
             </div>
           )}
           {fileKind === "model" && (
-            <div className="flex items-start gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2.5 text-xs">
+            <div className="flex items-start gap-2.5 glass-3d rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2.5 text-xs">
               <Scissors className="mt-0.5 size-4 shrink-0 text-amber-500" />
               <p>
                 <span className="font-medium text-amber-500">Needs slicing.</span> Submitting opens
@@ -291,7 +291,7 @@ export function NewJobDialog({
           </div>
 
           {!file && (
-            <div className="rounded-lg border border-dashed p-3">
+            <div className="glass-3d rounded-lg border border-dashed p-3">
               <label className="flex cursor-pointer items-center gap-3">
                 <Checkbox
                   checked={needSlicing}

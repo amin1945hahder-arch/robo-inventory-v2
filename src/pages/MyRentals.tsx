@@ -73,7 +73,7 @@ export default function MyRentals() {
         {rentals === undefined ? (
           <LoadingGif size={48} label={null} />
         ) : rentals.length === 0 && (packages ?? []).length === 0 ? (
-          <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed px-6 py-16 text-center">
+          <div className="flex flex-col items-center gap-3 glass-3d rounded-lg border border-dashed px-6 py-16 text-center">
             <PackageSearch className="size-8 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">
               No rentals yet. Browse the <Link to="/inventory" className="underline">inventory</Link> or
@@ -93,7 +93,7 @@ export default function MyRentals() {
                       pkg.returnRequestedAt !== undefined &&
                       Date.now() - pkg.returnRequestedAt < cooldownMs;
                     return (
-                      <li key={pkg._id} className="rounded-lg border p-4">
+                      <li key={pkg._id} className="glass-3d rounded-lg border p-4">
                         <div className="flex flex-wrap items-center gap-3">
                           <Boxes className="size-5 shrink-0 text-primary" />
                           <div className="min-w-0 flex-1">
@@ -236,7 +236,7 @@ export default function MyRentals() {
               return (
                 <section key={title} className="flex flex-col gap-3">
                   <h2 className="text-sm font-semibold">{title === "Awaiting approval" ? "Requests & scheduled pickups" : title}</h2>
-                  <ul className="divide-y rounded-lg border">
+                  <ul className="divide-y glass-3d rounded-lg border">
                     {visible.map(({ rental, part, group, projectName }) => (
                       <li key={rental._id} className="flex flex-wrap items-center gap-3 px-4 py-3">
                         <div className="min-w-0 flex-1">

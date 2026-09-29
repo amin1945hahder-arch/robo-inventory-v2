@@ -207,7 +207,7 @@ export function UnitEditDialog({
           {/* Transferred state: destination + details. Only when the status
               is transferred (it is mutually exclusive with project/holder). */}
           {applyStatus && status === "transferred" && (
-            <div className="ml-6 grid gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+            <div className="ml-6 grid gap-2 glass-3d rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
               <Label className="text-xs">Transferred to *</Label>
               <Input
                 value={transferName}

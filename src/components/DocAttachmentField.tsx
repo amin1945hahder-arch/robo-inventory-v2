@@ -72,7 +72,7 @@ export function DocAttachmentField({
     <div className="flex flex-col gap-2">
       <Label>{label}</Label>
       {doc ? (
-        <div className="flex items-center gap-2 rounded-md border bg-background px-3 py-2">
+        <div className="flex items-center gap-2 glass-3d rounded-md border bg-background px-3 py-2">
           {doc.mime.startsWith("image/") ? (
             <img src={doc.dataUrl} alt={doc.name} className="size-8 rounded object-cover" />
           ) : (

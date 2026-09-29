@@ -106,7 +106,7 @@ export function TelegramLinkDialog({ open, onOpenChange }: { open: boolean; onOp
         </DialogHeader>
 
         {linked ? (
-          <div className="flex flex-col items-center gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-6 text-center">
+          <div className="flex flex-col items-center gap-3 glass-3d rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-6 text-center">
             <BadgeCheck className="size-8 text-emerald-400" />
             <p className="text-sm font-semibold">Telegram is linked</p>
             <p className="text-xs text-muted-foreground">

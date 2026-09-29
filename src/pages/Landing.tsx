@@ -177,13 +177,13 @@ export default function Landing() {
               ["3", "available now"],
               ["2", "on projects"],
             ].map(([v, l]) => (
-              <div key={l} className="rounded-lg border border-border/60 bg-background/40 px-3 py-3">
+              <div key={l} className="glass-3d rounded-lg border border-border/60 bg-background/40 px-3 py-3">
                 <p className="text-lg font-bold tabular-nums">{v}</p>
                 <p className="text-muted-foreground">{l}</p>
               </div>
             ))}
           </div>
-          <div className="mt-4 flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-xs text-primary">
+          <div className="mt-4 flex items-center gap-2 glass-3d rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-xs text-primary">
             <CheckCircle2 className="size-4" />
             Request sent — Admin approved it in no time.
           </div>
@@ -227,7 +227,7 @@ export default function Landing() {
               key={n}
               {...fadeUp}
               transition={{ duration: 0.45, delay: i * 0.08 }}
-              className="relative rounded-xl border border-border/80 bg-card/40 p-6 backdrop-blur"
+              className="relative glass-3d rounded-xl border border-border/80 bg-card/40 p-6 backdrop-blur"
             >
               <p className="font-mono text-sm text-primary">{n}</p>
               <h3 className="mt-2 font-semibold tracking-tight">{title}</h3>
@@ -288,7 +288,7 @@ export default function Landing() {
         <motion.div
           {...fadeUp}
           transition={{ duration: 0.5 }}
-          className="neon-ring relative overflow-hidden rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/12 via-card/60 to-violet-500/10 px-8 py-14 text-center"
+          className="neon-ring relative overflow-hidden glass-3d rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/12 via-card/60 to-violet-500/10 px-8 py-14 text-center"
         >
           <Boxes className="mx-auto size-10 text-primary" />
           <h2 className="mt-4 text-3xl font-bold tracking-tight">The lab is open</h2>

@@ -192,7 +192,7 @@ export default function PartDetail() {
               <img
                 src={part.imageUrl || group?.imageUrl}
                 alt={part.tag}
-                className="size-14 shrink-0 rounded-md border object-cover"
+                className="size-14 shrink-0 glass-3d rounded-md border object-cover"
               />
             )}
             <div>
@@ -249,7 +249,7 @@ export default function PartDetail() {
         </header>
 
         <section className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-lg border">
+          <div className="glass-3d rounded-lg border">
             <div className="border-b px-5 py-4">
               <h2 className="text-sm font-semibold">Unit details</h2>
             </div>
@@ -303,7 +303,7 @@ export default function PartDetail() {
           <div className="flex flex-col gap-6">
             {/* Rental card — surfaces the live rental (request or active loan) next to the unit. */}
             {currentRental && (
-              <div className="rounded-lg border border-primary/30">
+              <div className="glass-3d rounded-lg border border-primary/30">
                 <div className="flex items-center justify-between border-b px-5 py-4">
                   <h2 className="text-sm font-semibold">Rental card</h2>
                   <Button
@@ -383,7 +383,7 @@ export default function PartDetail() {
               </div>
             )}
 
-            <div className="rounded-lg border">
+            <div className="glass-3d rounded-lg border">
               <div className="border-b px-5 py-4">
                 <h2 className="text-sm font-semibold">Rental</h2>
               </div>
@@ -508,7 +508,7 @@ export default function PartDetail() {
               </div>
             </div>
 
-            <div className="rounded-lg border">
+            <div className="glass-3d rounded-lg border">
               <div className="flex items-center gap-2 border-b px-5 py-4">
                 <History className="size-4" />
                 <h2 className="text-sm font-semibold">History</h2>
@@ -641,7 +641,7 @@ export default function PartDetail() {
             <div className="grid gap-2">
               <Label>Status</Label>
               <select
-                className="h-9 rounded-md border bg-background px-3 text-sm"
+                className="h-9 glass-3d rounded-md border bg-background px-3 text-sm"
                 value={editStatus}
                 onChange={(e) => setEditStatus(e.target.value)}
               >
@@ -654,7 +654,7 @@ export default function PartDetail() {
                 with project / holder — a unit is either transferred away or
                 checked out, never both). */}
             {editStatus === "transferred" && (
-              <div className="grid gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+              <div className="grid gap-2 glass-3d rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
                 <Label>Transferred to *</Label>
                 <Input
                   value={editTransferName}
@@ -671,7 +671,7 @@ export default function PartDetail() {
             <div className="grid gap-2">
               <Label>Assigned project</Label>
               <select
-                className="h-9 rounded-md border bg-background px-3 text-sm"
+                className="h-9 glass-3d rounded-md border bg-background px-3 text-sm"
                 value={editProjectId}
                 onChange={(e) => setEditProjectId(e.target.value)}
               >
@@ -688,7 +688,7 @@ export default function PartDetail() {
               <div className="grid gap-2">
                 <Label>Rented by (holder)</Label>
                 <select
-                  className="h-9 rounded-md border bg-background px-3 text-sm"
+                  className="h-9 glass-3d rounded-md border bg-background px-3 text-sm"
                   value={editHolderId}
                   onChange={(e) => setEditHolderId(e.target.value)}
                 >
@@ -732,7 +732,7 @@ export default function PartDetail() {
             <div className="grid gap-2">
               <Label>Move to group</Label>
               <select
-                className="h-9 rounded-md border bg-background px-3 text-sm"
+                className="h-9 glass-3d rounded-md border bg-background px-3 text-sm"
                 value={editMoveGroupId}
                 onChange={(e) => setEditMoveGroupId(e.target.value)}
               >

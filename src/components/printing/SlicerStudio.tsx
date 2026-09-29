@@ -666,7 +666,7 @@ export function SlicerStudio({
       </div>
 
       {!canPrint && (
-        <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-400">
+        <div className="flex items-center gap-2 glass-3d rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-400">
           <ShieldCheck className="size-4 shrink-0" />
           You can explore the slicer, but submitting prints needs the “printer”
           privilege — request it from your profile page.
@@ -675,7 +675,7 @@ export function SlicerStudio({
 
       <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[220px_1fr]">
         {/* Action rail */}
-        <div className="flex min-h-0 flex-col gap-2 overflow-y-auto rounded-lg border bg-card/60 p-2.5">
+        <div className="flex min-h-0 flex-col gap-2 overflow-y-auto glass-3d rounded-lg border bg-card/60 p-2.5">
           <div className="flex flex-col gap-1">
             <Label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <Printer className="size-3" /> Printer
@@ -683,7 +683,7 @@ export function SlicerStudio({
             <select
               value={printerId}
               onChange={(e) => setPrinterId(e.target.value)}
-              className="h-8 rounded-md border bg-background px-2 text-xs"
+              className="h-8 glass-3d rounded-md border bg-background px-2 text-xs"
             >
               <option value="">Choose…</option>
               {printers.map((p) => (
@@ -702,7 +702,7 @@ export function SlicerStudio({
             <select
               value={filamentId}
               onChange={(e) => setFilamentId(e.target.value)}
-              className="h-8 rounded-md border bg-background px-2 text-xs"
+              className="h-8 glass-3d rounded-md border bg-background px-2 text-xs"
             >
               <option value="">Choose…</option>
               {filaments.map((f) => (
@@ -756,7 +756,7 @@ export function SlicerStudio({
           />
 
           {stats && (
-            <div className="mt-auto rounded-md border bg-background/70 p-2 text-[11px]">
+            <div className="mt-auto glass-3d rounded-md border bg-background/70 p-2 text-[11px]">
               <p className="font-medium">Captured G-code</p>
               <p className="text-muted-foreground">
                 {stats.grams > 0 ? `${stats.grams} g` : "grams unknown"} ·{" "}
@@ -775,7 +775,7 @@ export function SlicerStudio({
           )}
 
           {log.length > 0 && (
-            <div className="max-h-28 overflow-y-auto rounded-md border bg-background/60 p-1.5 font-mono text-[9.5px] leading-4 text-muted-foreground">
+            <div className="max-h-28 overflow-y-auto glass-3d rounded-md border bg-background/60 p-1.5 font-mono text-[9.5px] leading-4 text-muted-foreground">
               {log.map((line, i) => (
                 <p key={`${i}-${line}`}>▸ {line}</p>
               ))}
@@ -784,7 +784,7 @@ export function SlicerStudio({
         </div>
 
         {/* Embedded Kiri frame */}
-        <div className="relative min-h-0 overflow-hidden rounded-lg border bg-zinc-950">
+        <div className="relative min-h-0 overflow-hidden glass-3d rounded-lg border bg-zinc-950">
           {!ready && (
             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-zinc-950/90 text-zinc-300">
               <LoadingGifInline size={24} className="size-6" />
@@ -811,7 +811,7 @@ export function SlicerStudio({
                 setReady(true);
                 addLog("overlay dismissed manually");
               }}
-              className="absolute bottom-3 left-1/2 z-20 -translate-x-1/2 rounded-md border border-zinc-600 bg-zinc-900/90 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:border-zinc-400 hover:text-zinc-100"
+              className="absolute bottom-3 left-1/2 z-20 -translate-x-1/2 glass-3d rounded-md border border-zinc-600 bg-zinc-900/90 px-3 py-1.5 text-xs text-zinc-300 transition-colors hover:border-zinc-400 hover:text-zinc-100"
             >
               Taking too long? Open the slicer anyway
             </button>
@@ -833,7 +833,7 @@ export function SlicerStudio({
           </DialogHeader>
           <div className="grid gap-3 sm:grid-cols-2">
             {snapshot?.groups.map((g) => (
-              <div key={g.id} className="rounded-lg border p-3">
+              <div key={g.id} className="glass-3d rounded-lg border p-3">
                 <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
                   <Cog className="size-3" /> {g.title}
                 </p>

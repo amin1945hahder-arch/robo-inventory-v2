@@ -144,7 +144,7 @@ function GroupCardBase({
           <img
             src={group.imageUrl}
             alt={group.name}
-            className="aspect-[16/9] w-full rounded-md border object-cover"
+            className="aspect-[16/9] w-full glass-3d rounded-md border object-cover"
           />
         )}
         <div className="flex items-start justify-between gap-3">

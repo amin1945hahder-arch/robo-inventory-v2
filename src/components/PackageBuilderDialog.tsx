@@ -244,7 +244,7 @@ export function PackageBuilderDialog({
           {lines.map((line, i) => {
             const max = maxFor(line.groupId);
             return (
-              <div key={i} className="flex items-center gap-2 rounded-md border p-2">
+              <div key={i} className="flex items-center gap-2 glass-3d rounded-md border p-2">
                 <Select value={line.groupId} onValueChange={(v) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, groupId: v, count: Math.min(l.count, Math.max(1, maxFor(v))) } : l)))}>
                   <SelectTrigger className="flex-1">
                     <SelectValue placeholder="Choose an item" />

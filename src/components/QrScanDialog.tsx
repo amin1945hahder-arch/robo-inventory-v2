@@ -29,12 +29,12 @@ export function QrScanDialog({ open, onOpenChange, onResult, hint }: QrScanDialo
           </DialogTitle>
           <DialogDescription>{hint ?? "Point the camera at a club QR label."}</DialogDescription>
         </DialogHeader>
-        <div className="relative overflow-hidden rounded-lg border bg-black/90 aspect-square">
+        <div className="relative overflow-hidden glass-3d rounded-lg border bg-black/90 aspect-square">
           <video ref={videoRef} className="absolute inset-0 size-full object-cover" muted playsInline />
           <canvas ref={canvasRef} className="hidden" />
           {scanning && (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <div className="size-48 rounded-lg border-2 border-white/70 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
+              <div className="size-48 glass-3d rounded-lg border-2 border-white/70 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
             </div>
           )}
           {!scanning && !error && (

@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { AppShell } from "@/components/AppShell";
 import { StatusBadge } from "@/components/StatusBadge";
+import { PermissionsManager } from "@/components/PermissionsManager";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -100,7 +101,7 @@ export default function Profile() {
   if (isGuest) {
     return (
       <AppShell>
-        <div className="mx-auto flex w-full max-w-md flex-col items-center gap-6 rounded-lg border border-dashed px-8 py-16 text-center">
+        <div className="mx-auto flex w-full max-w-md flex-col items-center gap-6 glass-3d rounded-lg border border-dashed px-8 py-16 text-center">
           <div className="flex size-14 items-center justify-center rounded-full bg-primary/15 text-primary neon-ring">
             <ShieldCheck className="size-7" />
           </div>
@@ -209,7 +210,7 @@ export default function Profile() {
         </header>
 
         {locked && (
-          <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+          <div className="glass-3d rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
             <p className="font-medium text-amber-500">
               {hasData ? "Your profile is awaiting admin approval" : "Complete your profile to unlock the club"}
             </p>
@@ -222,7 +223,7 @@ export default function Profile() {
         )}
 
         {/* Identity card: picture + approval badge */}
-        <section className="flex items-center gap-4 rounded-lg border p-5">
+        <section className="flex items-center gap-4 glass-3d rounded-lg border p-5">
           <div className="relative">
             <Avatar className="size-16 border">
               <AvatarImage src={user?.image} />
@@ -283,7 +284,7 @@ export default function Profile() {
         </section>
 
         {/* Current positions summary */}
-        <section className="flex flex-col gap-3 rounded-lg border p-5">
+        <section className="flex flex-col gap-3 glass-3d rounded-lg border p-5">
           <h2 className="text-sm font-semibold">Your club profile</h2>
           <div className="flex flex-wrap items-center gap-1.5">
             {(user?.clubRoles ?? []).length > 0 ? (
@@ -325,7 +326,7 @@ export default function Profile() {
         </section>
 
         {/* Telegram username self-service */}
-        <section className="flex flex-col gap-4 rounded-lg border p-5">
+        <section className="flex flex-col gap-4 glass-3d rounded-lg border p-5">
           <div>
             <h2 className="text-sm font-semibold">Telegram</h2>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -391,7 +392,7 @@ export default function Profile() {
           </div>
         </section>
 
-        <section className="flex flex-col gap-4 rounded-lg border p-5">
+        <section className="flex flex-col gap-4 glass-3d rounded-lg border p-5">
           <h2 className="text-sm font-semibold">Contact details</h2>
           <div className="grid gap-2">
             <Label>Full name</Label>
@@ -447,8 +448,22 @@ export default function Profile() {
           </p>
         </section>
 
+        {/* Device permissions — notifications, camera, storage, sounds. */}
+        <section className="flex flex-col gap-4 glass-3d rounded-lg border p-5">
+          <div>
+            <h2 className="flex items-center gap-2 text-sm font-semibold">
+              <ShieldCheck className="size-4" /> Device permissions
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              What the app may do on this device. Works the same in the browser,
+              installed app, or phone wrapper (APK/iOS).
+            </p>
+          </div>
+          <PermissionsManager />
+        </section>
+
         {/* App mode — per-member appearance, mirrors Settings → App mode */}
-        <section className="flex flex-col gap-4 rounded-lg border p-5">
+        <section className="flex flex-col gap-4 glass-3d rounded-lg border p-5">
           <div>
             <h2 className="flex items-center gap-2 text-sm font-semibold">
               <MonitorSmartphone className="size-4" /> App mode
@@ -486,7 +501,7 @@ export default function Profile() {
         </section>
 
         {/* Printer privilege (stacks on any role; admins hold it implicitly) */}
-        <section className="flex flex-col gap-4 rounded-lg border p-5">
+        <section className="flex flex-col gap-4 glass-3d rounded-lg border p-5">
           <div>
             <h2 className="flex items-center gap-2 text-sm font-semibold">
               <Printer className="size-4 text-cyan-400" /> Printer access
@@ -524,7 +539,7 @@ export default function Profile() {
         </section>
 
         {/* Rank / position upgrade request */}
-        <section className="flex flex-col gap-4 rounded-lg border p-5">
+        <section className="flex flex-col gap-4 glass-3d rounded-lg border p-5">
           <div>
             <h2 className="text-sm font-semibold">Request a rank / position upgrade</h2>
             <p className="mt-1 text-xs text-muted-foreground">

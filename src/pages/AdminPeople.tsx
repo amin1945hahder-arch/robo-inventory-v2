@@ -173,7 +173,7 @@ function PersonRow({
   const age = ageFromIso(user.dateOfBirth);
   const navigate = useNavigate();
   return (
-    <li className={`flex flex-wrap items-center gap-3 px-4 py-3 ${isEx ? "opacity-60" : ""}`}>
+    <li className={`flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center ${isEx ? "opacity-60" : ""}`}>
       <div className="flex min-w-0 flex-1 items-center gap-3">
         <Avatar className={`size-8 shrink-0 border ${isAdminGroup ? "ring-1 ring-primary/40" : ""}`}>
           <AvatarImage src={user.image} />
@@ -253,18 +253,22 @@ function PersonRow({
           )}
         </div>
       </div>
-      <span
-        className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${
-          isAdminGroup
-            ? "border-primary/40 bg-primary/10 text-primary"
-            : "border-border text-muted-foreground"
-        }`}
-      >
-        {isAdminGroup ? "Admin" : "Member"}
-      </span>
-      <span className="text-xs text-muted-foreground">
-        {activeRentals} active · {pending} pending
-      </span>
+      {/* Meta + actions: sit beside the identity on ≥sm, wrap below it on
+          phones so nothing collides. */}
+      <div className="flex flex-wrap items-center gap-2 sm:ml-auto sm:flex-nowrap">
+        <span
+          className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+            isAdminGroup
+              ? "border-primary/40 bg-primary/10 text-primary"
+              : "border-border text-muted-foreground"
+          }`}
+        >
+          {isAdminGroup ? "Admin" : "Member"}
+        </span>
+        <span className="whitespace-nowrap text-xs text-muted-foreground">
+          {activeRentals} active · {pending} pending
+        </span>
+      </div>
       <div className="flex items-center gap-1">
         <Button variant="ghost" size="icon" className="size-7" title="Send a Telegram message" onClick={onMessage}>
           <MessageSquare className="size-3.5" />
@@ -524,7 +528,7 @@ export default function AdminPeople() {
         {people === undefined ? (
           <LoadingGif size={48} label={null} />
         ) : people.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed px-6 py-16 text-center">
+          <div className="flex flex-col items-center gap-2 glass-3d rounded-lg border border-dashed px-6 py-16 text-center">
             <Users className="size-8 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">No members have signed in yet.</p>
           </div>
@@ -540,7 +544,7 @@ export default function AdminPeople() {
                   No admins yet — the first user to sign in is promoted automatically.
                 </p>
               ) : (
-                <ul className="divide-y rounded-lg border">
+                <ul className="divide-y glass-3d rounded-lg border">
                   {admins.map((p) => (
                     <PersonRow
                       key={p.user._id}
@@ -569,7 +573,7 @@ export default function AdminPeople() {
                   No active members yet — share the sign-in link with the club.
                 </p>
               ) : (
-                <ul className="divide-y rounded-lg border">
+                <ul className="divide-y glass-3d rounded-lg border">
                   {activeMembers.map((p) => (
                     <PersonRow
                       key={p.user._id}
@@ -594,7 +598,7 @@ export default function AdminPeople() {
                 <h2 className="flex items-center gap-2 text-sm font-semibold">
                   <GraduationCap className="size-4 text-amber-400" /> Students ({students.length})
                 </h2>
-                <ul className="divide-y rounded-lg border">
+                <ul className="divide-y glass-3d rounded-lg border">
                   {students.map((p) => (
                     <PersonRow
                       key={p.user._id}
@@ -619,7 +623,7 @@ export default function AdminPeople() {
                 <h2 className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
                   <UserMinus className="size-4" /> Ex-members ({exMembers.length})
                 </h2>
-                <ul className="divide-y rounded-lg border border-dashed">
+                <ul className="divide-y glass-3d rounded-lg border border-dashed">
                   {exMembers.map((p) => (
                     <PersonRow
                       key={p.user._id}
@@ -687,7 +691,7 @@ export default function AdminPeople() {
 
               <div className="grid gap-2">
                 <Label>Printer privilege</Label>
-                <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                <div className="flex items-center justify-between glass-3d rounded-md border px-3 py-2">
                   <div className="min-w-0">
                     <p className="text-sm">Slicer Studio + print scheduling</p>
                     <p className="text-[11px] text-muted-foreground">

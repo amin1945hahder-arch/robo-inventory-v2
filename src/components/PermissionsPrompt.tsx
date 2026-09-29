@@ -87,14 +87,14 @@ export function PermissionsPrompt() {
         </DialogHeader>
 
         {phase === "denied" && (
-          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-500">
+          <div className="glass-3d rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-500">
             Camera access was denied. You can still browse everything; when you
             open a scanner you can allow the camera from your browser's address
             bar.
           </div>
         )}
         {phase === "granted" && (
-          <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-400">
+          <div className="glass-3d rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-400">
             Camera ready — scanning is enabled everywhere.
           </div>
         )}

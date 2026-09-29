@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { categoryQr, closetQr, groupQr, personQr, projectQr, qrUrl, unitQr } from "@/lib/qr";
+import { PaperPreview, mm, ScaledCell } from "@/components/PaperPreview";
 import { downloadCsv, toCsv } from "@/lib/csv";
 import {
   computeColumns,
@@ -225,7 +226,7 @@ export default function Labels() {
         </header>
 
         {/* controls (not printed) */}
-        <div className="no-print flex flex-col gap-3 rounded-lg border bg-card/40 p-4">
+        <div className="no-print flex flex-col gap-3 glass-3d rounded-lg border bg-card/40 p-4">
           <div className="flex flex-wrap gap-2">
             {(
               [
@@ -300,7 +301,28 @@ export default function Labels() {
             <LoadingGifInline size={18} className="mr-2 inline size-4" /> Loading labels…
           </p>
         ) : (
-          <div id="print-area" className="flex flex-col gap-6 bg-white p-3 text-black">
+          <PaperPreview
+            pageMm={PAPERS[paper]}
+            marginMm={margin}
+            className="print-area-wrapper"
+            header={
+              <p className="mb-2 text-xs text-muted-foreground">
+                {PAPERS[paper].label} · real scale — width fits your screen
+              </p>
+            }
+          >
+            <div
+              id="print-area"
+              className="absolute flex flex-col bg-white text-black"
+              style={{
+                top: mm(margin),
+                left: mm(margin),
+                right: mm(margin),
+                bottom: mm(margin),
+                gap: mm(6),
+                padding: mm(2),
+              }}
+            >
             {show("closets") && data.closets.length > 0 && (
               <section>
                 <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-neutral-500">
@@ -309,12 +331,14 @@ export default function Labels() {
                 <div style={gridStyle}>
                   {data.closets.map((c) => (
                     <div key={c._id} style={gridOverlay} className="print-cell">
-                      <MmLabel
-                        value={closetQr(c._id)}
-                        title={c.name}
-                        sub={c.location ?? undefined}
-                        sizeMm={sizes.closets}
-                      />
+                      <ScaledCell wMm={labelWidthMm(sizes.closets)} hMm={labelHeightMm(sizes.closets)}>
+                        <MmLabel
+                          value={closetQr(c._id)}
+                          title={c.name}
+                          sub={c.location ?? undefined}
+                          sizeMm={sizes.closets}
+                        />
+                      </ScaledCell>
                     </div>
                   ))}
                 </div>
@@ -329,7 +353,9 @@ export default function Labels() {
                 <div style={gridStyle}>
                   {data.categories.map((c) => (
                     <div key={c._id} style={gridOverlay} className="print-cell">
-                      <MmLabel value={categoryQr(c.name)} title={c.name} sizeMm={sizes.categories} />
+                      <ScaledCell wMm={labelWidthMm(sizes.categories)} hMm={labelHeightMm(sizes.categories)}>
+                        <MmLabel value={categoryQr(c.name)} title={c.name} sizeMm={sizes.categories} />
+                      </ScaledCell>
                     </div>
                   ))}
                 </div>
@@ -344,7 +370,9 @@ export default function Labels() {
                 <div style={gridStyle}>
                   {data.projects.map((p) => (
                     <div key={p._id} style={gridOverlay} className="print-cell">
-                      <MmLabel value={projectQr(p._id)} title={p.name} sizeMm={sizes.projects} />
+                      <ScaledCell wMm={labelWidthMm(sizes.projects)} hMm={labelHeightMm(sizes.projects)}>
+                        <MmLabel value={projectQr(p._id)} title={p.name} sizeMm={sizes.projects} />
+                      </ScaledCell>
                     </div>
                   ))}
                 </div>
@@ -359,12 +387,14 @@ export default function Labels() {
                 <div style={gridStyle}>
                   {data.groups.map(({ group, closetAlias }) => (
                     <div key={group._id} style={gridOverlay} className="print-cell">
-                      <MmLabel
-                        value={closetAlias ? closetQr(closetAlias._id) : groupQr(group._id)}
-                        title={group.name}
-                        sub={closetAlias ? `→ storage: ${closetAlias.name}` : undefined}
-                        sizeMm={sizes.groups}
-                      />
+                      <ScaledCell wMm={labelWidthMm(sizes.groups)} hMm={labelHeightMm(sizes.groups)}>
+                        <MmLabel
+                          value={closetAlias ? closetQr(closetAlias._id) : groupQr(group._id)}
+                          title={group.name}
+                          sub={closetAlias ? `→ storage: ${closetAlias.name}` : undefined}
+                          sizeMm={sizes.groups}
+                        />
+                      </ScaledCell>
                     </div>
                   ))}
                 </div>
@@ -380,12 +410,14 @@ export default function Labels() {
                   {data.groups.flatMap(({ group, parts }) =>
                     parts.map((p) => (
                       <div key={p._id} style={gridOverlay} className="print-cell">
-                        <MmLabel
-                          value={unitQr(p.tag)}
-                          title={p.tag}
-                          sub={group.name}
-                          sizeMm={sizes.units}
-                        />
+                        <ScaledCell wMm={labelWidthMm(sizes.units)} hMm={labelHeightMm(sizes.units)}>
+                          <MmLabel
+                            value={unitQr(p.tag)}
+                            title={p.tag}
+                            sub={group.name}
+                            sizeMm={sizes.units}
+                          />
+                        </ScaledCell>
                       </div>
                     )),
                   )}
@@ -395,24 +427,27 @@ export default function Labels() {
 
             {show("people") && data.people.length > 0 && (
               <section>
-                <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-neutral-500">
+                <h2 className="font-semibold uppercase tracking-widest text-neutral-500" style={{ fontSize: mm(2.6), marginBottom: mm(2) }}>
                   People
                 </h2>
                 <div style={gridStyle}>
                   {data.people.map((p: any) => (
                     <div key={p._id} style={gridOverlay} className="print-cell">
-                      <MmLabel
-                        value={personQr(p._id)}
-                        title={p.name}
-                        sub={p.sub || undefined}
-                        sizeMm={sizes.people}
-                      />
+                      <ScaledCell wMm={labelWidthMm(sizes.people)} hMm={labelHeightMm(sizes.people)}>
+                        <MmLabel
+                          value={personQr(p._id)}
+                          title={p.name}
+                          sub={p.sub || undefined}
+                          sizeMm={sizes.people}
+                        />
+                      </ScaledCell>
                     </div>
                   ))}
                 </div>
               </section>
             )}
-          </div>
+            </div>
+          </PaperPreview>
         )}
       </div>
     </AppShell>

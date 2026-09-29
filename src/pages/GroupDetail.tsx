@@ -394,7 +394,7 @@ export default function GroupDetail() {
             <img
               src={group.imageUrl}
               alt={group.name}
-              className="h-44 w-full rounded-lg border object-cover"
+              className="h-44 w-full glass-3d rounded-lg border object-cover"
             />
           )}
 
@@ -511,7 +511,7 @@ export default function GroupDetail() {
               ))}
             </section>
           ) : (
-          <section className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border md:grid-cols-4">
+          <section className="grid grid-cols-2 gap-px overflow-hidden glass-3d rounded-lg border bg-border md:grid-cols-4">
             {[
               ["Total", total, ""],
               ["Available", s?.available ?? 0, "text-emerald-400"],
@@ -615,12 +615,12 @@ export default function GroupDetail() {
                   <div className="flex flex-col gap-5">
                     {stateSections.map((sec) => (
                       <div key={sec.status} className="flex flex-col gap-2">
-                        <div className="flex items-center gap-2 rounded-md border bg-card/40 px-3 py-1.5">
+                        <div className="flex items-center gap-2 glass-3d rounded-md border bg-card/40 px-3 py-1.5">
                           <StatusBadge status={sec.status as any} />
                           <span className="text-xs font-semibold">{sec.label}</span>
                           <span className="ml-auto text-xs text-muted-foreground">{sec.units.length}</span>
                         </div>
-                        <ul className="divide-y rounded-lg border">
+                        <ul className="divide-y glass-3d rounded-lg border">
                           {sec.units.map((p) => (
                             <UnitRow
                               key={p._id}
@@ -650,7 +650,7 @@ export default function GroupDetail() {
                     ))}
                   </div>
                 ) : (
-                  <ul className="divide-y rounded-lg border">
+                  <ul className="divide-y glass-3d rounded-lg border">
                     {orderedParts.map((p) => (
                       <UnitRow
                         key={p._id}

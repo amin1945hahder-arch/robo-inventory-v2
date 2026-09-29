@@ -257,7 +257,7 @@ export default function Inventory() {
         </header>
 
         {isAdmin && selected.size > 0 && (
-          <div className="sticky top-16 z-20 flex flex-wrap items-center gap-2 rounded-lg border border-primary/40 bg-background/95 px-4 py-2.5 shadow-sm backdrop-blur">
+          <div className="sticky top-16 z-20 flex flex-wrap items-center gap-2 glass-3d rounded-lg border border-primary/40 bg-background/95 px-4 py-2.5 shadow-sm backdrop-blur">
             <span className="text-sm font-medium">{selected.size} group(s) selected</span>
             <Button size="sm" variant="outline" onClick={() => setBulkEditOpen(true)}>
               <Pencil className="size-3.5" /> Edit selected
@@ -272,7 +272,7 @@ export default function Inventory() {
         )}
 
         {/* Filter bar — search, category, storage, availability, sort */}
-        <div className="flex flex-col gap-2 rounded-lg border bg-card/40 p-3">
+        <div className="flex flex-col gap-2 glass-3d rounded-lg border bg-card/40 p-3">
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative min-w-56 flex-1">
               <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
@@ -337,7 +337,7 @@ export default function Inventory() {
         </div>
 
         {categoryFilter && visibleCategories.length === 1 && (
-          <div className="flex items-center justify-between rounded-lg border px-4 py-3">
+          <div className="flex items-center justify-between glass-3d rounded-lg border px-4 py-3">
             <div className="flex items-center gap-3">
               <QrChip
                 payload={categoryQr(visibleCategories[0].name)}
@@ -358,7 +358,7 @@ export default function Inventory() {
             <LoadingGif label="Loading inventory…" />
           </div>
         ) : filtered.length === 0 ? (
-          <div className="rounded-lg border border-dashed px-6 py-16 text-center">
+          <div className="glass-3d rounded-lg border border-dashed px-6 py-16 text-center">
             <p className="text-sm text-muted-foreground">
               Nothing matches these filters. {isAdmin ? "Adjust them or import a CSV." : "Try another search."}
             </p>

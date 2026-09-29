@@ -257,7 +257,7 @@ export function EditRentalDialog({
           </div>
 
           {confirmDelete && (
-            <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm">
+            <div className="glass-3d rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm">
               <p className="font-medium text-destructive">Delete this rental record?</p>
               <p className="mt-1 text-xs text-muted-foreground">
                 This removes the record from the ledger permanently — for duplicates or mistakes.

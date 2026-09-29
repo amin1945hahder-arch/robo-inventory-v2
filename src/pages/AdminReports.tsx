@@ -158,7 +158,7 @@ export default function AdminReports() {
         </section>
 
         {/* most-rented groups */}
-        <section className="rounded-lg border p-5">
+        <section className="glass-3d rounded-lg border p-5">
           <h2 className="text-sm font-semibold">Most-rented groups</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
             Total rental events per component type (all time).
@@ -232,7 +232,7 @@ export default function AdminReports() {
               No records match — try clearing the filters.
             </p>
           ) : (
-            <div className="overflow-x-auto rounded-lg border">
+            <div className="overflow-x-auto glass-3d rounded-lg border">
               <table className="w-full min-w-[720px] text-left text-sm">
                 <thead className="border-b bg-muted/40 text-xs text-muted-foreground">
                   <tr>

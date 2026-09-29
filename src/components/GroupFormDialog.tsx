@@ -215,7 +215,7 @@ export function GroupFormDialog({
               </div>
             </div>
             {/* Group-of-groups: place this group inside a container group. */}
-            <div className="grid gap-2 rounded-lg border border-dashed p-3">
+            <div className="grid gap-2 glass-3d rounded-lg border border-dashed p-3">
               <Label className="flex items-center gap-1.5">
                 <Box className="size-3.5" /> Place inside another group (optional)
               </Label>
@@ -244,7 +244,7 @@ export function GroupFormDialog({
               )}
             </div>
             {conflict && (
-              <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
+              <div className="glass-3d rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
                 {conflict.kind === "same-storage" ? (
                   <p className="font-medium">
                     A group named “{conflict.existing.name}” already exists in{" "}
@@ -317,7 +317,7 @@ export function GroupFormDialog({
               </Select>
             </div>
             {measure === "pack" && (
-              <div className="grid gap-3 rounded-lg border border-dashed p-3">
+              <div className="grid gap-3 glass-3d rounded-lg border border-dashed p-3">
                 <div className="grid grid-cols-2 gap-3">
                   <div className="grid gap-2">
                     <Label>Pieces inside each pack</Label>
@@ -374,7 +374,7 @@ export function GroupFormDialog({
                 </div>
               )
             ) : (
-              <div className="grid gap-3 rounded-lg border border-dashed p-3">
+              <div className="grid gap-3 glass-3d rounded-lg border border-dashed p-3">
                 <div className="grid grid-cols-2 gap-3">
                   <div className="grid gap-2">
                     <Label>Unit</Label>

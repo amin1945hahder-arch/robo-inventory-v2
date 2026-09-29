@@ -156,7 +156,7 @@ export function FilamentFormDialog({
                 type="color"
                 value={colorHex}
                 onChange={(e) => setColorHex(e.target.value)}
-                className="size-9 cursor-pointer rounded-md border bg-transparent"
+                className="size-9 cursor-pointer glass-3d rounded-md border bg-transparent"
               />
             </div>
           </div>

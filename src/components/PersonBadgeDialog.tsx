@@ -63,7 +63,7 @@ export function PersonBadgeDialog({
         </DialogHeader>
         <div
           id="person-badge-sheet"
-          className="rounded-lg border bg-white p-5 text-black"
+          className="glass-3d rounded-lg border bg-white p-5 text-black"
         >
           <p className="text-[10px] font-semibold uppercase tracking-widest text-neutral-500">
             Robotics Club · Member Badge

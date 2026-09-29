@@ -185,6 +185,45 @@ html:not(.dark) .neon-glow {
       0 1px 0 color-mix(in oklab, var(--background) 60%, transparent),
       0 2px 6px color-mix(in oklab, var(--foreground) 12%, transparent);
   }
+
+  /* ── Mobile text-fit safety net ─────────────────────────────────────
+     Long words (emails, URLs, IDs, names) can collide on narrow screens.
+     These rules make EVERY container shrink/swap text gracefully instead
+     of overlapping: words wrap anywhere needed, containers never exceed
+     their parent, and flex children are allowed to shrink. */
+  p, h1, h2, h3, h4, h5, h6, span, li, dt, dd, label, a, button, td, th {
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
+  p, h1, h2, h3, h4, h5, h6, li, dt, dd, td, th, blockquote {
+    hyphens: auto;
+    -webkit-hyphens: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    min-width: 0;
+  }
+  body {
+    overscroll-behavior-y: none;
+  }
+
+  /* App-like touch behavior: no double-tap zoom, no long-press callout,
+     no accidental text-selection while tapping around the UI. */
+  body {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+  }
+  /* Keep double-tap-to-zoom off for all interactive surfaces. */
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  [role="button"] {
+    touch-action: manipulation;
+  }
 }
 
 @layer utilities {

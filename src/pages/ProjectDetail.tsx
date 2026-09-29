@@ -445,7 +445,7 @@ export default function ProjectDetail() {
               <img
                 src={project.imageUrl}
                 alt={project.name}
-                className="size-16 shrink-0 rounded-md border object-cover"
+                className="size-16 shrink-0 glass-3d rounded-md border object-cover"
               />
             )}
             <div>
@@ -523,12 +523,12 @@ export default function ProjectDetail() {
           <div className={tab !== "overview" ? "hidden" : "mt-6 grid gap-6 lg:grid-cols-3"}>
             <div className="flex flex-col gap-6 lg:col-span-2">
               {/* progress */}
-              <section className="rounded-lg border p-5">
+              <section className="glass-3d rounded-lg border p-5">
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <Ring pct={stats.progressPct} label="complete" sub={`${stats.done}/${stats.taskTotal} missions done`} />
                   <div className="flex flex-wrap gap-2">
                     {(["todo", "doing", "review", "done"] as TaskStatus[]).map((s) => (
-                      <div key={s} className="rounded-lg border px-3 py-2 text-center">
+                      <div key={s} className="glass-3d rounded-lg border px-3 py-2 text-center">
                         <p className="text-lg font-bold leading-none">{stats[s]}</p>
                         <p className="text-[11px] text-muted-foreground">{STATUS_META[s].label}</p>
                       </div>
@@ -554,7 +554,7 @@ export default function ProjectDetail() {
               </section>
 
               {/* team */}
-              <section className="rounded-lg border">
+              <section className="glass-3d rounded-lg border">
                 <div className="flex items-center justify-between border-b px-5 py-3">
                   <h2 className="flex items-center gap-2 text-sm font-semibold">
                     <Users className="size-4" /> Team · {members.length}
@@ -647,7 +647,7 @@ export default function ProjectDetail() {
 
             {/* side column: inventory snapshot */}
             <div className="flex flex-col gap-6">
-              <section className="rounded-lg border">
+              <section className="glass-3d rounded-lg border">
                 <div className="border-b px-5 py-3">
                   <h2 className="flex items-center gap-2 text-sm font-semibold">
                     📦 Inventory · {parts.length} part{parts.length === 1 ? "" : "s"} checked out
@@ -714,7 +714,7 @@ export default function ProjectDetail() {
 
                 {/* Inventory center shows checked-out parts instead of missions */}
                 {isInventoryCenter ? (
-                  <section className="rounded-lg border">
+                  <section className="glass-3d rounded-lg border">
                     {parts.length === 0 ? (
                       <p className="px-5 py-10 text-center text-sm text-muted-foreground">
                         No parts checked out to this project.
@@ -740,7 +740,7 @@ export default function ProjectDetail() {
                     )}
                   </section>
                 ) : (
-                  <section className="rounded-lg border">
+                  <section className="glass-3d rounded-lg border">
                     <div className="flex items-center gap-2 border-b px-4 py-2.5">
                       <ClipboardList className="size-4" />
                       <h3 className="text-sm font-semibold">Missions · {tasks.length}</h3>
@@ -783,7 +783,7 @@ export default function ProjectDetail() {
                 )}
 
                 {/* Notes in every center */}
-                <section className="rounded-lg border">
+                <section className="glass-3d rounded-lg border">
                   <div className="flex items-center gap-2 border-b px-4 py-2.5">
                     <BookOpen className="size-4" />
                     <h3 className="text-sm font-semibold">Notes &amp; references · {notes.length}</h3>
@@ -984,9 +984,9 @@ export default function ProjectDetail() {
                 <Label>Cover image</Label>
                 <div className="flex items-center gap-3">
                   {eImage ? (
-                    <img src={eImage} alt="Cover" className="size-16 rounded-md border object-cover" />
+                    <img src={eImage} alt="Cover" className="size-16 glass-3d rounded-md border object-cover" />
                   ) : (
-                    <div className="flex size-16 items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
+                    <div className="flex size-16 items-center justify-center glass-3d rounded-md border border-dashed text-xs text-muted-foreground">
                       none
                     </div>
                   )}

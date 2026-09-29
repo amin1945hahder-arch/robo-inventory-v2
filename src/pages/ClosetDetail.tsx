@@ -97,7 +97,7 @@ export default function ClosetDetail() {
                 <img
                   src={closet.imageUrl}
                   alt={closet.name}
-                  className="h-24 w-40 rounded-lg border object-cover"
+                  className="h-24 w-40 glass-3d rounded-lg border object-cover"
                 />
               )}
               <QrChip payload={closetQr(closet._id)} label={closet.name} />
@@ -124,7 +124,7 @@ export default function ClosetDetail() {
             {groups === undefined ? (
               <p className="text-sm text-muted-foreground">Loading groups…</p>
             ) : topGroups.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed px-6 py-16 text-center">
+              <div className="flex flex-col items-center gap-2 glass-3d rounded-lg border border-dashed px-6 py-16 text-center">
                 <Warehouse className="size-8 text-muted-foreground" />
                 <p className="text-sm text-muted-foreground">
                   No component groups in this storage yet.

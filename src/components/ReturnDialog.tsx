@@ -269,7 +269,7 @@ export function ReturnDialog({
           )}
 
           {consumableForm && destination === "shelf" && (
-            <div className="flex flex-col gap-2 rounded-lg border bg-muted/30 p-3">
+            <div className="flex flex-col gap-2 glass-3d rounded-lg border bg-muted/30 p-3">
               <Label>
                 Amount recovered ({unitLabel}) — taken: {taken} {unitLabel}
               </Label>

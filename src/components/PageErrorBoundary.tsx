@@ -21,7 +21,7 @@ export class PageErrorBoundary extends React.Component<
   render() {
     if (this.state.error) {
       return (
-        <div className="mx-auto my-10 flex max-w-lg flex-col items-center gap-3 rounded-lg border border-destructive/40 bg-destructive/5 px-6 py-10 text-center">
+        <div className="mx-auto my-10 flex max-w-lg flex-col items-center gap-3 glass-3d rounded-lg border border-destructive/40 bg-destructive/5 px-6 py-10 text-center">
           <AlertTriangle className="size-6 text-destructive" />
           <p className="text-sm font-semibold">This page hit an error</p>
           <p className="break-words text-xs text-muted-foreground">{this.state.error.message}</p>

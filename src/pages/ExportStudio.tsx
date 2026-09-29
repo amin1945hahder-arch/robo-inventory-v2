@@ -37,6 +37,7 @@ import {
 import { downloadCsv } from "@/lib/csv";
 import { ageFromIso } from "@/lib/utils";
 import { closetQr, groupQr, projectQr, qrUrl, unitQr } from "@/lib/qr";
+import { PaperPreview, mm, usePaperScale } from "@/components/PaperPreview";
 
 /**
  * Export studio — pick a dataset, filter it, see the exact sheet you'll get
@@ -632,7 +633,7 @@ export default function ExportStudio() {
         </header>
 
         {/* Controls (never printed) */}
-        <div className="no-print flex flex-col gap-4 rounded-lg border bg-card/40 p-4">
+        <div className="no-print flex flex-col gap-4 glass-3d rounded-lg border bg-card/40 p-4">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-medium text-muted-foreground">Dataset</span>
             {datasets.map(([key, label]) => (
@@ -868,91 +869,156 @@ export default function ExportStudio() {
             <LoadingGifInline size={18} className="mr-2 inline size-4" /> Loading data…
           </p>
         ) : activeMode === "cards" ? (
-          <div
-            id="print-area"
-            className="w-full overflow-x-auto rounded-lg border bg-white p-4 text-black shadow-sm"
+          <PaperPreview
+            pageMm={PAPERS[paper]}
+            marginMm={margin}
+            orientation={orientation as "portrait" | "landscape"}
+            header={
+              <p className="mb-2 text-xs text-muted-foreground">
+                {PAPERS[paper].label} · {rows.length} cards · {new Date().toLocaleDateString()} · real scale — width fits your screen
+              </p>
+            }
           >
-            <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-neutral-500">
-              Robotics Club · item cards · {rows.length} cards · {new Date().toLocaleDateString()}
-            </p>
             <div
-              className="flex flex-wrap content-start gap-[2mm]"
+              id="print-area"
+              className="absolute flex flex-wrap content-start"
               style={{
-                boxShadow: showGrid ? undefined : "none",
+                top: mm(margin),
+                left: mm(margin),
+                right: mm(margin),
+                bottom: mm(margin),
+                gap: mm(2),
               }}
             >
               {rows.map((r, i) => {
                 const c = cardFor(r);
                 return (
                   <div key={i} className="print-cell" style={showGrid ? { boxShadow: "0 0 0 0.5px #a3a3a3" } : undefined}>
-                    <PrintCard
-                      image={c.image}
-                      qrPayload={c.qr}
-                      title={c.title}
-                      sub={c.sub}
-                      container={c.container}
-                      widthMm={cardW}
-                      heightMm={cardH}
-                    />
+                    <ScaledBox wMm={cardW} hMm={cardH}>
+                      <PrintCard
+                        image={c.image}
+                        qrPayload={c.qr}
+                        title={c.title}
+                        sub={c.sub}
+                        container={c.container}
+                        widthMm={cardW}
+                        heightMm={cardH}
+                      />
+                    </ScaledBox>
                   </div>
                 );
               })}
               {rows.length === 0 && (
-                <p className="px-2 py-6 text-center text-sm text-neutral-500">
+                <p className="text-center text-neutral-500" style={{ fontSize: mm(3), padding: mm(4) }}>
                   No rows match the filters.
                 </p>
               )}
             </div>
-          </div>
+          </PaperPreview>
         ) : (
-          <div
-            id="print-area"
-            className="w-full overflow-x-auto rounded-lg border bg-white p-4 text-black shadow-sm md:w-[140%] print:w-full"
+          <PaperPreview
+            pageMm={PAPERS[paper]}
+            marginMm={margin}
+            orientation={orientation as "portrait" | "landscape"}
+            header={
+              <p className="mb-2 text-xs text-muted-foreground">
+                {PAPERS[paper].label} · {rows.length} rows · {new Date().toLocaleDateString()} · real scale — width fits your screen
+              </p>
+            }
           >
-            <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-neutral-500">
-              Robotics Club · {datasets.find(([k]) => k === dataset)?.[1]} · {rows.length} rows ·{" "}
-              {new Date().toLocaleDateString()}
-            </p>
-            <table className="w-full border-collapse text-[11px]">
-              <thead>
-                <tr>
-                  {cols.map((c) => (
-                    <th
-                      key={c.key}
-                      className={`bg-neutral-100 px-2 py-1 text-left font-semibold ${
-                        showGrid ? "border border-neutral-300" : ""
-                      }`}
-                    >
-                      {c.label}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r, i) => (
-                  <tr key={i}>
-                    {cols.map((c) => (
-                      <td
-                        key={c.key}
-                        className={`whitespace-pre-line px-2 py-1 align-top ${showGrid ? "border border-neutral-200" : ""}`}
-                      >
-                        {c.get(r) || "—"}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-                {rows.length === 0 && (
-                  <tr>
-                    <td colSpan={cols.length} className="border border-neutral-200 px-2 py-6 text-center text-neutral-500">
-                      No rows match the filters.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+            <div
+              id="print-area"
+              className="absolute overflow-hidden"
+              style={{
+                top: mm(margin),
+                left: mm(margin),
+                right: mm(margin),
+                bottom: mm(margin),
+              }}
+            >
+              <p className="mb-2 font-semibold uppercase tracking-widest text-neutral-500" style={{ fontSize: mm(2.6) }}>
+                Robotics Club · {datasets.find(([k]) => k === dataset)?.[1]} · {rows.length} rows ·{" "}
+                {new Date().toLocaleDateString()}
+              </p>
+              <PaperTable cols={cols} rows={rows} showGrid={showGrid} />
+            </div>
+          </PaperPreview>
         )}
       </div>
     </AppShell>
+  );
+}
+
+/** A mm-sized box that scales its mm-rendered child down to the preview scale. */
+function ScaledBox({ wMm, hMm, children }: { wMm: number; hMm: number; children: React.ReactNode }) {
+  const s = usePaperScale();
+  // PrintCard renders its child at true mm (1mm ≈ 3.78px). Shrink that fixed
+  // size down to the paper preview's px-per-mm so it occupies exactly wMm×hMm
+  // of the sheet, keeping the internals at their true proportions.
+  const shrink = s / MM;
+  return (
+    <div style={{ width: mm(wMm), height: mm(hMm) }}>
+      <div
+        style={{
+          width: wMm * MM,
+          height: hMm * MM,
+          transform: `scale(${shrink})`,
+          transformOrigin: "top left",
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/** The printable data table, mm-scaled for the paper preview. */
+function PaperTable({
+  cols,
+  rows,
+  showGrid,
+}: {
+  cols: Col[];
+  rows: Record<string, string>[];
+  showGrid: boolean;
+}) {
+  return (
+    <table className="w-full border-collapse" style={{ fontSize: mm(2.6) }}>
+      <thead>
+        <tr>
+          {cols.map((c) => (
+            <th
+              key={c.key}
+              className={`bg-neutral-100 px-1 py-1 text-left font-semibold ${
+                showGrid ? "border border-neutral-300" : ""
+              }`}
+            >
+              {c.label}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r, i) => (
+          <tr key={i}>
+            {cols.map((c) => (
+              <td
+                key={c.key}
+                className={`whitespace-pre-line px-1 py-1 align-top ${showGrid ? "border border-neutral-200" : ""}`}
+              >
+                {c.get(r) || "—"}
+              </td>
+            ))}
+          </tr>
+        ))}
+        {rows.length === 0 && (
+          <tr>
+            <td colSpan={cols.length} className="border border-neutral-200 px-2 py-6 text-center text-neutral-500">
+              No rows match the filters.
+            </td>
+          </tr>
+        )}
+      </tbody>
+    </table>
   );
 }

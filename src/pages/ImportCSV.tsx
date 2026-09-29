@@ -61,7 +61,7 @@ export default function ImportCSV() {
           </p>
         </header>
 
-        <div className="rounded-lg border">
+        <div className="glass-3d rounded-lg border">
           <div className="flex items-center justify-between border-b px-5 py-3">
             <h2 className="text-sm font-semibold">Format</h2>
             <Button

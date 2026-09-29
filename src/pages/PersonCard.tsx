@@ -79,7 +79,7 @@ export default function PersonCard() {
   if (card === null || !card.person) {
     return (
       <AppShell>
-        <div className="mx-auto mt-16 max-w-md rounded-lg border border-dashed p-8 text-center">
+        <div className="mx-auto mt-16 max-w-md glass-3d rounded-lg border border-dashed p-8 text-center">
           <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-muted/40">
             <UserRound className="size-6 text-muted-foreground" />
           </div>
@@ -114,8 +114,8 @@ export default function PersonCard() {
         </header>
 
         {/* Identity header (always visible above the tabs) */}
-        <section className="flex flex-wrap items-center gap-4 rounded-lg border p-5">
-          <Avatar className="size-16 border">
+        <section className="glass-3d flex flex-wrap items-center gap-4 rounded-lg p-5">
+          <Avatar className="size-16 shrink-0 border">
             <AvatarImage src={p.image} />
             <AvatarFallback className="text-lg">
               {(p.name ?? p.email ?? "?").slice(0, 1).toUpperCase()}
@@ -123,7 +123,7 @@ export default function PersonCard() {
           </Avatar>
           {/* The person's own QR — always visible next to the photo. Scanning
               it opens this same profile (with the chat/profile popup). */}
-          <div className="flex shrink-0 flex-col items-center gap-1 rounded-lg border bg-white p-1.5">
+          <div className="flex shrink-0 flex-col items-center gap-1 glass-3d rounded-lg border bg-white p-1.5">
             <QRCodeReact
               value={qrUrl(personQr(p._id))}
               size={64}
@@ -132,8 +132,8 @@ export default function PersonCard() {
             <span className="font-mono text-[8px] text-neutral-500">scan profile</span>
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-base font-semibold">{p.name ?? "Unnamed member"}</p>
-            <p className="truncate text-xs text-muted-foreground">{p.email}</p>
+            <p className="text-base font-semibold leading-snug">{p.name ?? "Unnamed member"}</p>
+            <p className="break-all text-xs text-muted-foreground">{p.email}</p>
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               {p.role === "admin" && (
                 <span className="rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-xs text-primary">
@@ -173,7 +173,7 @@ export default function PersonCard() {
 
         {/* Structured profile — everything of this person, per tab. */}
         <Tabs defaultValue="info">
-          <TabsList className="flex flex-wrap">
+          <TabsList className="flex w-full flex-wrap">
             <TabsTrigger value="info">Info</TabsTrigger>
             {fullView && <TabsTrigger value="records">Lend records</TabsTrigger>}
             {fullView && <TabsTrigger value="projects">Projects</TabsTrigger>}
@@ -184,31 +184,31 @@ export default function PersonCard() {
           <TabsContent value="info" className="mt-4">
             <div className="grid grid-cols-2 gap-3 text-sm">
               {p.studentId && (
-                <div className="rounded-lg border p-3">
+                <div className="glass-3d rounded-lg border p-3">
                   <p className="text-xs text-muted-foreground">Student ID</p>
                   <p className="mt-0.5 font-medium">{p.studentId}</p>
                 </div>
               )}
               {p.studentCode && (
-                <div className="rounded-lg border p-3">
+                <div className="glass-3d rounded-lg border p-3">
                   <p className="text-xs text-muted-foreground">Club code</p>
                   <p className="mt-0.5 font-mono">{p.studentCode}</p>
                 </div>
               )}
               {p.phone && (
-                <div className="rounded-lg border p-3">
+                <div className="glass-3d rounded-lg border p-3">
                   <p className="text-xs text-muted-foreground">Phone</p>
                   <p className="mt-0.5 font-medium">{p.phone}</p>
                 </div>
               )}
               {p.telegramUsername && (
-                <div className="rounded-lg border p-3">
+                <div className="glass-3d rounded-lg border p-3">
                   <p className="text-xs text-muted-foreground">Telegram</p>
                   <p className="mt-0.5 font-medium">@{p.telegramUsername}</p>
                 </div>
               )}
               {p.githubUrl && (
-                <div className="rounded-lg border p-3">
+                <div className="glass-3d rounded-lg border p-3">
                   <p className="text-xs text-muted-foreground">GitHub</p>
                   <a
                     href={p.githubUrl}
@@ -221,7 +221,7 @@ export default function PersonCard() {
                 </div>
               )}
               {p.dateOfBirth && (
-                <div className="rounded-lg border p-3">
+                <div className="glass-3d rounded-lg border p-3">
                   <p className="text-xs text-muted-foreground">Age</p>
                   <p className="mt-0.5 font-medium">
                     {Math.floor((Date.now() - new Date(p.dateOfBirth).getTime()) / 3.15576e10)} yrs
@@ -229,19 +229,19 @@ export default function PersonCard() {
                 </div>
               )}
               {p.academicState && (
-                <div className="rounded-lg border p-3">
+                <div className="glass-3d rounded-lg border p-3">
                   <p className="text-xs text-muted-foreground">Academic state</p>
                   <p className="mt-0.5 font-medium">{p.academicState}</p>
                 </div>
               )}
               {p.major && (
-                <div className="rounded-lg border p-3">
+                <div className="glass-3d rounded-lg border p-3">
                   <p className="text-xs text-muted-foreground">Major</p>
                   <p className="mt-0.5 font-medium">{p.major}</p>
                 </div>
               )}
               {p.printerRole && (
-                <div className="rounded-lg border p-3">
+                <div className="glass-3d rounded-lg border p-3">
                   <p className="text-xs text-muted-foreground">Printer access</p>
                   <p className="mt-0.5 font-medium">Granted</p>
                 </div>
@@ -262,7 +262,7 @@ export default function PersonCard() {
                   No rentals yet.
                 </p>
               ) : (
-                <ul className="divide-y rounded-lg border text-sm">
+                <ul className="divide-y glass-3d rounded-lg border text-sm">
                   {card.rentals.map((r: any) => (
                     <li key={r._id} className="flex items-center justify-between gap-3 px-4 py-3">
                       <div className="min-w-0 flex-1">
@@ -307,7 +307,7 @@ export default function PersonCard() {
                   {card.projects.map((pr) => (
                     <li
                       key={pr._id}
-                      className="flex flex-wrap items-center gap-3 rounded-lg border px-4 py-3"
+                      className="flex flex-wrap items-center gap-3 glass-3d rounded-lg border px-4 py-3"
                     >
                       <FolderKanban className="size-4 shrink-0 text-violet-400" />
                       <div className="min-w-0 flex-1">
@@ -347,7 +347,7 @@ export default function PersonCard() {
               ) : (
                 <div className="flex flex-col gap-3">
                   {(p.clubRoles ?? []).length > 0 && (
-                    <section className="rounded-lg border p-4">
+                    <section className="glass-3d rounded-lg border p-4">
                       <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
                         Club positions
                       </p>
@@ -365,19 +365,19 @@ export default function PersonCard() {
                   )}
                   <section className="grid grid-cols-2 gap-3 text-sm">
                     {p.academicState && (
-                      <div className="rounded-lg border p-3">
+                      <div className="glass-3d rounded-lg border p-3">
                         <p className="text-xs text-muted-foreground">Academic state</p>
                         <p className="mt-0.5 font-medium">{p.academicState}</p>
                       </div>
                     )}
                     {p.major && (
-                      <div className="rounded-lg border p-3">
+                      <div className="glass-3d rounded-lg border p-3">
                         <p className="text-xs text-muted-foreground">Major</p>
                         <p className="mt-0.5 font-medium">{p.major}</p>
                       </div>
                     )}
                     {p.studentCode && (
-                      <div className="rounded-lg border p-3">
+                      <div className="glass-3d rounded-lg border p-3">
                         <p className="text-xs text-muted-foreground">Club code</p>
                         <p className="mt-0.5 font-mono">{p.studentCode}</p>
                       </div>

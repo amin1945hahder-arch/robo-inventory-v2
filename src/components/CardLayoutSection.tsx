@@ -15,6 +15,7 @@ import { LoadingGifInline } from "@/components/LoadingGif";
 import { Save } from "lucide-react";
 import { toast } from "sonner";
 import { pageMm, placedCardMm, type CardPrintLayout } from "@/lib/card-print-layout";
+import { PaperPreview, mm, usePaperScale } from "@/components/PaperPreview";
 import { DEFAULT_CARD_LAYOUT } from "@/convex/settings";
 
 type Draft = CardPrintLayout;
@@ -109,14 +110,13 @@ export function CardLayoutSection() {
   };
 
   const page = pageMm(draft);
-  const previewScale = 240 / page.h; // preview paper height ≈ 240px
   // The preview card mimics the real sheet's ratio (360×518px ≈ 95×138mm at
   // 96dpi) so the placement is faithful to an actual print.
   const previewCardMm = { w: 95.25, h: 137.05 };
   const placed = placedCardMm(draft, previewCardMm.w, previewCardMm.h);
 
   return (
-    <section className="flex flex-col gap-4 rounded-lg border p-5">
+    <section className="flex flex-col gap-4 glass-3d rounded-lg border p-5">
       <div>
         <h2 className="text-sm font-semibold">Card print layout</h2>
         <p className="mt-1 text-xs text-muted-foreground">
@@ -129,7 +129,7 @@ export function CardLayoutSection() {
       <div className="grid gap-4 lg:grid-cols-[1fr_auto]">
         {/* ---------------- controls ---------------- */}
         <div className="grid gap-4 sm:grid-cols-2">
-          <div className="grid content-start gap-3 rounded-lg border p-3">
+          <div className="grid content-start gap-3 glass-3d rounded-lg border p-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-primary">Page</p>
             <div className="grid gap-1.5">
               <Label htmlFor="cl-page" className="text-xs">Paper size</Label>
@@ -183,7 +183,7 @@ export function CardLayoutSection() {
             </div>
           </div>
 
-          <div className="grid content-start gap-3 rounded-lg border p-3">
+          <div className="grid content-start gap-3 glass-3d rounded-lg border p-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-primary">Card</p>
             <div className="grid grid-cols-2 gap-2">
               <div className="grid gap-1.5">
@@ -213,56 +213,20 @@ export function CardLayoutSection() {
         </div>
 
         {/* ---------------- live preview ---------------- */}
-        <div className="grid content-start justify-items-center gap-2 rounded-lg border p-3">
+        <div className="grid content-start justify-items-center gap-2 glass-3d rounded-lg border p-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-primary">Preview</p>
-          <div
-            className="relative overflow-hidden rounded-sm border-2 border-dashed border-neutral-400 bg-white shadow-sm"
-            style={{ width: page.w * previewScale, height: page.h * previewScale }}
+          <PaperPreview
+            pageMm={page}
+            className="w-full max-w-[240px]"
+            footer={
+              <p className="mt-2 text-center text-[11px] text-muted-foreground">
+                {page.w.toFixed(0)} × {page.h.toFixed(0)} mm · card box {draft.cardWidthMm} × {draft.cardHeightMm} mm
+                {draft.printMode === "thermal" ? " · label roll" : ""}
+              </p>
+            }
           >
-            <div
-              className="absolute overflow-hidden rounded-md border border-neutral-300 bg-white p-1.5 text-black"
-              style={{
-                left: placed.x * previewScale,
-                top: placed.y * previewScale,
-                width: placed.w * previewScale,
-                height: placed.h * previewScale,
-              }}
-            >
-              <div className="flex items-start justify-between gap-1">
-                <div>
-                  <p className="font-semibold uppercase tracking-widest text-neutral-400" style={{ fontSize: 3.5 }}>
-                    Robotics Club · Rental Receipt
-                  </p>
-                  <p className="font-bold leading-tight" style={{ fontSize: 6 }}>Jumper wires M-M</p>
-                  <p className="font-mono text-neutral-500" style={{ fontSize: 4 }}>RNT-0001</p>
-                </div>
-                <div className="flex shrink-0 items-center justify-center rounded-sm bg-neutral-900" style={{ width: 14, height: 14 }}>
-                  <span className="font-mono text-white" style={{ fontSize: 3.5 }}>QR</span>
-                </div>
-              </div>
-              <div className="mt-1.5 space-y-1">
-                {[
-                  ["Student", "Ali Hassan"],
-                  ["Status", "Rented"],
-                  ["Requested", "2026-09-28 14:02"],
-                  ["Returned", "—"],
-                ].map(([k, v]) => (
-                  <div
-                    key={k}
-                    className="flex justify-between border-b border-dashed border-neutral-200 pb-0.5"
-                    style={{ fontSize: 4.5 }}
-                  >
-                    <span className="text-neutral-500">{k}</span>
-                    <span className="font-medium">{v}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-          <p className="text-center text-[11px] text-muted-foreground">
-            {page.w.toFixed(0)} × {page.h.toFixed(0)} mm · card box {draft.cardWidthMm} × {draft.cardHeightMm} mm
-            {draft.printMode === "thermal" ? " · label roll" : ""}
-          </p>
+            <PreviewCard placed={placed} />
+          </PaperPreview>
         </div>
       </div>
 
@@ -278,5 +242,63 @@ export function CardLayoutSection() {
         </Button>
       </div>
     </section>
+  );
+}
+
+/** The sample card drawn on the preview paper at true relative scale. */
+function PreviewCard({
+  placed,
+}: {
+  placed: { x: number; y: number; w: number; h: number };
+}) {
+  return (
+    <div
+      className="absolute overflow-hidden glass-3d rounded-md border border-neutral-300 bg-white text-black"
+      style={{
+        left: mm(placed.x),
+        top: mm(placed.y),
+        width: mm(placed.w),
+        height: mm(placed.h),
+      }}
+    >
+      <div className="flex items-start justify-between gap-1 p-1.5">
+        <div>
+          <p className="font-semibold uppercase tracking-widest text-neutral-400" style={{ fontSize: mm(2.2) }}>
+            Robotics Club · Rental Receipt
+          </p>
+          <p className="font-bold leading-tight" style={{ fontSize: mm(3.6) }}>
+            Jumper wires M-M
+          </p>
+          <p className="font-mono text-neutral-500" style={{ fontSize: mm(2.4) }}>
+            RNT-0001
+          </p>
+        </div>
+        <div
+          className="flex shrink-0 items-center justify-center rounded-sm bg-neutral-900"
+          style={{ width: mm(8), height: mm(8) }}
+        >
+          <span className="font-mono text-white" style={{ fontSize: mm(2.2) }}>
+            QR
+          </span>
+        </div>
+      </div>
+      <div style={{ marginTop: mm(1.5) }} className="space-y-1 px-1.5">
+        {[
+          ["Student", "Ali Hassan"],
+          ["Status", "Rented"],
+          ["Requested", "2026-09-28 14:02"],
+          ["Returned", "—"],
+        ].map(([k, v]) => (
+          <div
+            key={k}
+            className="flex justify-between border-b border-dashed border-neutral-200 pb-0.5"
+            style={{ fontSize: mm(2.6) }}
+          >
+            <span className="text-neutral-500">{k}</span>
+            <span className="font-medium">{v}</span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }

@@ -159,7 +159,7 @@ export default function Closets() {
         {closets === undefined ? (
           <LoadingGif size={48} label={null} />
         ) : closets.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed px-6 py-16 text-center">
+          <div className="flex flex-col items-center gap-2 glass-3d rounded-lg border border-dashed px-6 py-16 text-center">
             <Warehouse className="size-8 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">No storages yet.</p>
           </div>
@@ -187,7 +187,7 @@ export default function Closets() {
                       <img
                         src={c.imageUrl}
                         alt={c.name}
-                        className="aspect-[16/9] w-full rounded-md border object-cover"
+                        className="aspect-[16/9] w-full glass-3d rounded-md border object-cover"
                       />
                     )}
                     <div className="flex items-start justify-between gap-3">
@@ -290,7 +290,7 @@ export default function Closets() {
                   <img
                     src={imageUrl}
                     alt="Storage"
-                    className="size-14 rounded-md border object-cover"
+                    className="size-14 glass-3d rounded-md border object-cover"
                   />
                 )}
                 <div className="flex min-w-0 flex-1 flex-col gap-1.5">

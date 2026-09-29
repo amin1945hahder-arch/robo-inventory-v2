@@ -353,7 +353,7 @@ export default function AdminRequests() {
   });
 
   const RowCard = ({ row, actions }: { row: Row; actions: React.ReactNode }) => (
-    <li className="flex flex-wrap items-center gap-3 px-4 py-3">
+    <li className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center">
       <Avatar className="size-8 shrink-0">
         <AvatarImage src={row.student?.image} />
         <AvatarFallback className="text-xs font-semibold">
@@ -361,7 +361,7 @@ export default function AdminRequests() {
         </AvatarFallback>
       </Avatar>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">
+        <p className="text-sm font-medium">
           {row.group?.name ?? "Part"}{" "}
           <span className="font-mono text-xs text-muted-foreground">{row.part?.tag}</span>
         </p>
@@ -377,15 +377,18 @@ export default function AdminRequests() {
           </p>
         )}
       </div>
-      <Button
-        size="sm"
-        variant="ghost"
-        title="Print rent card"
-        onClick={() => setCard(cardFor(row))}
-      >
-        <Printer className="size-3.5" /> Card
-      </Button>
-      {actions}
+      {/* Actions wrap below the text on phones, sit to the right on ≥sm. */}
+      <div className="flex flex-wrap items-center gap-1 sm:ml-auto sm:justify-end">
+        <Button
+          size="sm"
+          variant="ghost"
+          title="Print rent card"
+          onClick={() => setCard(cardFor(row))}
+        >
+          <Printer className="size-3.5" /> Card
+        </Button>
+        {actions}
+      </div>
     </li>
   );
 
@@ -440,13 +443,13 @@ export default function AdminRequests() {
           <TabsContent value="pending" className="mt-4">
             {/* Scheduled pick-ups: awaiting handover, with reminder countdown. */}
             {(pickups ?? []).length > 0 && (
-              <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
+              <div className="mb-4 glass-3d rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
                 <p className="text-xs font-semibold uppercase tracking-widest text-amber-400">
                   Scheduled pick-ups · {(pickups ?? []).length}
                 </p>
                 <ul className="mt-2 flex flex-col gap-1.5">
                   {(pickups ?? []).map((p) => (
-                    <li key={p.rentalId} className="flex flex-wrap items-center gap-2 text-sm">
+                    <li key={p.rentalId} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
                       <span className="font-medium">{p.groupName}</span>
                       <span className="font-mono text-xs text-muted-foreground">{p.tag}</span>
                       <span className="text-muted-foreground">· {p.studentName}</span>
@@ -515,7 +518,7 @@ export default function AdminRequests() {
                   />
                 ))}
                 {pendingPkgRows.map((row: any) => (
-                  <li key={row.key} className="rounded-lg border border-primary/30 p-4">
+                  <li key={row.key} className="glass-3d rounded-lg border border-primary/30 p-4">
                     <div className="flex flex-wrap items-center gap-3">
                       <Boxes className="size-5 shrink-0 text-primary" />
                       <Avatar className="size-8 shrink-0">
@@ -588,7 +591,7 @@ export default function AdminRequests() {
             ) : (
               <ul className="flex flex-col gap-3">
                 {packages.map(({ package: pkg, lines, requester, openUnits, totalUnits, returnedUnits }) => (
-                  <li key={pkg._id} className="rounded-lg border p-4">
+                  <li key={pkg._id} className="glass-3d rounded-lg border p-4">
                     <div className="flex flex-wrap items-center gap-3">
                       <Boxes className="size-5 shrink-0 text-primary" />
                       <Avatar className="size-8 shrink-0">
@@ -766,7 +769,7 @@ export default function AdminRequests() {
                 <h2 className="mb-2 text-xs font-semibold uppercase tracking-widest text-amber-400">
                   Awaiting pick-up · {(awaiting ?? []).length}
                 </h2>
-                <ul className="divide-y rounded-lg border border-amber-500/30">
+                <ul className="divide-y glass-3d rounded-lg border border-amber-500/30">
                   {(awaiting ?? []).map((row) => (
                     <RowCard
                       key={row.rental._id}
@@ -817,7 +820,7 @@ export default function AdminRequests() {
                 Nothing is out on rental right now.
               </p>
             ) : (
-              <ul className="divide-y rounded-lg border">
+              <ul className="divide-y glass-3d rounded-lg border">
                 {active.map((row) => (
                   <RowCard
                     key={row.rental._id}
@@ -864,7 +867,7 @@ export default function AdminRequests() {
                 No parts are checked out to projects.
               </p>
             ) : (
-              <ul className="divide-y rounded-lg border">
+              <ul className="divide-y glass-3d rounded-lg border">
                 {onProject.map((row) => (
                   <RowCard
                     key={row.rental._id}
@@ -891,7 +894,7 @@ export default function AdminRequests() {
                 No completed rentals yet.
               </p>
             ) : (
-              <ul className="divide-y rounded-lg border">
+              <ul className="divide-y glass-3d rounded-lg border">
                 {history.slice(0, 40).map((row) => (
                   <RowCard
                     key={row.rental._id}
@@ -923,7 +926,7 @@ export default function AdminRequests() {
                 No rank requests — members can send them from their profile page.
               </p>
             ) : (
-              <ul className="divide-y rounded-lg border">
+              <ul className="divide-y glass-3d rounded-lg border">
                 {rankReqs.map(({ request, user }) => (
                   <li key={request._id} className="flex flex-wrap items-center gap-3 px-4 py-3">
                     <Award className="size-4 shrink-0 text-violet-400" />
@@ -993,7 +996,7 @@ export default function AdminRequests() {
                 No printer-access requests — members can send them from their profile page.
               </p>
             ) : (
-              <ul className="divide-y rounded-lg border">
+              <ul className="divide-y glass-3d rounded-lg border">
                 {printerReqs.map(({ request, user }) => (
                   <li key={request._id} className="flex flex-wrap items-center gap-3 px-4 py-3">
                     <Printer className="size-4 shrink-0 text-cyan-400" />
@@ -1062,7 +1065,7 @@ export default function AdminRequests() {
                 No profile change requests.
               </p>
             ) : (
-              <ul className="divide-y rounded-lg border">
+              <ul className="divide-y glass-3d rounded-lg border">
                 {profileReqs.map(({ request, user }) => (
                   <li key={request._id} className="flex flex-wrap items-center gap-3 px-4 py-3">
                     <div className="min-w-0 flex-1">
@@ -1133,7 +1136,7 @@ export default function AdminRequests() {
             (bubbles in the sidebar/header decrease), tapping a row marks just
             that one. */}
         {notifications !== undefined && notifications.length > 0 && (
-          <section className="rounded-lg border">
+          <section className="glass-3d rounded-lg border">
             <div className="flex items-center justify-between border-b px-5 py-3">
               <h2 className="text-sm font-semibold">Notifications</h2>
               {unread.length > 0 && (
@@ -1239,7 +1242,7 @@ export default function AdminRequests() {
             {destination === "shelf" &&
               (returnFor?.group?.measure === "weight" || returnFor?.group?.measure === "length") &&
               returnFor?.rental?.amount !== undefined && (
-                <div className="flex flex-col gap-2 rounded-lg border bg-muted/30 p-3">
+                <div className="flex flex-col gap-2 glass-3d rounded-lg border bg-muted/30 p-3">
                   <Label>
                     Amount recovered ({returnFor.group.measureUnit ?? ""}) — taken: {returnFor.rental.amount}{" "}
                     {returnFor.group.measureUnit ?? ""}
@@ -1280,7 +1283,7 @@ export default function AdminRequests() {
                 ) : (
                   <div className="flex gap-2">
                     <input
-                      className="flex h-9 flex-1 rounded-md border bg-background px-3 text-sm"
+                      className="flex h-9 flex-1 glass-3d rounded-md border bg-background px-3 text-sm"
                       value={newProjectName}
                       onChange={(e) => setNewProjectName(e.target.value)}
                       placeholder="New project name"
@@ -1497,7 +1500,7 @@ export default function AdminRequests() {
                       <button
                         key={p.rentalId}
                         type="button"
-                        className="rounded-md border px-3 py-1.5 text-left text-xs transition-colors hover:border-primary/40 hover:bg-muted/50"
+                        className="glass-3d rounded-md border px-3 py-1.5 text-left text-xs transition-colors hover:border-primary/40 hover:bg-muted/50"
                         onClick={() => {
                           const d = new Date(p.pickupAt!);
                           const pad = (n: number) => String(n).padStart(2, "0");

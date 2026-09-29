@@ -364,7 +364,7 @@ export default function RentScan() {
                   </div>
                   <div className="flex gap-2">
                     <select
-                      className="h-9 flex-1 rounded-md border bg-background px-3 text-sm"
+                      className="h-9 flex-1 glass-3d rounded-md border bg-background px-3 text-sm"
                       value={projectId}
                       onChange={(e) => setProjectId(e.target.value)}
                     >

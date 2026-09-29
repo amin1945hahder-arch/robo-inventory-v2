@@ -197,7 +197,7 @@ export default function Projects() {
                 );
               })}
               {active.length === 0 && (
-                <div className="col-span-full flex flex-col items-center gap-2 rounded-lg border border-dashed px-6 py-12 text-center">
+                <div className="col-span-full flex flex-col items-center gap-2 glass-3d rounded-lg border border-dashed px-6 py-12 text-center">
                   <FolderKanban className="size-8 text-muted-foreground" />
                   <p className="text-sm text-muted-foreground">No active projects yet.</p>
                   {isAdmin && (
@@ -212,7 +212,7 @@ export default function Projects() {
             {past.length > 0 && (
               <section className="flex flex-col gap-3">
                 <h2 className="text-sm font-semibold">Completed &amp; dismantled</h2>
-                <ul className="divide-y rounded-lg border">
+                <ul className="divide-y glass-3d rounded-lg border">
                   {past.map((p) => (
                     <li key={p._id} className="flex items-center justify-between gap-3 px-4 py-3">
                       <Link to={`/projects/${p._id}`} className="truncate text-sm font-medium">
@@ -237,9 +237,9 @@ export default function Projects() {
                 <Label>Cover image</Label>
                 <div className="flex items-center gap-3">
                   {imageUrl ? (
-                    <img src={imageUrl} alt="Cover" className="size-16 rounded-md border object-cover" />
+                    <img src={imageUrl} alt="Cover" className="size-16 glass-3d rounded-md border object-cover" />
                   ) : (
-                    <div className="flex size-16 items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
+                    <div className="flex size-16 items-center justify-center glass-3d rounded-md border border-dashed text-xs text-muted-foreground">
                       none
                     </div>
                   )}

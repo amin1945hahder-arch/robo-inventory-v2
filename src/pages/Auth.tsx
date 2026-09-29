@@ -221,7 +221,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                 </CardDescription>
               </CardHeader>
               {saved && !isLoading && (
-                <div className="mx-6 mb-1 flex items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5">
+                <div className="mx-6 mb-1 flex items-center gap-3 glass-3d rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5">
                   <Avatar className="size-8 border">
                     <AvatarImage src={saved.image} />
                     <AvatarFallback className="text-xs font-semibold">

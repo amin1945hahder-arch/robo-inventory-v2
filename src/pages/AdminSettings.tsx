@@ -5,6 +5,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AppShell } from "@/components/AppShell";
 import { CardLayoutSection } from "@/components/CardLayoutSection";
+import { PermissionsManager } from "@/components/PermissionsManager";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,6 +27,7 @@ import {
   Printer,
   Save,
   SendHorizonal,
+  ShieldCheck,
   Sun,
   Trash2,
   TriangleAlert,
@@ -183,7 +185,7 @@ function DataBackupSection() {
   };
 
   return (
-    <section className="flex flex-col gap-4 rounded-lg border p-5">
+    <section className="flex flex-col gap-4 glass-3d rounded-lg border p-5">
       <div>
         <h2 className="flex items-center gap-2 text-sm font-semibold">
           <DatabaseBackup className="size-4" /> Full data backup
@@ -204,7 +206,7 @@ function DataBackupSection() {
         <>
           <div className="grid gap-3 sm:grid-cols-2">
             {/* Schedule */}
-            <div className="grid gap-3 rounded-lg border p-3">
+            <div className="grid gap-3 glass-3d rounded-lg border p-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-primary">
                 Auto-backup schedule
               </p>
@@ -233,7 +235,7 @@ function DataBackupSection() {
             </div>
 
             {/* Destination */}
-            <div className="grid gap-3 rounded-lg border p-3">
+            <div className="grid gap-3 glass-3d rounded-lg border p-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-primary">
                 Destination — APP group topic
               </p>
@@ -280,7 +282,7 @@ function DataBackupSection() {
             Save backup settings
           </Button>
 
-          <div className="flex flex-col gap-2 rounded-md border border-dashed p-3">
+          <div className="flex flex-col gap-2 glass-3d rounded-md border border-dashed p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="text-sm font-medium">Backup now</p>
@@ -358,7 +360,7 @@ function ResetDatabaseCard() {
   };
 
   return (
-    <section className="flex flex-col gap-4 rounded-lg border border-red-500/40 bg-red-500/5 p-5">
+    <section className="flex flex-col gap-4 glass-3d rounded-lg border border-red-500/40 bg-red-500/5 p-5">
       <div>
         <h2 className="flex items-center gap-2 text-sm font-semibold text-red-400">
           <TriangleAlert className="size-4" /> Danger zone — reset the database
@@ -480,7 +482,7 @@ function TopicCard({ topic }: { topic: Topic }) {
   };
 
   return (
-    <div className="rounded-lg border p-3">
+    <div className="glass-3d rounded-lg border p-3">
       <div className="flex items-start justify-between gap-2">
         {editing ? (
           <div className="grid flex-1 gap-2 sm:grid-cols-[1fr_140px]">
@@ -615,7 +617,7 @@ function TopicsPanel({ bot }: { bot: BotId }) {
         </div>
       )}
 
-      <div className="grid gap-2 rounded-md border border-dashed p-3 sm:grid-cols-[1fr_160px_auto]">
+      <div className="grid gap-2 glass-3d rounded-md border border-dashed p-3 sm:grid-cols-[1fr_160px_auto]">
         <div className="grid gap-1">
           <Label className="text-xs">New topic name</Label>
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. now" />
@@ -680,7 +682,7 @@ function MySoundsSection() {
   };
 
   return (
-    <section className="flex flex-col gap-4 rounded-lg border p-5">
+    <section className="flex flex-col gap-4 glass-3d rounded-lg border p-5">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-sm font-semibold">
@@ -715,7 +717,7 @@ function MySoundsSection() {
       ) : (
         <div className="grid gap-2">
           {Object.entries(cfg.sounds).map(([key, spec]) => (
-            <div key={key} className="flex items-center gap-3 rounded-md border px-3 py-2">
+            <div key={key} className="flex items-center gap-3 glass-3d rounded-md border px-3 py-2">
               <span className="w-40 text-xs font-medium">{key.replace(/_/g, " ")}</span>
               <span className="w-14 text-xs text-muted-foreground">{spec.freq} Hz</span>
               <input
@@ -810,7 +812,7 @@ function AppearanceSection() {
   ] as const;
 
   return (
-    <section className="flex flex-col gap-4 rounded-lg border p-5">
+    <section className="flex flex-col gap-4 glass-3d rounded-lg border p-5">
       <div>
         <h2 className="flex items-center gap-2 text-sm font-semibold">
           <MonitorSmartphone className="size-4" /> App mode — my appearance
@@ -936,7 +938,7 @@ function StructureList({
         rows.map((r) => (
           <div
             key={r._id}
-            className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2"
+            className="flex flex-wrap items-center gap-2 glass-3d rounded-md border px-3 py-2"
           >
             {editingId === r._id ? (
               <>
@@ -1022,7 +1024,7 @@ function StructureList({
 function InventoryStructureSection() {
   const [tab, setTab] = useState<"categories" | "storages">("categories");
   return (
-    <section className="flex flex-col gap-4 rounded-lg border p-5">
+    <section className="flex flex-col gap-4 glass-3d rounded-lg border p-5">
       <div>
         <h2 className="flex items-center gap-2 text-sm font-semibold">
           <FolderTree className="size-4" /> Inventory structure
@@ -1069,6 +1071,7 @@ type SectionId =
   | "lists"
   | "chat-backup"
   | "card-layout"
+  | "permissions"
   | "danger";
 
 const SECTIONS: { id: SectionId; label: string; icon: typeof Hash; hint: string }[] = [
@@ -1081,6 +1084,7 @@ const SECTIONS: { id: SectionId; label: string; icon: typeof Hash; hint: string 
   { id: "returns", label: "Return rules", icon: Bell, hint: "Return-request cooldown" },
   { id: "structure", label: "Inventory structure", icon: FolderTree, hint: "Categories & storages" },
   { id: "card-layout", label: "Card print layout", icon: Printer, hint: "Page, card size & position" },
+  { id: "permissions", label: "Device permissions", icon: ShieldCheck, hint: "Notifications, camera, storage, sounds" },
   { id: "lists", label: "Club lists", icon: Boxes, hint: "Positions & academic states" },
   { id: "chat-backup", label: "Chat backups", icon: MessageSquare, hint: "Archive destinations" },
   { id: "danger", label: "Danger zone", icon: TriangleAlert, hint: "Reset the database" },
@@ -1148,7 +1152,7 @@ export default function AdminSettings() {
         </header>
 
         {/* ===== button-bar navigation ===== */}
-        <nav className="flex flex-wrap gap-1.5 rounded-lg border bg-card/60 p-2">
+        <nav className="flex flex-wrap gap-1.5 glass-3d rounded-lg border bg-card/60 p-2">
           {SECTIONS.map(({ id, label, icon: Icon, hint }) => (
             <button
               key={id}
@@ -1171,7 +1175,7 @@ export default function AdminSettings() {
 
         {/* ===== Bots & groups ===== */}
         {section === "telegram" && (
-          <section className="flex flex-col gap-4 rounded-lg border p-5">
+          <section className="flex flex-col gap-4 glass-3d rounded-lg border p-5">
             <div>
               <h2 className="text-sm font-semibold">Telegram bots & groups</h2>
               <p className="mt-1 text-xs text-muted-foreground">
@@ -1190,7 +1194,7 @@ export default function AdminSettings() {
               <>
                 <div className="grid gap-4 sm:grid-cols-2">
                   {/* APP BOT */}
-                  <div className="grid gap-3 rounded-lg border p-3">
+                  <div className="grid gap-3 glass-3d rounded-lg border p-3">
                     <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-primary">
                       <MessageSquare className="size-3.5" /> APP BOT
                     </p>
@@ -1228,7 +1232,7 @@ export default function AdminSettings() {
                   </div>
 
                   {/* PRINTER BOT */}
-                  <div className="grid gap-3 rounded-lg border p-3">
+                  <div className="grid gap-3 glass-3d rounded-lg border p-3">
                     <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-amber-400">
                       <Printer className="size-3.5" /> PRINTER BOT
                     </p>
@@ -1272,7 +1276,7 @@ export default function AdminSettings() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between rounded-md border px-3 py-2.5">
+                <div className="flex items-center justify-between glass-3d rounded-md border px-3 py-2.5">
                   <div>
                     <p className="text-sm font-medium">Notifications</p>
                     <p className="text-xs text-muted-foreground">
@@ -1308,7 +1312,7 @@ export default function AdminSettings() {
                   <Save className="size-4" /> Save bots & groups
                 </Button>
 
-                <div className="flex flex-col gap-2 rounded-md border border-dashed p-3">
+                <div className="flex flex-col gap-2 glass-3d rounded-md border border-dashed p-3">
                   <Label className="text-xs text-muted-foreground">Test the integration</Label>
                   <div className="flex flex-wrap gap-1.5">
                     {(["app", "printer"] as BotId[]).map((b) => (
@@ -1358,7 +1362,7 @@ export default function AdminSettings() {
 
         {/* ===== APP topics ===== */}
         {section === "topics-app" && (
-          <section className="flex flex-col gap-4 rounded-lg border p-5">
+          <section className="flex flex-col gap-4 glass-3d rounded-lg border p-5">
             <div>
               <h2 className="flex items-center gap-2 text-sm font-semibold">
                 <Hash className="size-4" /> APP group topics
@@ -1375,7 +1379,7 @@ export default function AdminSettings() {
 
         {/* ===== PRINTER topics ===== */}
         {section === "topics-printer" && (
-          <section className="flex flex-col gap-4 rounded-lg border p-5">
+          <section className="flex flex-col gap-4 glass-3d rounded-lg border p-5">
             <div>
               <h2 className="flex items-center gap-2 text-sm font-semibold">
                 <Printer className="size-4" /> PRINTER group topics
@@ -1398,7 +1402,7 @@ export default function AdminSettings() {
 
         {/* ===== Return-request cooldown ===== */}
         {section === "returns" && (
-          <section className="flex flex-col gap-4 rounded-lg border p-5">
+          <section className="flex flex-col gap-4 glass-3d rounded-lg border p-5">
             <div>
               <h2 className="text-sm font-semibold">Return requests</h2>
               <p className="mt-1 text-xs text-muted-foreground">
@@ -1450,7 +1454,7 @@ export default function AdminSettings() {
 
         {/* ===== Club lists ===== */}
         {section === "lists" && (
-          <section className="flex flex-col gap-5 rounded-lg border p-5">
+          <section className="flex flex-col gap-5 glass-3d rounded-lg border p-5">
             <div>
               <h2 className="text-sm font-semibold">Club lists</h2>
               <p className="mt-1 text-xs text-muted-foreground">
@@ -1476,8 +1480,23 @@ export default function AdminSettings() {
         {/* ===== chat backup destinations ===== */}
         {section === "card-layout" && <CardLayoutSection />}
 
+        {section === "permissions" && (
+          <section className="flex flex-col gap-4 glass-3d rounded-lg border p-5">
+            <div>
+              <h2 className="text-sm font-semibold">Device permissions (this device)</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Permissions are per-device and per-member: each person grants them on their own
+                device from their Profile page. This panel manages the device you're using now.
+                The same requests map to Android/iOS prompts when the app is wrapped as a mobile
+                app.
+              </p>
+            </div>
+            <PermissionsManager />
+          </section>
+        )}
+
         {section === "chat-backup" && (
-          <section className="rounded-lg border">
+          <section className="glass-3d rounded-lg border">
             <div className="border-b px-5 py-3">
               <h2 className="text-sm font-semibold">Chat backup destinations</h2>
               <p className="mt-1 text-xs text-muted-foreground">
