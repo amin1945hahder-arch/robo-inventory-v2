@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { BadgeCheck, Bot, ExternalLink, Loader2, Send, UserRoundCheck } from "lucide-react";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 
 /**
  * Telegram onboarding popup. Shown when a backup (or notification) needs the
@@ -73,7 +74,7 @@ export function TelegramLinkDialog({ open, onOpenChange }: { open: boolean; onOp
       setUsernameSaved(clean || null);
       toast.success("Telegram username saved");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to save");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }
@@ -86,7 +87,7 @@ export function TelegramLinkDialog({ open, onOpenChange }: { open: boolean; onOp
       toast.success("Chat id linked — Telegram DMs are now active");
       onOpenChange(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to link");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }

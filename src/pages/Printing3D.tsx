@@ -42,6 +42,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 import {
   Activity,
   Archive,
@@ -194,7 +195,7 @@ export default function Printing3D() {
       await fn();
       toast.success(ok);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Something went wrong");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }

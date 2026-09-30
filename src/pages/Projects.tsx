@@ -23,6 +23,7 @@ import {
 import { projectQr } from "@/lib/qr";
 import { compressImageFile } from "@/lib/utils";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 import type { Doc } from "@/convex/_generated/dataModel";
 
 type ProjectRow = Doc<"projects">;
@@ -102,7 +103,7 @@ export default function Projects() {
       setImageUrl("");
       setEditing(null);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }

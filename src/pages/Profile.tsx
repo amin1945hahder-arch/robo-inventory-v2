@@ -16,6 +16,7 @@ import { ageFromIso, compressImageFile } from "@/lib/utils";
 import { useAppearance } from "@/hooks/use-appearance";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 import { Camera, Check, Github, IdCard, Loader2, LogOut, MonitorSmartphone, Moon, Printer, Send, ShieldCheck, Sun } from "lucide-react";
 import { PersonBadgeDialog } from "@/components/PersonBadgeDialog";
 
@@ -136,7 +137,7 @@ export default function Profile() {
       await updateMyImage({ image: dataUrl });
       toast.success("Profile picture updated");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setImgBusy(false);
     }
@@ -166,7 +167,7 @@ export default function Profile() {
       }
       toast.success("Profile submitted — an admin will approve it shortly");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }
@@ -180,7 +181,7 @@ export default function Profile() {
       setWantedRoles([]);
       setRankMsg("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }
@@ -193,7 +194,7 @@ export default function Profile() {
       toast.success("Printer access requested — an admin will review it");
       setPrinterMsg("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }
@@ -349,7 +350,7 @@ export default function Profile() {
                   await setTgUser({ username: tgName });
                   toast.success("Telegram username saved");
                 } catch (e) {
-                  toast.error(e instanceof Error ? e.message : "Failed");
+                  toast.error(asMessage(e));
                 } finally {
                   setTgBusy(false);
                 }
@@ -376,7 +377,7 @@ export default function Profile() {
                     await setTgChatMut({ chatId: tgChat.trim() });
                     toast.success("Telegram chat ID saved");
                   } catch (e) {
-                    toast.error(e instanceof Error ? e.message : "Failed");
+                    toast.error(asMessage(e));
                   } finally {
                     setTgBusy(false);
                   }

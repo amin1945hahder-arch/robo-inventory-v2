@@ -14,6 +14,7 @@ import {
 import { LoadingGifInline } from "@/components/LoadingGif";
 import { Save } from "lucide-react";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 import { pageMm, placedCardMm, type CardPrintLayout } from "@/lib/card-print-layout";
 import { PaperPreview, mm, usePaperScale } from "@/components/PaperPreview";
 import { DEFAULT_CARD_LAYOUT } from "@/convex/settings";
@@ -123,7 +124,7 @@ export function CardLayoutSection() {
       setDraft(next);
       toast.success("Card print layout saved — used by every card print & download");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to save");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }

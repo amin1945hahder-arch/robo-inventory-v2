@@ -27,6 +27,7 @@ import {
 import { unitQr } from "@/lib/qr";
 import { describePackSize, isPackGroup } from "@/lib/group-measure";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 import { ArrowLeft, History, Pencil, Printer, Trash2 } from "lucide-react";
 import { SquarePen } from "lucide-react";
 
@@ -165,7 +166,7 @@ export default function PartDetail() {
       toast.success("Request sent — the lab admin has been notified by email and dashboard");
       setNote("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to send request");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }
@@ -238,7 +239,7 @@ export default function PartDetail() {
                     toast.success("Unit deleted");
                     navigate(`/group/${part.groupId}`);
                   } catch (e) {
-                    toast.error(e instanceof Error ? e.message : "Failed");
+                    toast.error(asMessage(e));
                   }
                 }}
               >
@@ -424,7 +425,7 @@ export default function PartDetail() {
                               await returnDirect({ partId: part._id, functional: true });
                               toast.success("Returned to shelf");
                             } catch (e) {
-                              toast.error(e instanceof Error ? e.message : "Failed");
+                              toast.error(asMessage(e));
                             }
                           }}
                         >
@@ -437,7 +438,7 @@ export default function PartDetail() {
                               await returnDirect({ partId: part._id, functional: false });
                               toast.success("Marked broken");
                             } catch (e) {
-                              toast.error(e instanceof Error ? e.message : "Failed");
+                              toast.error(asMessage(e));
                             }
                           }}
                         >
@@ -488,7 +489,7 @@ export default function PartDetail() {
                               toast.success("Broken-unit request sent — an admin will review it");
                               setNote("");
                             } catch (e) {
-                              toast.error(e instanceof Error ? e.message : "Failed");
+                              toast.error(asMessage(e));
                             } finally {
                               setBusy(false);
                             }
@@ -796,7 +797,7 @@ export default function PartDetail() {
                   toast.success("Unit updated");
                   setEditOpen(false);
                 } catch (e) {
-                  toast.error(e instanceof Error ? e.message : "Failed");
+                  toast.error(asMessage(e));
                 }
               }}
             >

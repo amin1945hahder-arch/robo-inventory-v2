@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 import { Loader2 } from "lucide-react";
 import type { Doc } from "@/convex/_generated/dataModel";
 
@@ -77,7 +78,7 @@ export function PrinterFormDialog({
       toast.success(printer ? "Printer updated." : "Printer registered.");
       onOpenChange(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not save the printer");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }

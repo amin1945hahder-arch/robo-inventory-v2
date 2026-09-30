@@ -23,6 +23,7 @@ import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 import { Loader2 } from "lucide-react";
 
 /**
@@ -161,7 +162,7 @@ export function UnitEditDialog({
           ok += 1;
         } catch (e) {
           toast.error(
-            `${u.tag}: ${e instanceof Error ? e.message : "update failed"}`,
+            `${u.tag}: ${asMessage(e)}`,
           );
         }
       }

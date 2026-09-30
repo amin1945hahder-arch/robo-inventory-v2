@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   action,
   internalAction,
@@ -153,7 +153,7 @@ export const setBackupSettings = mutation({
   handler: async (ctx, { enabled, dayOfMonth, threadId }) => {
     await requireAdmin(ctx);
     if (!Number.isInteger(dayOfMonth) || dayOfMonth < 0 || dayOfMonth > 28) {
-      throw new Error("Day must be 1–28 (0 disables the schedule)");
+      throw new ConvexError("Day must be 1–28 (0 disables the schedule)");
     }
     const next: BackupSchedule = {
       enabled,
@@ -231,7 +231,7 @@ export const backupNow = action({
   handler: async (ctx) => {
     const me = await ctx.runQuery(internal.users.currentInternalUser, {});
     const u = me as { role?: string } | null;
-    if (!u || u.role !== "admin") throw new Error("Admin access required");
+    if (!u || u.role !== "admin") throw new ConvexError("Admin access required");
     return buildAndSend(ctx, "manual");
   },
 });

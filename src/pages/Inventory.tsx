@@ -42,6 +42,7 @@ import {
 import { categoryQr, normalizeScan } from "@/lib/qr";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 import {
   FolderOpen,
   MoreVertical,
@@ -118,7 +119,7 @@ export default function Inventory() {
       if (res.deleted > 0) toast.success(`${res.deleted} group(s) deleted`);
       if (res.skipped.length > 0) toast.warning(`Skipped: ${res.skipped.join(", ")}`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     }
   };
   const bulkDeleteGroups = useMutation(api.catalog.bulkDeleteGroups);
@@ -256,18 +257,40 @@ export default function Inventory() {
           </div>
         </header>
 
-        {isAdmin && selected.size > 0 && (
-          <div className="sticky top-16 z-20 flex flex-wrap items-center gap-2 glass-3d rounded-lg border border-primary/40 bg-background/95 px-4 py-2.5 shadow-sm backdrop-blur">
-            <span className="text-sm font-medium">{selected.size} group(s) selected</span>
-            <Button size="sm" variant="outline" onClick={() => setBulkEditOpen(true)}>
-              <Pencil className="size-3.5" /> Edit selected
-            </Button>
-            <Button size="sm" variant="outline" className="text-destructive" onClick={bulkDelete}>
-              <Trash2 className="size-3.5" /> Delete selected
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
-              Clear selection
-            </Button>
+        {isAdmin && (
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Select-all: every group currently shown by the filters. */}
+            <Checkbox
+              checked={filtered.length > 0 && filtered.every((g) => selected.has(g._id))}
+              onCheckedChange={() => {
+                setSelected((prev) => {
+                  if (filtered.length > 0 && filtered.every((g) => prev.has(g._id))) {
+                    const next = new Set(prev);
+                    for (const g of filtered) next.delete(g._id);
+                    return next;
+                  }
+                  return new Set([...prev, ...filtered.map((g) => g._id)]);
+                });
+              }}
+              aria-label="Select all groups"
+              className="ml-1"
+            />
+            <span className="text-xs text-muted-foreground">
+              Select all{selected.size > 0 ? ` · ${selected.size} selected` : ""}
+            </span>
+            {selected.size > 0 && (
+              <>
+                <Button size="sm" variant="outline" onClick={() => setBulkEditOpen(true)}>
+                  <Pencil className="size-3.5" /> Edit selected
+                </Button>
+                <Button size="sm" variant="outline" className="text-destructive" onClick={bulkDelete}>
+                  <Trash2 className="size-3.5" /> Delete selected
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
+                  Clear selection
+                </Button>
+              </>
+            )}
           </div>
         )}
 
@@ -410,7 +433,7 @@ export default function Inventory() {
                                 await deleteCategory({ id: cat._id });
                                 toast.success("Category deleted");
                               } catch (e) {
-                                toast.error(e instanceof Error ? e.message : "Failed");
+                                toast.error(asMessage(e));
                               }
                             }}
                           >
@@ -454,7 +477,7 @@ export default function Inventory() {
                                 await deleteGroup({ id: g._id });
                                 toast.success("Group deleted");
                               } catch (e) {
-                                toast.error(e instanceof Error ? e.message : "Failed");
+                                toast.error(asMessage(e));
                               }
                             }}
                           />
@@ -521,7 +544,7 @@ export default function Inventory() {
                   setCatName("");
                   setCatDesc("");
                 } catch (e) {
-                  toast.error(e instanceof Error ? e.message : "Failed");
+                  toast.error(asMessage(e));
                 }
               }}
             >
@@ -561,7 +584,7 @@ export default function Inventory() {
                   toast.success("Category updated");
                   setEditingCat(null);
                 } catch (e) {
-                  toast.error(e instanceof Error ? e.message : "Failed");
+                  toast.error(asMessage(e));
                 }
               }}
             >

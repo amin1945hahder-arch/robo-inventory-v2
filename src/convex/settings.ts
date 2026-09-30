@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import {
   action,
   internalMutation,
@@ -346,7 +346,7 @@ export const setReturnCooldown = mutation({
   handler: async (ctx, { hours }) => {
     await requireAdmin(ctx);
     if (!Number.isFinite(hours) || hours < 0 || hours > 24 * 30) {
-      throw new Error("Cooldown must be between 0 and 720 hours");
+      throw new ConvexError("Cooldown must be between 0 and 720 hours");
     }
     const row = await ctx.db
       .query("settings")
@@ -460,10 +460,10 @@ export const setChatBackupDestination = mutation({
   handler: async (ctx, { mode, chatId, webhookUrl }) => {
     await requireAdmin(ctx);
     if (mode === "telegram" && !chatId?.trim()) {
-      throw new Error("A chat id is required for the Telegram destination");
+      throw new ConvexError("A chat id is required for the Telegram destination");
     }
     if (mode === "webhook" && !webhookUrl?.trim()) {
-      throw new Error("A webhook URL is required for the webhook destination");
+      throw new ConvexError("A webhook URL is required for the webhook destination");
     }
     const value = JSON.stringify({
       mode,
@@ -495,7 +495,7 @@ export const sendTestMessage = action({
     { text, bot, threadId },
   ): Promise<{ sent: boolean; reason?: string }> => {
     const me = await ctx.runQuery(api.users.currentUser, {});
-    if (!me || me.role !== "admin") throw new Error("Admin access required");
+    if (!me || me.role !== "admin") throw new ConvexError("Admin access required");
     return await ctx.runAction(internal.telegram.sendManual, {
       text: text.trim() || "✅ Test message from the Robotics Club inventory app",
       bot: bot ?? "app",

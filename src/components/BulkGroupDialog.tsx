@@ -22,6 +22,7 @@ import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 import { Loader2 } from "lucide-react";
 
 /**
@@ -95,7 +96,7 @@ export function BulkGroupDialog({
       );
       onOpenChange(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }

@@ -303,15 +303,15 @@ export const updatePart = mutation({
   handler: async (ctx, { id, tag, status, note, imageUrl, projectId, holderId, rentedAt, dueAt, moveGroupId, transferToName }) => {
     await requireAdmin(ctx);
     const currentPart = await ctx.db.get(id);
-    if (!currentPart) throw new Error("Part not found");
+    if (!currentPart) throw new ConvexError("Part not found");
     if (moveGroupId && moveGroupId !== currentPart.groupId) {
       const target = await ctx.db.get(moveGroupId);
-      if (!target || target.deleted) throw new Error("Target group not found");
+      if (!target || target.deleted) throw new ConvexError("Target group not found");
       if (target.measure === "weight" || target.measure === "length") {
-        throw new Error("Weight/length groups track material — use their own add-unit flow");
+        throw new ConvexError("Weight/length groups track material — use their own add-unit flow");
       }
       if (target.measure === "pack") {
-        throw new Error("Pack groups hold only their own packs — use their Add-unit flow instead");
+        throw new ConvexError("Pack groups hold only their own packs — use their Add-unit flow instead");
       }
       // Master containers hold groups, not units.
       const all = await ctx.db
@@ -320,10 +320,10 @@ export const updatePart = mutation({
         .filter((q) => q.neq(q.field("deleted"), true))
         .collect();
       if (all.some((g) => g.parentGroupId === moveGroupId)) {
-        throw new Error("Master containers hold groups, not units — pick a normal group");
+        throw new ConvexError("Master containers hold groups, not units — pick a normal group");
       }
       if (currentPart.status !== "available" && currentPart.status !== "broken") {
-        throw new Error("Only shelf units (available/broken) can be moved — return it first");
+        throw new ConvexError("Only shelf units (available/broken) can be moved — return it first");
       }
       await ctx.db.patch(id, { groupId: moveGroupId });
       // Re-sync both groups' quantity totals.
@@ -371,13 +371,13 @@ export const updatePart = mutation({
       status ?? (part.status as typeof nextStatus);
     if (wantsProject && toProject) {
       const project = await ctx.db.get(toProject);
-      if (!project || project.deleted) throw new Error("Project not found");
-      if (project.status !== "active") throw new Error("Project must be active");
+      if (!project || project.deleted) throw new ConvexError("Project not found");
+      if (project.status !== "active") throw new ConvexError("Project must be active");
       nextStatus = "on_project";
     } else if (wantsHolder) {
       if (toHolder) {
         const holder = await ctx.db.get(toHolder);
-        if (!holder) throw new Error("Member not found");
+        if (!holder) throw new ConvexError("Member not found");
         nextStatus = "rented";
       } else if (nextStatus === "rented" || nextStatus === "on_project") {
         // Releasing the holder with no explicit status → back on the shelf.
@@ -474,7 +474,7 @@ export const deletePart = mutation({
     const part = await ctx.db.get(id);
     if (!part) return;
     if (part.status === "rented" || part.status === "on_project") {
-      throw new Error("Part is out on rent or a project. Process a return first.");
+      throw new ConvexError("Part is out on rent or a project. Process a return first.");
     }
     await ctx.db.delete(id);
     const group = await ctx.db.get(part.groupId);
@@ -566,14 +566,14 @@ export const requestRental = mutation({
   handler: async (ctx, { partId, groupId, note }) => {
     const user = await requireInteractingMember(ctx);
     const part = await ctx.db.get(partId);
-    if (!part) throw new Error("Part not found");
+    if (!part) throw new ConvexError("Part not found");
     if (part.status !== "available") {
-      throw new Error("This unit is not available right now");
+      throw new ConvexError("This unit is not available right now");
     }
     const group0 = await ctx.db.get(part.groupId);
     // An emptied pack (all pieces consumed) is out of circulation.
     if (group0?.measure === "pack" && Number(part.amountRemaining ?? 0) <= 0) {
-      throw new Error("This pack is empty — log pieces via Update consumption before lending it again");
+      throw new ConvexError("This pack is empty — log pieces via Update consumption before lending it again");
     }
     // Storage-alias groups (named exactly like a storage) open the storage
     // when their QR is scanned — they cannot be lent.
@@ -583,7 +583,7 @@ export const requestRental = mutation({
       .withIndex("by_part", (q) => q.eq("partId", partId))
       .filter((q) => q.eq(q.field("status"), "pending"))
       .first();
-    if (existing) throw new Error("There is already a pending request for this unit");
+    if (existing) throw new ConvexError("There is already a pending request for this unit");
     const group = await ctx.db.get(groupId);
 
     const rentalId = await ctx.db.insert("rentals", {
@@ -647,7 +647,7 @@ export const requestRentalQuantity = mutation({
     const user = await requireInteractingMember(ctx);
     const wanted = Math.max(1, Math.min(50, Math.ceil(count)));
     const group = await ctx.db.get(groupId);
-    if (!group || group.deleted) throw new Error("Group not found");
+    if (!group || group.deleted) throw new ConvexError("Group not found");
     // Storage-alias groups cannot be lent (see assertGroupLendable).
     await assertGroupLendable(ctx, groupId);
     const candidates = await ctx.db
@@ -662,7 +662,7 @@ export const requestRentalQuantity = mutation({
         !(group.measure === "pack" && Number(p.amountRemaining ?? 0) <= 0),
     );
     if (free.length < wanted) {
-      throw new Error(`Only ${free.length} unit(s) available (you asked for ${wanted})`);
+      throw new ConvexError(`Only ${free.length} unit(s) available (you asked for ${wanted})`);
     }
     const pool = free.slice(0, wanted);
     const label = user.name ?? user.email ?? "A member";
@@ -672,7 +672,7 @@ export const requestRentalQuantity = mutation({
         .withIndex("by_part", (q) => q.eq("partId", part._id))
         .filter((q) => q.eq(q.field("status"), "pending"))
         .first();
-      if (existing) throw new Error(`Unit ${part.tag} already has a pending request`);
+      if (existing) throw new ConvexError(`Unit ${part.tag} already has a pending request`);
       await ctx.db.insert("rentals", {
         partId: part._id,
         userId: user._id,
@@ -707,16 +707,16 @@ export const rentBrokenPart = mutation({
   handler: async (ctx, { partId, note }) => {
     const user = await requireInteractingMember(ctx);
     const part = await ctx.db.get(partId);
-    if (!part) throw new Error("Part not found");
+    if (!part) throw new ConvexError("Part not found");
     if (part.status !== "broken") {
-      throw new Error("This unit is not flagged broken — use the normal request");
+      throw new ConvexError("This unit is not flagged broken — use the normal request");
     }
     const existing = await ctx.db
       .query("rentals")
       .withIndex("by_part", (q) => q.eq("partId", partId))
       .filter((q) => q.eq(q.field("status"), "pending"))
       .first();
-    if (existing) throw new Error("There is already a pending request for this unit");
+    if (existing) throw new ConvexError("There is already a pending request for this unit");
     const group = await ctx.db.get(part.groupId);
     const label = user.name ?? user.email ?? "A member";
     await ctx.db.insert("rentals", {
@@ -749,10 +749,10 @@ export const deleteMyRentalRequest = mutation({
   handler: async (ctx, { rentalId }) => {
     const user = await requireInteractingMember(ctx);
     const rental = await ctx.db.get(rentalId);
-    if (!rental) throw new Error("Rental not found");
-    if (rental.userId !== user._id) throw new Error("Not your request");
+    if (!rental) throw new ConvexError("Rental not found");
+    if (rental.userId !== user._id) throw new ConvexError("Not your request");
     if (rental.status !== "pending") {
-      throw new Error("Only pending requests can be deleted — after approval use a return instead");
+      throw new ConvexError("Only pending requests can be deleted — after approval use a return instead");
     }
     const part = await ctx.db.get(rental.partId);
     await ctx.db.delete(rentalId);
@@ -772,17 +772,17 @@ export const requestReturn = mutation({
   handler: async (ctx, { rentalId }) => {
     const user = await requireInteractingMember(ctx);
     const rental = await ctx.db.get(rentalId);
-    if (!rental) throw new Error("Rental not found");
-    if (rental.userId !== user._id) throw new Error("Not your rental");
+    if (!rental) throw new ConvexError("Rental not found");
+    if (rental.userId !== user._id) throw new ConvexError("Not your rental");
     if (rental.status !== "active") {
-      throw new Error("Only active rentals can be returned");
+      throw new ConvexError("Only active rentals can be returned");
     }
     const cooldownHours = await returnCooldownHours(ctx);
     if (rental.returnRequestedAt) {
       const elapsedH = (Date.now() - rental.returnRequestedAt) / 36e5;
       if (elapsedH < cooldownHours) {
         const remaining = Math.ceil(cooldownHours - elapsedH);
-        throw new Error(
+        throw new ConvexError(
           `You already requested a return for this rental — you can ask again in ${remaining}h`,
         );
       }
@@ -816,10 +816,10 @@ export const decideRental = mutation({
       await requireAdmin(ctx);
     }
     const rental = await ctx.db.get(rentalId);
-    if (!rental) throw new Error("Rental not found");
-    if (rental.status !== "pending") throw new Error("This request was already handled");
+    if (!rental) throw new ConvexError("Rental not found");
+    if (rental.status !== "pending") throw new ConvexError("This request was already handled");
     const part = await ctx.db.get(rental.partId);
-    if (!part) throw new Error("Part no longer exists");
+    if (!part) throw new ConvexError("Part no longer exists");
     const group = part ? await ctx.db.get(part.groupId) : null;
     const student = await ctx.db.get(rental.userId);
 
@@ -923,9 +923,9 @@ export const adminRentalAction = mutation({
   ) => {
     const admin = await requireAdmin(ctx);
     const rental = await ctx.db.get(rentalId);
-    if (!rental) throw new Error("Rental not found");
+    if (!rental) throw new ConvexError("Rental not found");
     const part = await ctx.db.get(rental.partId);
-    if (!part) throw new Error("Part no longer exists");
+    if (!part) throw new ConvexError("Part no longer exists");
     const group = await ctx.db.get(part.groupId);
     const student = await ctx.db.get(rental.userId);
     const now = Date.now();
@@ -934,12 +934,12 @@ export const adminRentalAction = mutation({
       // Approval reserves the unit (or bulk amount) for the member; the
       // physical handover is a separate admin step ("Taken"/"Picked up"),
       // which decrements inventory.
-      if (rental.status !== "pending") throw new Error("This request was already handled");
+      if (rental.status !== "pending") throw new ConvexError("This request was already handled");
       const isBulk = group?.measure === "weight" || group?.measure === "length";
       if (isBulk) {
         const amt = rental.amount;
         if (amt === undefined || !Number.isFinite(amt) || amt <= 0) {
-          throw new Error("Bulk request has no amount — deny it and ask the member to request again");
+          throw new ConvexError("Bulk request has no amount — deny it and ask the member to request again");
         }
         // Stock may have drifted since the request: re-check that a feasible
         // per-unit split still exists before saying yes.
@@ -958,7 +958,7 @@ export const adminRentalAction = mutation({
           })),
           amt,
         );
-        if (!plan.ok) throw new Error(plan.error);
+        if (!plan.ok) throw new ConvexError(plan.error);
       }
       await ctx.db.patch(rentalId, { status: "approved", decidedAt: now, pickupAt });
       const amountLabel = rental.amount !== undefined ? ` (${rental.amount} ${group?.measureUnit ?? ""})` : "";
@@ -1005,7 +1005,7 @@ export const adminRentalAction = mutation({
         `✅ ${admin.name ?? admin.email} approved ${student?.name ?? student?.email ?? "a member"}'s rental of ${group?.name ?? "a part"} (${part.tag}) — pick-up ${pickupLabel}.`,
       );
     } else if (action === "deny") {
-      if (rental.status !== "pending") throw new Error("This request was already handled");
+      if (rental.status !== "pending") throw new ConvexError("This request was already handled");
       await ctx.db.patch(rentalId, { status: "denied", decidedAt: now });
       // Broken-unit requests return the unit to the broken pool, not the shelf.
       if (part.status === "pending") {
@@ -1045,7 +1045,7 @@ export const adminRentalAction = mutation({
       // up) — THIS is the moment the unit leaves the inventory (status →
       // rented, holder set, pickup timestamp recorded).
       if (rental.status !== "approved") {
-        throw new Error("Only approved (not yet picked up) rentals can be marked taken");
+        throw new ConvexError("Only approved (not yet picked up) rentals can be marked taken");
       }
       const isBulk = group?.measure === "weight" || group?.measure === "length";
       if (isBulk) {
@@ -1055,7 +1055,7 @@ export const adminRentalAction = mutation({
         // minimum. The BULK placeholder part never becomes "rented".
         const amt = rental.amount;
         if (amt === undefined || !Number.isFinite(amt) || amt <= 0) {
-          throw new Error("This bulk rental has no amount set — deny it and ask the member to request again");
+          throw new ConvexError("This bulk rental has no amount set — deny it and ask the member to request again");
         }
         const units = (
           await ctx.db
@@ -1072,7 +1072,7 @@ export const adminRentalAction = mutation({
           })),
           amt,
         );
-        if (!plan.ok) throw new Error(plan.error);
+        if (!plan.ok) throw new ConvexError(plan.error);
         const tagName = new Map(units.map((p: any) => [p._id, p.tag as string]));
         const allocationNote = describePlan(plan.plan, (id) => tagName.get(id), group!.measureUnit);
         for (const take of plan.plan) {
@@ -1146,7 +1146,7 @@ export const adminRentalAction = mutation({
         "rentals",
       );
     } else if (action === "mark_returned") {
-      if (rental.status !== "active") throw new Error("Rental is not active");
+      if (rental.status !== "active") throw new ConvexError("Rental is not active");
       const isBulk = group?.measure === "weight" || group?.measure === "length";
       // Bulk consumable returns: the admin re-measures what physically came
       // back; the taken-but-not-returned remainder is consumed stock. Only
@@ -1164,10 +1164,10 @@ export const adminRentalAction = mutation({
           recovered = takenTotal;
         }
         if (!Number.isFinite(recovered) || recovered < 0) {
-          throw new Error("Recovered amount must be ≥ 0");
+          throw new ConvexError("Recovered amount must be ≥ 0");
         }
         if (recovered > takenTotal + 1e-9) {
-          throw new Error(
+          throw new ConvexError(
             `Recovered (${recovered}) cannot exceed the taken amount (${takenTotal} ${group?.measureUnit ?? ""})`,
           );
         }
@@ -1243,9 +1243,9 @@ export const adminRentalAction = mutation({
       // department / lab / person. Requires a destination name; details and a
       // documentation file/photo are optional. Kept on the ledger so the QR
       // still resolves and the audit trail shows where it went.
-      if (rental.status !== "active") throw new Error("Rental is not active");
+      if (rental.status !== "active") throw new ConvexError("Rental is not active");
       const destName = transferToName?.trim();
-      if (!destName) throw new Error("Enter the transfer destination name");
+      if (!destName) throw new ConvexError("Enter the transfer destination name");
       await ctx.db.patch(rentalId, {
         status: "returned",
         returnedAt: now,
@@ -1301,10 +1301,10 @@ export const adminRentalAction = mutation({
         "inventory",
       );
     } else if (action === "assign_project") {
-      if (rental.status !== "active") throw new Error("Rental is not active");
-      if (!projectId) throw new Error("Select a project");
+      if (rental.status !== "active") throw new ConvexError("Rental is not active");
+      if (!projectId) throw new ConvexError("Select a project");
       const project = await ctx.db.get(projectId);
-      if (!project || project.status !== "active") throw new Error("Project must be active");
+      if (!project || project.status !== "active") throw new ConvexError("Project must be active");
       await ctx.db.patch(rentalId, {
         status: "on_project",
         returnedAt: now,
@@ -1344,7 +1344,7 @@ export const adminRentalAction = mutation({
         project.name,
       );
     } else if (action === "mark_broken") {
-      if (rental.status !== "active") throw new Error("Rental is not active");
+      if (rental.status !== "active") throw new ConvexError("Rental is not active");
       await ctx.db.patch(rentalId, { status: "returned", returnedAt: now, returnDestination: "shelf", functional: false, conditionReport: conditionReport?.trim(), returnRequestedAt: undefined });
       const isBulkBroken = group?.measure === "weight" || group?.measure === "length";
       if (isBulkBroken) {
@@ -1396,22 +1396,22 @@ export const returnWholePackage = mutation({
   ) => {
     const admin = await requireAdmin(ctx);
     const pkg = await ctx.db.get(packageId);
-    if (!pkg) throw new Error("Package not found");
+    if (!pkg) throw new ConvexError("Package not found");
     const mine = await ctx.db
       .query("rentals")
       .withIndex("by_user", (q) => q.eq("userId", pkg.userId))
       .collect();
     const active = mine.filter((r) => r.packageId === packageId && r.status === "active");
-    if (active.length === 0) throw new Error("No active units left in this package");
+    if (active.length === 0) throw new ConvexError("No active units left in this package");
 
     let project: any = null;
     if (destination === "project") {
-      if (!projectId) throw new Error("Select a project");
+      if (!projectId) throw new ConvexError("Select a project");
       project = await ctx.db.get(projectId);
-      if (!project || project.status !== "active") throw new Error("Project must be active");
+      if (!project || project.status !== "active") throw new ConvexError("Project must be active");
     }
     if (destination === "transferred" && !transferToName?.trim()) {
-      throw new Error("Enter the transfer destination name");
+      throw new ConvexError("Enter the transfer destination name");
     }
 
     const now = Date.now();
@@ -1537,9 +1537,9 @@ export const setPartStatusDirect = mutation({
   handler: async (ctx, { partId, functional, conditionReport }) => {
     await requireAdmin(ctx);
     const part = await ctx.db.get(partId);
-    if (!part) throw new Error("Part not found");
+    if (!part) throw new ConvexError("Part not found");
     if (part.status !== "rented") {
-      throw new Error("Only rented parts can be returned here");
+      throw new ConvexError("Only rented parts can be returned here");
     }
     await ctx.db.patch(part._id, {
       status: functional ? "available" : "broken",
@@ -1575,12 +1575,12 @@ export const assignPartToProject = mutation({
   handler: async (ctx, { partId, projectId, functional, conditionReport }) => {
     await requireAdmin(ctx);
     const part = await ctx.db.get(partId);
-    if (!part) throw new Error("Part not found");
+    if (!part) throw new ConvexError("Part not found");
     if (part.status !== "rented") {
-      throw new Error("Only rented parts can be assigned to a project");
+      throw new ConvexError("Only rented parts can be assigned to a project");
     }
     const project = await ctx.db.get(projectId);
-    if (!project || project.status !== "active") throw new Error("Project must be active");
+    if (!project || project.status !== "active") throw new ConvexError("Project must be active");
     await ctx.db.patch(part._id, {
       status: "on_project",
       currentHolderId: undefined,
@@ -1665,9 +1665,9 @@ export const cancelMyRequest = mutation({
   handler: async (ctx, { rentalId }) => {
     const user = await requireInteractingMember(ctx);
     const rental = await ctx.db.get(rentalId);
-    if (!rental) throw new Error("Rental not found");
-    if (rental.userId !== user._id) throw new Error("Not your request");
-    if (rental.status !== "pending") throw new Error("Only pending requests can be canceled");
+    if (!rental) throw new ConvexError("Rental not found");
+    if (rental.userId !== user._id) throw new ConvexError("Not your request");
+    if (rental.status !== "pending") throw new ConvexError("Only pending requests can be canceled");
     await ctx.db.patch(rentalId, { status: "canceled", decidedAt: Date.now() });
     const part = await ctx.db.get(rental.partId);
     if (part && part.status === "pending") {
@@ -1795,7 +1795,7 @@ export const adminDmMember = mutation({
   handler: async (ctx, { userId, text }) => {
     const admin = await requireAdmin(ctx);
     const clean = text.trim();
-    if (!clean) throw new Error("Message is empty");
+    if (!clean) throw new ConvexError("Message is empty");
     await ctx.scheduler.runAfter(0, internal.telegram.dmMember, {
       userId,
       text: clean.slice(0, 3000),
@@ -1901,7 +1901,7 @@ export const getPackage = query({
     const pkg = await ctx.db.get(id);
     if (!pkg) return null;
     if (pkg.userId !== user._id && user.role !== "admin") {
-      throw new Error("Not your package");
+      throw new ConvexError("Not your package");
     }
     const requester = await ctx.db.get(pkg.userId);
     const rentals = await ctx.db
@@ -1952,19 +1952,19 @@ export const createPackage = mutation({
   },
   handler: async (ctx, { lines, note }) => {
     const user = await requireInteractingMember(ctx);
-    if (!lines.length) throw new Error("Add at least one item");
-    if (lines.length > MAX_PACKAGE_LINES) throw new Error(`Packages are limited to ${MAX_PACKAGE_LINES} items`);
+    if (!lines.length) throw new ConvexError("Add at least one item");
+    if (lines.length > MAX_PACKAGE_LINES) throw new ConvexError(`Packages are limited to ${MAX_PACKAGE_LINES} items`);
 
     // Resolve units up front: enough available units per group, skipping
     // broken ones unless the member explicitly opts in (rent-broken feature).
     const chosen: { partId: Id<"parts">; groupId: Id<"groups"> }[] = [];
     for (const line of lines) {
-      if (line.count < 1) throw new Error("Each line needs at least 1 unit");
-      if (line.count > MAX_UNITS_PER_LINE) throw new Error(`Max ${MAX_UNITS_PER_LINE} units per item`);
+      if (line.count < 1) throw new ConvexError("Each line needs at least 1 unit");
+      if (line.count > MAX_UNITS_PER_LINE) throw new ConvexError(`Max ${MAX_UNITS_PER_LINE} units per item`);
       const group = await ctx.db.get(line.groupId);
       // Storage-alias groups cannot be lent, also not inside a package.
       await assertGroupLendable(ctx, line.groupId);
-      if (!group || group.deleted) throw new Error(`"${group?.name ?? "item"}" no longer exists`);
+      if (!group || group.deleted) throw new ConvexError(`"${group?.name ?? "item"}" no longer exists`);
       const candidates = await ctx.db
         .query("parts")
         .withIndex("by_group", (q) => q.eq("groupId", line.groupId))
@@ -1974,7 +1974,7 @@ export const createPackage = mutation({
       const free = candidates.filter((p) => p.status === "available");
       const broken = candidates.filter((p) => p.status === "broken");
       if (free.length < wanted) {
-        throw new Error(
+        throw new ConvexError(
           `Not enough free units of ${group.name}: need ${wanted}, only ${free.length} available` +
             (broken.length ? ` (${broken.length} broken — ask an admin or rent them from the unit's own page)` : ""),
         );
@@ -2046,10 +2046,10 @@ export const editPackage = mutation({
   handler: async (ctx, { packageId, lines, note }) => {
     const user = await requireInteractingMember(ctx);
     const pkg = await ctx.db.get(packageId);
-    if (!pkg) throw new Error("Package not found");
-    if (pkg.userId !== user._id) throw new Error("Not your package");
-    if (pkg.status !== "pending") throw new Error("Only pending packages can be edited");
-    if (!lines.length) throw new Error("Add at least one item");
+    if (!pkg) throw new ConvexError("Package not found");
+    if (pkg.userId !== user._id) throw new ConvexError("Not your package");
+    if (pkg.status !== "pending") throw new ConvexError("Only pending packages can be edited");
+    if (!lines.length) throw new ConvexError("Add at least one item");
 
     // Release every claimed unit, then re-claim for the new lines.
     const oldRentals = await ctx.db
@@ -2064,12 +2064,12 @@ export const editPackage = mutation({
 
     const chosen: { partId: Id<"parts">; groupId: Id<"groups"> }[] = [];
     for (const line of lines) {
-      if (line.count < 1) throw new Error("Each line needs at least 1 unit");
-      if (line.count > MAX_UNITS_PER_LINE) throw new Error(`Max ${MAX_UNITS_PER_LINE} units per item`);
+      if (line.count < 1) throw new ConvexError("Each line needs at least 1 unit");
+      if (line.count > MAX_UNITS_PER_LINE) throw new ConvexError(`Max ${MAX_UNITS_PER_LINE} units per item`);
       const group = await ctx.db.get(line.groupId);
       // Storage-alias groups cannot be lent, also not inside a package.
       await assertGroupLendable(ctx, line.groupId);
-      if (!group || group.deleted) throw new Error(`"${group?.name ?? "item"}" no longer exists`);
+      if (!group || group.deleted) throw new ConvexError(`"${group?.name ?? "item"}" no longer exists`);
       const candidates = await ctx.db
         .query("parts")
         .withIndex("by_group", (q) => q.eq("groupId", line.groupId))
@@ -2078,7 +2078,7 @@ export const editPackage = mutation({
       const wanted = Math.ceil(line.count);
       const free = candidates.filter((p) => p.status === "available");
       if (free.length < wanted) {
-        throw new Error(`Not enough free units of ${group.name}: need ${wanted}, only ${free.length} available`);
+        throw new ConvexError(`Not enough free units of ${group.name}: need ${wanted}, only ${free.length} available`);
       }
       const pool = free.slice(0, wanted);
       for (const part of pool) chosen.push({ partId: part._id, groupId: line.groupId });
@@ -2145,12 +2145,12 @@ export const adminEditPackage = mutation({
   handler: async (ctx, { packageId, lines, note, pickupAt, removeRentalIds, userId }) => {
     const admin = await requireAdmin(ctx);
     const pkg = await ctx.db.get(packageId);
-    if (!pkg) throw new Error("Package not found");
+    if (!pkg) throw new ConvexError("Package not found");
     if (pkg.status !== "pending" && pkg.status !== "approved") {
-      throw new Error("Only pending or approved packages can be edited");
+      throw new ConvexError("Only pending or approved packages can be edited");
     }
-    if (!lines.length) throw new Error("Add at least one item");
-    if (lines.length > MAX_PACKAGE_LINES) throw new Error(`Packages are limited to ${MAX_PACKAGE_LINES} items`);
+    if (!lines.length) throw new ConvexError("Add at least one item");
+    if (lines.length > MAX_PACKAGE_LINES) throw new ConvexError(`Packages are limited to ${MAX_PACKAGE_LINES} items`);
 
     const now = Date.now();
     const cleanLines = lines.map((l) => ({
@@ -2170,7 +2170,7 @@ export const adminEditPackage = mutation({
     let renterId: any = pkg.userId;
     if (userId !== undefined && userId !== pkg.userId) {
       const newHolder = await ctx.db.get(userId);
-      if (!newHolder) throw new Error("New renter not found");
+      if (!newHolder) throw new ConvexError("New renter not found");
       renterId = userId;
     }
 
@@ -2181,7 +2181,7 @@ export const adminEditPackage = mutation({
       // re-pick would delete a record that still holds its unit.
       const holding = pkgRentals.filter((r) => ["approved", "active", "on_project"].includes(r.status));
       if (holding.length > 0) {
-        throw new Error(
+        throw new ConvexError(
           "This package has units already handed out — edit or return those records per unit instead of re-picking the package",
         );
       }
@@ -2192,11 +2192,11 @@ export const adminEditPackage = mutation({
       }
       const chosen: { partId: Id<"parts">; groupId: Id<"groups"> }[] = [];
       for (const line of cleanLines) {
-        if (line.count < 1) throw new Error("Each line needs at least 1 unit");
-        if (line.count > MAX_UNITS_PER_LINE) throw new Error(`Max ${MAX_UNITS_PER_LINE} units per item`);
+        if (line.count < 1) throw new ConvexError("Each line needs at least 1 unit");
+        if (line.count > MAX_UNITS_PER_LINE) throw new ConvexError(`Max ${MAX_UNITS_PER_LINE} units per item`);
         const group = await ctx.db.get(line.groupId);
         await assertGroupLendable(ctx, line.groupId);
-        if (!group || group.deleted) throw new Error(`"${group?.name ?? "item"}" no longer exists`);
+        if (!group || group.deleted) throw new ConvexError(`"${group?.name ?? "item"}" no longer exists`);
         const candidates = await ctx.db
           .query("parts")
           .withIndex("by_group", (q) => q.eq("groupId", line.groupId))
@@ -2205,7 +2205,7 @@ export const adminEditPackage = mutation({
         const wanted = Math.ceil(line.count);
         const free = candidates.filter((p) => p.status === "available");
         if (free.length < wanted) {
-          throw new Error(`Not enough free units of ${group.name}: need ${wanted}, only ${free.length} available`);
+          throw new ConvexError(`Not enough free units of ${group.name}: need ${wanted}, only ${free.length} available`);
         }
         for (const part of free.slice(0, wanted)) chosen.push({ partId: part._id, groupId: line.groupId });
       }
@@ -2243,11 +2243,11 @@ export const adminEditPackage = mutation({
 
     // 1. Validate every line (lendable + enough shelf stock) BEFORE touching data.
     for (const line of cleanLines) {
-      if (line.count < 1) throw new Error("Each line needs at least 1 unit");
-      if (line.count > MAX_UNITS_PER_LINE) throw new Error(`Max ${MAX_UNITS_PER_LINE} units per item`);
+      if (line.count < 1) throw new ConvexError("Each line needs at least 1 unit");
+      if (line.count > MAX_UNITS_PER_LINE) throw new ConvexError(`Max ${MAX_UNITS_PER_LINE} units per item`);
       const group = await ctx.db.get(line.groupId);
       await assertGroupLendable(ctx, line.groupId);
-      if (!group || group.deleted) throw new Error(`"${group?.name ?? "item"}" no longer exists`);
+      if (!group || group.deleted) throw new ConvexError(`"${group?.name ?? "item"}" no longer exists`);
     }
 
     // 2. Remove exactly the units the admin un-tagged in the editor (only
@@ -2255,9 +2255,9 @@ export const adminEditPackage = mutation({
     const removedIds = new Set<string>();
     for (const rentalId of removeRentalIds ?? []) {
       const r = pkgRentals.find((x) => x._id === rentalId);
-      if (!r) throw new Error("That unit is not part of this package");
+      if (!r) throw new ConvexError("That unit is not part of this package");
       if (r.status !== "pending" && r.status !== "approved") {
-        throw new Error(
+        throw new ConvexError(
           "Units already handed out or processed cannot be removed by a package edit — edit those records per unit instead",
         );
       }
@@ -2294,7 +2294,7 @@ export const adminEditPackage = mutation({
       // records are managed per unit, via the per-unit record editor).
       if (locked > line.count) {
         const group = await ctx.db.get(line.groupId);
-        throw new Error(
+        throw new ConvexError(
           `"${group?.name ?? "item"}" has ${locked} unit(s) already handed out or processed — a package edit cannot remove live units (edit those records per unit instead).`,
         );
       }
@@ -2313,7 +2313,7 @@ export const adminEditPackage = mutation({
       const free = candidates.filter((p) => p.status === "available");
       if (free.length < add.wanted) {
         const group = await ctx.db.get(add.groupId);
-        throw new Error(`Not enough free units of ${group?.name ?? "item"}: need ${add.wanted} more, only ${free.length} available`);
+        throw new ConvexError(`Not enough free units of ${group?.name ?? "item"}: need ${add.wanted} more, only ${free.length} available`);
       }
       for (const part of free.slice(0, add.wanted)) claimed.push({ partId: part._id, groupId: add.groupId });
     }
@@ -2415,9 +2415,9 @@ export const cancelPackage = mutation({
   handler: async (ctx, { packageId }) => {
     const user = await requireInteractingMember(ctx);
     const pkg = await ctx.db.get(packageId);
-    if (!pkg) throw new Error("Package not found");
-    if (pkg.userId !== user._id) throw new Error("Not your package");
-    if (pkg.status !== "pending") throw new Error("Only pending packages can be canceled");
+    if (!pkg) throw new ConvexError("Package not found");
+    if (pkg.userId !== user._id) throw new ConvexError("Not your package");
+    if (pkg.status !== "pending") throw new ConvexError("Only pending packages can be canceled");
     const mine = await ctx.db
       .query("rentals")
       .withIndex("by_user", (q) => q.eq("userId", user._id))
@@ -2439,8 +2439,8 @@ export const decidePackage = mutation({
   handler: async (ctx, { packageId, approve, pickupAt }) => {
     const admin = await requireAdmin(ctx);
     const pkg = await ctx.db.get(packageId);
-    if (!pkg) throw new Error("Package not found");
-    if (pkg.status !== "pending") throw new Error("This package was already handled");
+    if (!pkg) throw new ConvexError("Package not found");
+    if (pkg.status !== "pending") throw new ConvexError("This package was already handled");
     const mine = await ctx.db
       .query("rentals")
       .withIndex("by_user", (q) => q.eq("userId", pkg.userId))
@@ -2503,6 +2503,119 @@ export const decidePackage = mutation({
   },
 });
 
+/**
+ * Hand over a WHOLE approved package in one step — the bundle-level twin of
+ * adminRentalAction("mark_taken"). Every still-approved unit of the package
+ * becomes "active" with the holder set and stock deducted; units already
+ * picked up (or returned early) are left untouched, so the action is safely
+ * repeatable. The member and the club group get one summary message.
+ */
+export const markPackageTaken = mutation({
+  args: { packageId: v.id("rentalPackages") },
+  handler: async (ctx, { packageId }) => {
+    const admin = await requireAdmin(ctx);
+    const pkg = await ctx.db.get(packageId);
+    if (!pkg) throw new ConvexError("Package not found");
+    if (pkg.status !== "approved")
+      throw new ConvexError("Only approved packages can be marked as picked up");
+    const mine = await ctx.db
+      .query("rentals")
+      .withIndex("by_user", (q) => q.eq("userId", pkg.userId))
+      .collect();
+    const pkgRentals = mine.filter((r) => r.packageId === packageId);
+    if (pkgRentals.length === 0) throw new ConvexError("This package has no unit records");
+    const now = Date.now();
+    const member = await ctx.db.get(pkg.userId);
+    const memberRef = {
+      name: member?.name ?? member?.email,
+      telegramUsername: member?.telegramUsername,
+      telegramChatId: member?.telegramChatId,
+    };
+
+    let taken = 0;
+    const takenLines: string[] = [];
+    for (const r of pkgRentals) {
+      if (r.status !== "approved") continue; // already picked up / processed
+      const part = r.partId ? await ctx.db.get(r.partId) : null;
+      if (!part) continue;
+      const group = await ctx.db.get(part.groupId);
+      const isBulk = group?.measure === "weight" || group?.measure === "length";
+      if (isBulk && group) {
+        // Same split-across-units logic as single bulk hand-over.
+        const amt = r.amount;
+        if (amt === undefined || !Number.isFinite(amt) || amt <= 0) {
+          throw new ConvexError(
+            `Bulk line ${group.name} has no amount — edit the record first`,
+          );
+        }
+        const units = (
+          await ctx.db
+            .query("parts")
+            .withIndex("by_group", (q: any) => q.eq("groupId", group._id))
+            .filter((q: any) => q.neq(q.field("deleted"), true))
+            .collect()
+        ).filter((p: any) => p.status === "available" && p.tag !== "BULK");
+        const plan = planMeasureTake(
+          units.map((p: any) => ({
+            id: p._id,
+            remaining: Number(p.amountRemaining ?? 0),
+            lowAt: Number(p.lowAt ?? group.measureLowAt ?? 0),
+          })),
+          amt,
+        );
+        if (!plan.ok) throw new ConvexError(`${group.name}: ${plan.error}`);
+        for (const take of plan.plan) {
+          const unit = units.find((p: any) => p._id === take.unitId);
+          if (!unit) continue;
+          const remaining = Number(unit.amountRemaining ?? 0) - take.amount;
+          await ctx.db.patch(unit._id, {
+            amountRemaining: String(Math.max(0, Number(remaining.toFixed(4)))),
+            status: take.whole ? "rented" : unit.status,
+            currentHolderId: take.whole ? pkg.userId : unit.currentHolderId,
+          });
+        }
+        await ctx.db.patch(r._id, {
+          status: "active",
+          pickedUpAt: now,
+          decidedAt: r.decidedAt ?? now,
+          allocations: plan.plan.map((p) => ({ partId: p.unitId as any, amount: p.amount })),
+        });
+        const stock = await sumUnitStock(ctx, group._id);
+        await ctx.db.patch(group._id, { measureStock: String(stock) });
+      } else {
+        await ctx.db.patch(r._id, { status: "active", pickedUpAt: now });
+        await ctx.db.patch(part._id, {
+          status: "rented",
+          currentHolderId: pkg.userId,
+          rentedAt: now,
+          dueAt: undefined,
+        });
+      }
+      taken += 1;
+      takenLines.push(`${part.tag} · ${group?.name ?? "item"}`);
+    }
+
+    if (taken === 0)
+      throw new ConvexError("Every unit was already picked up (or processed)");
+    if (member?.telegramChatId || member?.telegramUsername) {
+      await telegramDM(
+        ctx,
+        memberRef,
+        `📦 Package picked up: ${taken} unit(s) handed to you. Return them to the lab when done.`,
+        { name: admin.name ?? admin.email },
+        "rentals",
+      );
+    }
+    await telegramGroup(
+      ctx,
+      `📦 ${admin.name ?? admin.email} handed over the package of ${member?.name ?? member?.email ?? "a member"} — ${taken} unit(s): ${takenLines.join(", ")}.`,
+      undefined,
+      "rentals",
+    );
+    return { ok: true, taken };
+  },
+});
+
 async function summarize(ctx: any, lines: { groupId: any; count: number }[]) {
   const parts: string[] = [];
   for (const l of lines) {
@@ -2519,20 +2632,20 @@ export const requestPackageReturn = mutation({
   handler: async (ctx, { packageId }) => {
     const user = await requireInteractingMember(ctx);
     const pkg = await ctx.db.get(packageId);
-    if (!pkg) throw new Error("Package not found");
-    if (pkg.userId !== user._id) throw new Error("Not your package");
+    if (!pkg) throw new ConvexError("Package not found");
+    if (pkg.userId !== user._id) throw new ConvexError("Not your package");
     const mine = await ctx.db
       .query("rentals")
       .withIndex("by_user", (q) => q.eq("userId", user._id))
       .collect();
     const active = mine.filter((r) => r.packageId === packageId && r.status === "active");
-    if (!active.length) throw new Error("No active units in this package");
+    if (!active.length) throw new ConvexError("No active units in this package");
     const cooldownHours = await returnCooldownHours(ctx);
     if (pkg.returnRequestedAt) {
       const elapsedH = (Date.now() - pkg.returnRequestedAt) / 36e5;
       if (elapsedH < cooldownHours) {
         const remaining = Math.ceil(cooldownHours - elapsedH);
-        throw new Error(`You already requested a return — ask again in ${remaining}h`);
+        throw new ConvexError(`You already requested a return — ask again in ${remaining}h`);
       }
     }
     await ctx.db.patch(packageId, { returnRequestedAt: Date.now() });
@@ -2590,7 +2703,7 @@ export const promoteByEmail = mutation({
       .query("users")
       .withIndex("email", (q) => q.eq("email", email.trim().toLowerCase()))
       .first();
-    if (!user) throw new Error("No user found with that email — they must sign in once first");
+    if (!user) throw new ConvexError("No user found with that email — they must sign in once first");
     await ctx.db.patch(user._id, { role });
     if (role === "admin") {
       await ctx.db.insert("notifications", {
@@ -2732,7 +2845,7 @@ export const updateRentalRecord = mutation({
   ) => {
     await requireAdmin(ctx);
     const rental = await ctx.db.get(rentalId);
-    if (!rental) throw new Error("Rental not found");
+    if (!rental) throw new ConvexError("Rental not found");
     const patch: Record<string, unknown> = {};
     if (requestedAt !== undefined) patch.requestedAt = requestedAt || undefined;
     if (decidedAt !== undefined) patch.decidedAt = decidedAt || undefined;
@@ -2746,7 +2859,7 @@ export const updateRentalRecord = mutation({
     // holder pointers in sync (part.currentHolderId / project membership).
     if (userId !== undefined && userId !== rental.userId) {
       const newHolder = await ctx.db.get(userId);
-      if (!newHolder) throw new Error("New renter not found");
+      if (!newHolder) throw new ConvexError("New renter not found");
       patch.userId = userId;
     }
     await ctx.db.patch(rentalId, patch);

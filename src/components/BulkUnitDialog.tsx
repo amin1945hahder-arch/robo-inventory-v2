@@ -13,6 +13,7 @@ import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 import { isPackGroup } from "@/lib/group-measure";
 
 /**
@@ -90,7 +91,7 @@ export function BulkUnitDialog({
       }
       onOpenChange(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Something went wrong");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }

@@ -29,7 +29,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Award, Bell, BellRing, Boxes, Check, History, IdCard, Inbox, PackagePlus, Printer, RotateCcw, ScanLine, Search, SquarePen, Trash2, X } from "lucide-react";
+import { asMessage } from "@/components/EditRentalDialog";
+import { Award, Bell, BellRing, Boxes, Check, History, IdCard, Inbox, PackageCheck, PackagePlus, Printer, RotateCcw, ScanLine, Search, SquarePen, Trash2, X } from "lucide-react";
 import { EditRentalDialog } from "@/components/EditRentalDialog";
 import { EditPackageDialog } from "@/components/EditPackageDialog";
 import { PackageCardDialog } from "@/components/PackageCardDialog";
@@ -89,6 +90,7 @@ export default function AdminRequests() {
   const act = useMutation(api.parts.adminRentalAction);
   const decidePkg = useMutation(api.parts.decidePackage);
   const bulkDeleteRecords = useMutation(api.bulk.bulkDeleteRentalRecords);
+  const markPkgTaken = useMutation(api.parts.markPackageTaken);
   const clearHistory = useMutation(api.bulk.clearRentalHistory);
   const historyStatsQ = useQuery(api.bulk.historyStats, {});
   const markSeen = useMutation(api.bulk.markRequestsSeen);
@@ -218,6 +220,34 @@ export default function AdminRequests() {
     }
   };
 
+  // Bulk hand-over: approved rentals AND approved packages in one click.
+  // Package ids are routed to markPackageTaken (whole bundle), rental ids to
+  // the single mark_taken action; one failing row never stops the rest.
+  const bulkMarkTaken = async () => {
+    if (selected.size === 0) return;
+    if (!confirm(`Mark ${selected.size} selected item(s) as picked up?`)) return;
+    setBulkBusy(true);
+    try {
+      const pkgIds = new Set<string>(
+        (packages ?? []).filter((p) => p.package.status === "approved").map((p) => p.package._id),
+      );
+      let ok = 0;
+      for (const id of selected) {
+        try {
+          if (pkgIds.has(id)) await markPkgTaken({ packageId: id as any });
+          else await act({ rentalId: id as never, action: "mark_taken" });
+          ok++;
+        } catch {
+          /* one failing row doesn't stop the rest */
+        }
+      }
+      toast.success(`${ok} of ${selected.size} marked as picked up`);
+      setSelected(new Set());
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   // Package units are decided as a bundle in the Packages tab (all-or-nothing).
   // The grouped pending query already collapses them into package rows.
   const pendingRows = pendingSingles;
@@ -283,6 +313,47 @@ export default function AdminRequests() {
     return out.sort((a, b) => b.at - a.at);
   }, [pendingSingles, packages, rankReqs, printerReqs, profileReqs, unapproved]);
   const newUpdates = useMemo(() => updateRows.filter((u) => !seenKeys.has(u.key)), [updateRows, seenKeys]);
+
+  // Select-all for the CURRENT tab: pending rows, active/on-project/history
+  // rows, packages (by bundle id), and the rank/printer/profile requests.
+  const currentTabIds = useMemo((): string[] => {
+    switch (tab) {
+      case "updates":
+        return newUpdates.map((u) => u.data.rental?._id ?? u.data.package?._id ?? u.data.request?._id ?? u.data._id).filter(Boolean);
+      case "pending":
+        return [
+          ...(fPending ?? []).map((r: any) => r.rental._id),
+          ...pendingPkgRows.map((r: any) => r.key),
+        ];
+      case "packages":
+        return (packages ?? []).map((p) => p.package._id);
+      case "active":
+        return (fActive ?? []).map((r: any) => r.rental._id);
+      case "projects":
+        return (fOnProject ?? []).map((r: any) => r.rental._id);
+      case "history":
+        return (fHistory ?? []).map((r: any) => r.rental._id);
+      case "ranks":
+        return (rankReqs ?? []).map((e) => e.request._id);
+      case "printers":
+        return (printerReqs ?? []).map((e) => e.request._id);
+      case "profiles":
+        return [...(profileReqs ?? []).map((e) => e.request._id), ...(unapproved ?? []).map((u) => u._id as string)];
+      default:
+        return [];
+    }
+  }, [tab, fPending, pendingPkgRows, packages, fActive, fOnProject, fHistory, rankReqs, printerReqs, profileReqs, unapproved, newUpdates]);
+  const allSelected = currentTabIds.length > 0 && currentTabIds.every((id) => selected.has(id));
+  const toggleSelectAll = () => {
+    setSelected((prev) => {
+      if (currentTabIds.every((id) => prev.has(id))) {
+        const next = new Set(prev);
+        for (const id of currentTabIds) next.delete(id);
+        return next;
+      }
+      return new Set([...prev, ...currentTabIds]);
+    });
+  };
   const seen = (key: string) => {
     markSeen({ keys: [key] }).catch(() => undefined);
   };
@@ -332,7 +403,7 @@ export default function AdminRequests() {
       toast.success(`Cleared ${res.deleted} rental record(s)`);
       setClearOpen(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setClearBusy(false);
     }
@@ -392,7 +463,7 @@ export default function AdminRequests() {
       setWholeTransferName("");
       setWholeTransferDetails("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setWholeBusy(false);
     }
@@ -404,7 +475,7 @@ export default function AdminRequests() {
       await act({ rentalId: row.rental._id, action: "deny" });
       toast.success("Denied — unit back on shelf");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setBusyId(null);
     }
@@ -430,7 +501,7 @@ export default function AdminRequests() {
       setApproveFor(null);
       setPickupLocal("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setApproveBusy(false);
     }
@@ -456,7 +527,7 @@ export default function AdminRequests() {
       setApprovePkgFor(null);
       setPickupLocal("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setApproveBusy(false);
     }
@@ -537,7 +608,7 @@ export default function AdminRequests() {
       setTransferDoc(null);
       setRecovered("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setBusyId(null);
     }
@@ -637,6 +708,14 @@ export default function AdminRequests() {
 
         {/* Search across everything + bulk action bar (like Inventory). */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* Select-all for the active tab — mirrors Inventory/GroupDetail. */}
+          <Checkbox
+            checked={allSelected}
+            onCheckedChange={toggleSelectAll}
+            aria-label="Select all in this tab"
+            title="Select all in this tab"
+            className="ml-1"
+          />
           <div className="relative min-w-56 flex-1">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -652,6 +731,10 @@ export default function AdminRequests() {
               <Button size="sm" disabled={bulkBusy} onClick={bulkApprove}>
                 {bulkBusy ? <LoadingGifInline size={16} className="size-4" /> : <Check className="size-4" />}
                 Approve selected
+              </Button>
+              <Button size="sm" variant="outline" disabled={bulkBusy} onClick={bulkMarkTaken} title="Hand over approved units/packages to their members">
+                {bulkBusy ? <LoadingGifInline size={16} className="size-4" /> : <PackageCheck className="size-4" />}
+                Mark picked up
               </Button>
               <Button size="sm" variant="outline" disabled={bulkBusy} onClick={bulkDeny}>
                 {bulkBusy ? <LoadingGifInline size={16} className="size-4" /> : <X className="size-4" />}
@@ -675,7 +758,7 @@ export default function AdminRequests() {
                     );
                     setSelected(new Set());
                   } catch (e) {
-                    toast.error(e instanceof Error ? e.message : "Failed");
+                    toast.error(asMessage(e));
                   } finally {
                     setBulkBusy(false);
                   }
@@ -857,22 +940,39 @@ export default function AdminRequests() {
                               </Button>
                             </>
                           )}
+                          {u.kind === "package" && u.data.package.status === "approved" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="border-emerald-500/40 text-emerald-500 hover:bg-emerald-500/10"
+                              onClick={async () => {
+                                try {
+                                  const res = await markPkgTaken({ packageId: u.data.package._id });
+                                  toast.success(`Package picked up — ${res.taken} unit(s) handed over`);
+                                } catch (e) {
+                                  toast.error(asMessage(e));
+                                }
+                              }}
+                            >
+                              <PackageCheck className="size-4" /> Mark picked up
+                            </Button>
+                          )}
                           {u.kind === "rank" && (
                             <>
-                              <Button size="sm" onClick={async () => { try { await decideRank({ id: u.data.request._id, approve: true }); toast.success("Rank granted"); } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); } }}>
+                              <Button size="sm" onClick={async () => { try { await decideRank({ id: u.data.request._id, approve: true }); toast.success("Rank granted"); } catch (e) { toast.error(asMessage(e)); } }}>
                                 <Check className="size-4" /> Grant
                               </Button>
-                              <Button size="sm" variant="outline" onClick={async () => { try { await decideRank({ id: u.data.request._id, approve: false }); toast.success("Request denied"); } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); } }}>
+                              <Button size="sm" variant="outline" onClick={async () => { try { await decideRank({ id: u.data.request._id, approve: false }); toast.success("Request denied"); } catch (e) { toast.error(asMessage(e)); } }}>
                                 <X className="size-4" />
                               </Button>
                             </>
                           )}
                           {u.kind === "printer" && (
                             <>
-                              <Button size="sm" onClick={async () => { try { await decidePrinter({ id: u.data.request._id, approve: true }); toast.success("Printer access granted"); } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); } }}>
+                              <Button size="sm" onClick={async () => { try { await decidePrinter({ id: u.data.request._id, approve: true }); toast.success("Printer access granted"); } catch (e) { toast.error(asMessage(e)); } }}>
                                 <Check className="size-4" /> Grant
                               </Button>
-                              <Button size="sm" variant="outline" onClick={async () => { try { await decidePrinter({ id: u.data.request._id, approve: false }); toast.success("Request denied"); } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); } }}>
+                              <Button size="sm" variant="outline" onClick={async () => { try { await decidePrinter({ id: u.data.request._id, approve: false }); toast.success("Request denied"); } catch (e) { toast.error(asMessage(e)); } }}>
                                 <X className="size-4" />
                               </Button>
                             </>
@@ -1072,6 +1172,13 @@ export default function AdminRequests() {
                   return (
                   <li key={pkg._id} className="glass-3d rounded-lg border p-4">
                     <div className="flex flex-wrap items-center gap-3">
+                      {/* Bundle-level multi-select (bulk pick-up/return/delete). */}
+                      <Checkbox
+                        checked={selected.has(pkg._id)}
+                        onCheckedChange={() => toggleSel(pkg._id)}
+                        aria-label="Select package"
+                        className="mt-0.5 shrink-0"
+                      />
                       <Boxes className="size-5 shrink-0 text-primary" />
                       <Avatar className="size-8 shrink-0">
                         <AvatarImage src={requester?.image} />
@@ -1151,6 +1258,28 @@ export default function AdminRequests() {
                           >
                             <SquarePen className="size-4" /> Edit
                           </Button>
+                          )}
+                          {pkg.status === "approved" && approvedUnits > 0 && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="gap-1 border-emerald-500/40 text-emerald-500 hover:bg-emerald-500/10"
+                              disabled={busyId === pkg._id}
+                              onClick={async () => {
+                                setBusyId(pkg._id);
+                                try {
+                                  const res = await markPkgTaken({ packageId: pkg._id });
+                                  toast.success(`Package picked up — ${res.taken} unit(s) handed over`);
+                                } catch (e) {
+                                  toast.error(asMessage(e));
+                                } finally {
+                                  setBusyId(null);
+                                }
+                              }}
+                              title="Hand every still-pending unit of this package to the member"
+                            >
+                              <PackageCheck className="size-4" /> Mark all picked up
+                            </Button>
                           )}
                           {pkg.status === "approved" && openUnits > 0 && (
                             <Button
@@ -1304,7 +1433,7 @@ export default function AdminRequests() {
                                 await act({ rentalId: row.rental._id, action: "mark_taken" });
                                 toast.success("Marked as picked up — unit is now rented");
                               } catch (e) {
-                                toast.error(e instanceof Error ? e.message : "Failed");
+                                toast.error(asMessage(e));
                               } finally {
                                 setBusyId(null);
                               }
@@ -1471,7 +1600,7 @@ export default function AdminRequests() {
                           await decideRank({ id: request._id, approve: true });
                           toast.success("Positions granted");
                         } catch (e) {
-                          toast.error(e instanceof Error ? e.message : "Failed");
+                          toast.error(asMessage(e));
                         } finally {
                           setBusyId(null);
                         }
@@ -1489,7 +1618,7 @@ export default function AdminRequests() {
                           await decideRank({ id: request._id, approve: false });
                           toast.success("Request denied");
                         } catch (e) {
-                          toast.error(e instanceof Error ? e.message : "Failed");
+                          toast.error(asMessage(e));
                         } finally {
                           setBusyId(null);
                         }
@@ -1546,7 +1675,7 @@ export default function AdminRequests() {
                           await decidePrinter({ id: request._id, approve: true });
                           toast.success("Printer access granted");
                         } catch (e) {
-                          toast.error(e instanceof Error ? e.message : "Failed");
+                          toast.error(asMessage(e));
                         } finally {
                           setBusyId(null);
                         }
@@ -1564,7 +1693,7 @@ export default function AdminRequests() {
                           await decidePrinter({ id: request._id, approve: false });
                           toast.success("Request denied");
                         } catch (e) {
-                          toast.error(e instanceof Error ? e.message : "Failed");
+                          toast.error(asMessage(e));
                         } finally {
                           setBusyId(null);
                         }
@@ -1618,7 +1747,7 @@ export default function AdminRequests() {
                           await decideProfile({ id: request._id, approve: true });
                           toast.success("Profile updated");
                         } catch (e) {
-                          toast.error(e instanceof Error ? e.message : "Failed");
+                          toast.error(asMessage(e));
                         }
                       }}
                     >
@@ -1632,7 +1761,7 @@ export default function AdminRequests() {
                           await decideProfile({ id: request._id, approve: false });
                           toast.success("Request denied");
                         } catch (e) {
-                          toast.error(e instanceof Error ? e.message : "Failed");
+                          toast.error(asMessage(e));
                         }
                       }}
                     >

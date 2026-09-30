@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { downloadCsv } from "@/lib/csv";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 import { FileDown, FileUp, Loader2 } from "lucide-react";
 
 const SAMPLE = `group,category,closet,quantity,brand,model,description
@@ -43,7 +44,7 @@ export default function ImportCSV() {
       toast.success(`Imported ${res.groupsCreated} groups · ${res.partsCreated} units`);
       setCsv("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Import failed");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }

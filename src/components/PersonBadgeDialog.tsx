@@ -15,6 +15,7 @@ import QRCodeReact from "react-qr-code";
 import { qrUrl } from "@/lib/qr";
 import { downloadCardPdf, elementToPdfBase64 } from "@/lib/rent-card-hifi";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 
 export type PersonBadgeData = {
   userId: string;
@@ -143,7 +144,7 @@ export function PersonBadgeDialog({
                 if (res?.sent) toast.success("Badge PDF sent to the club group");
                 else toast.error(`Not sent: ${res?.reason ?? "unknown"}`);
               } catch (e) {
-                toast.error(e instanceof Error ? e.message : "Failed");
+                toast.error(asMessage(e));
               } finally {
                 setBusy("");
               }
@@ -162,7 +163,7 @@ export function PersonBadgeDialog({
                 await downloadCardPdf(el, `badge-${p.name.replace(/\s+/g, "_")}.pdf`, layout ?? undefined);
                 toast.success("Badge PDF downloaded");
               } catch (e) {
-                toast.error(e instanceof Error ? e.message : "Failed");
+                toast.error(asMessage(e));
               } finally {
                 setBusy("");
               }

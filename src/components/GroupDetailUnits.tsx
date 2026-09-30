@@ -19,6 +19,7 @@ import { describePackSize, isPackGroup, sumPiecesInUnits } from "@/lib/group-mea
 import { Link } from "react-router";
 import { Beaker, PackageOpen, Pencil } from "lucide-react";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 import type { Doc } from "@/convex/_generated/dataModel";
 
 /**
@@ -99,7 +100,7 @@ export function ConsumeBulkDialog({
       );
       onOpenChange(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Something went wrong");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }

@@ -15,6 +15,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { motion } from "framer-motion";
 import { ArrowLeft, Plus, Warehouse } from "lucide-react";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 import type { Doc } from "@/convex/_generated/dataModel";
 
 export default function ClosetDetail() {
@@ -172,7 +173,7 @@ export default function ClosetDetail() {
                                 await deleteGroup({ id: g._id });
                                 toast.success("Group deleted");
                               } catch (e) {
-                                toast.error(e instanceof Error ? e.message : "Failed");
+                                toast.error(asMessage(e));
                               }
                             }}
                           />

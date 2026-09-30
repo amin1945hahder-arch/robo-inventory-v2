@@ -18,6 +18,7 @@ import { useAction, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 import {
   Box,
   FileCode2,
@@ -153,7 +154,7 @@ export function NewJobDialog({
       onOpenChange(false);
       reset();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not submit the request");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }

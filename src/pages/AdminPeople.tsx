@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 import {
   ArrowDownWideNarrow,
   MessageSquare,
@@ -363,7 +364,7 @@ export default function AdminPeople() {
       setAddOpen(false);
       setAdd(EMPTY_ADD);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }
@@ -409,7 +410,7 @@ export default function AdminPeople() {
       await setPrinterRole({ userId: p.user._id as any, granted: next });
       toast.success(next ? "Printer access granted" : "Printer access revoked");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     }
   };
 
@@ -431,7 +432,7 @@ export default function AdminPeople() {
       toast.success("Profile updated");
       setEditing(null);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }
@@ -447,7 +448,7 @@ export default function AdminPeople() {
           : `${p.user.name ?? "Person"} marked as active member`,
       );
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     }
   };
 
@@ -459,7 +460,7 @@ export default function AdminPeople() {
       toast.success("Person removed from the app");
       setDeleting(null);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }
@@ -478,7 +479,7 @@ export default function AdminPeople() {
       setMessaging(null);
       setMessageText("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setMsgBusy(false);
     }

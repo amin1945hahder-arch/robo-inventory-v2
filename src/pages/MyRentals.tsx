@@ -14,6 +14,7 @@ import { packageDisplayStatus } from "@/lib/package-status";
 import { PackageBuilderDialog } from "@/components/PackageBuilderDialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 import { Boxes, Loader2, PackageSearch, Pencil, Printer, RotateCcw, X } from "lucide-react";
 
 export default function MyRentals() {
@@ -138,7 +139,7 @@ export default function MyRentals() {
                                     playSound("notification");
                                     toast.success("Package canceled — units released");
                                   } catch (e) {
-                                    toast.error(e instanceof Error ? e.message : "Failed");
+                                    toast.error(asMessage(e));
                                   } finally {
                                     setBusyId(null);
                                   }
@@ -165,7 +166,7 @@ export default function MyRentals() {
                                   playSound("returned");
                                   toast.success("Return request sent — bring the package to the lab");
                                 } catch (e) {
-                                  toast.error(e instanceof Error ? e.message : "Failed");
+                                  toast.error(asMessage(e));
                                 } finally {
                                   setBusyId(null);
                                 }
@@ -278,7 +279,7 @@ export default function MyRentals() {
                                 playSound("notification");
                                 toast.success("Request canceled");
                               } catch (e) {
-                                toast.error(e instanceof Error ? e.message : "Failed");
+                                toast.error(asMessage(e));
                               } finally {
                                 setBusyId(null);
                               }
@@ -304,7 +305,7 @@ export default function MyRentals() {
                                 playSound("returned");
                                 toast.success("Return request sent — bring the part to the lab");
                               } catch (e) {
-                                toast.error(e instanceof Error ? e.message : "Failed");
+                                toast.error(asMessage(e));
                               } finally {
                                 setBusyId(null);
                               }

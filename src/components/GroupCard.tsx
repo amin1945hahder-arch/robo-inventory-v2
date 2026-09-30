@@ -32,6 +32,7 @@ import {
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 import {
   FolderInput,
   MoreHorizontal,
@@ -131,7 +132,7 @@ function GroupCardBase({
       );
       setMoveOpen(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to move group");
+      toast.error(asMessage(e));
     } finally {
       setMoveBusy(false);
     }

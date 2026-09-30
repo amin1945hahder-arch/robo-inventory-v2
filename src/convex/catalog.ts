@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { matchesSearch } from "../lib/searchText";
 
 /** Human name of a group (null-safe, for joins). */
@@ -103,21 +103,21 @@ export const upsertCloset = mutation({
   handler: async (ctx, { id, name, location, note, imageUrl }) => {
     await requireAdmin(ctx);
     const clean = name.trim();
-    if (!clean) throw new Error("Name is required");
+    if (!clean) throw new ConvexError("Name is required");
     // No duplicate storages: match case-insensitively against every closet.
     const dup = await ctx.db
       .query("closets")
       .withIndex("by_name", (q) => q.eq("name", clean))
       .first();
     if (dup && dup._id !== id) {
-      throw new Error(`A storage named “${dup.name}” already exists`);
+      throw new ConvexError(`A storage named “${dup.name}” already exists`);
     }
     const all = await ctx.db.query("closets").collect();
     const dupLoose = all.find(
       (c) => normalizeName(c.name) === normalizeName(clean) && c._id !== id,
     );
     if (dupLoose) {
-      throw new Error(`A storage named “${dupLoose.name}” already exists`);
+      throw new ConvexError(`A storage named “${dupLoose.name}” already exists`);
     }
     const data: Record<string, unknown> = {
       name: clean,
@@ -143,7 +143,7 @@ export const deleteCloset = mutation({
       .filter((q) => q.neq(q.field("deleted"), true))
       .collect();
     if (groups.length > 0) {
-      throw new Error("Closet still contains groups. Move or delete them first.");
+      throw new ConvexError("Closet still contains groups. Move or delete them first.");
     }
     await ctx.db.delete(id);
   },
@@ -172,21 +172,21 @@ export const upsertCategory = mutation({
   handler: async (ctx, { id, name, description, consumable }) => {
     await requireAdmin(ctx);
     const clean = name.trim();
-    if (!clean) throw new Error("Name is required");
+    if (!clean) throw new ConvexError("Name is required");
     // No duplicate categories: exact + case-insensitive check.
     const dup = await ctx.db
       .query("categories")
       .withIndex("by_name", (q) => q.eq("name", clean))
       .first();
     if (dup && dup._id !== id) {
-      throw new Error(`A category named “${dup.name}” already exists`);
+      throw new ConvexError(`A category named “${dup.name}” already exists`);
     }
     const all = await ctx.db.query("categories").collect();
     const dupLoose = all.find(
       (c) => normalizeName(c.name) === normalizeName(clean) && c._id !== id,
     );
     if (dupLoose) {
-      throw new Error(`A category named “${dupLoose.name}” already exists`);
+      throw new ConvexError(`A category named “${dupLoose.name}” already exists`);
     }
     const data = {
       name: clean,
@@ -221,7 +221,7 @@ export const deleteCategory = mutation({
       .filter((q) => q.neq(q.field("deleted"), true))
       .collect();
     if (groups.length > 0) {
-      throw new Error("Category still contains groups. Move or delete them first.");
+      throw new ConvexError("Category still contains groups. Move or delete them first.");
     }
     await ctx.db.delete(id);
   },
@@ -287,13 +287,13 @@ export const childGroupOptions = query({
  */
 export async function assertGroupLendable(ctx: any, groupId: string): Promise<any> {
   const group = await ctx.db.get(groupId);
-  if (!group) throw new Error("Group not found");
+  if (!group) throw new ConvexError("Group not found");
   const match = await ctx.db
     .query("closets")
     .withIndex("by_name", (q: any) => q.eq("name", group.name))
     .first();
   if (match) {
-    throw new Error(
+    throw new ConvexError(
       `“${group.name}” is a storage alias (its QR opens the storage) — it cannot be lent. Give the group a different name or edit it instead.`,
     );
   }
@@ -326,7 +326,7 @@ async function becomeMasterContainer(ctx: any, containerId: string): Promise<voi
   const name = (await ctx.db.get(containerId))?.name ?? "This container";
   for (const u of units) {
     if (u.status !== "available") {
-      throw new Error(
+      throw new ConvexError(
         `“${name}” still has units that are not available — deal with them first. Master containers hold groups only, not units.`,
       );
     }
@@ -388,11 +388,11 @@ export const upsertGroup = mutation({
     const isBulk = measure === "weight" || measure === "length";
     if (measure === "pack") {
       if (!Number.isFinite(packSize) || packSize! < 1) {
-        throw new Error("Set how many pieces are inside each pack (at least 1)");
+        throw new ConvexError("Set how many pieces are inside each pack (at least 1)");
       }
       // Packs hold material, not groups — a master container can't become one.
       if (id && (await hasChildGroups(ctx, id))) {
-        throw new Error("This container holds groups — packs hold material only, move the groups out first");
+        throw new ConvexError("This container holds groups — packs hold material only, move the groups out first");
       }
     }
     if (isBulk) {
@@ -401,32 +401,32 @@ export const upsertGroup = mutation({
         length: ["m", "cm", "mm"],
       };
       if (!measureUnit || !validUnits[measure].includes(measureUnit)) {
-        throw new Error(`Pick a unit for ${measure}: ${validUnits[measure].join(" or ")}`);
+        throw new ConvexError(`Pick a unit for ${measure}: ${validUnits[measure].join(" or ")}`);
       }
       const stock = Number(measureStock);
       if (!Number.isFinite(stock) || stock < 0) {
         // A blank starting stock is fine — units carry the real amounts.
-        throw new Error("Stock must be a number ≥ 0");
+        throw new ConvexError("Stock must be a number ≥ 0");
       }
     }
     if (!id && !isBulk && quantityTotal <= 0) {
-      throw new Error("Total quantity must be at least 1");
+      throw new ConvexError("Total quantity must be at least 1");
     }
     // Container (parent group) validation: must exist, not be the group
     // itself, and must not create a cycle (a box inside its own box).
     if (parentGroupId) {
       if (id && parentGroupId === id) {
-        throw new Error("A group cannot contain itself");
+        throw new ConvexError("A group cannot contain itself");
       }
       let cursor: any = await ctx.db.get(parentGroupId);
-      if (!cursor || cursor.deleted) throw new Error("Container group not found");
+      if (!cursor || cursor.deleted) throw new ConvexError("Container group not found");
       if (!isPlainCountGroupSrv(cursor)) {
-        throw new Error("Stock groups (weight/length/packs) hold material, not groups — pick a different container");
+        throw new ConvexError("Stock groups (weight/length/packs) hold material, not groups — pick a different container");
       }
       let depth = 0;
       while (cursor?.parentGroupId && depth < 10) {
         if (id && cursor.parentGroupId === id) {
-          throw new Error("That container is inside this group — it would create a loop");
+          throw new ConvexError("That container is inside this group — it would create a loop");
         }
         cursor = await ctx.db.get(cursor.parentGroupId);
         depth += 1;
@@ -521,20 +521,20 @@ export const moveGroupToContainer = mutation({
   handler: async (ctx, { groupId, parentGroupId }) => {
     await requireAdmin(ctx);
     const group = await ctx.db.get(groupId);
-    if (!group || group.deleted) throw new Error("Group not found");
+    if (!group || group.deleted) throw new ConvexError("Group not found");
     if (parentGroupId) {
       if (parentGroupId === groupId) {
-        throw new Error("A group cannot contain itself");
+        throw new ConvexError("A group cannot contain itself");
       }
       let cursor: any = await ctx.db.get(parentGroupId);
-      if (!cursor || cursor.deleted) throw new Error("Container group not found");
+      if (!cursor || cursor.deleted) throw new ConvexError("Container group not found");
       if (!isPlainCountGroupSrv(cursor)) {
-        throw new Error("Stock groups (weight/length/packs) hold material, not groups — pick a different container");
+        throw new ConvexError("Stock groups (weight/length/packs) hold material, not groups — pick a different container");
       }
       let depth = 0;
       while (cursor?.parentGroupId && depth < 10) {
         if (cursor.parentGroupId === groupId) {
-          throw new Error("That container is inside this group — it would create a loop");
+          throw new ConvexError("That container is inside this group — it would create a loop");
         }
         cursor = await ctx.db.get(cursor.parentGroupId);
         depth += 1;
@@ -552,7 +552,7 @@ export const deleteGroup = mutation({
   handler: async (ctx, { id }) => {
     await requireAdmin(ctx);
     if (await hasChildGroups(ctx, id)) {
-      throw new Error("This container holds groups — move or delete them first.");
+      throw new ConvexError("This container holds groups — move or delete them first.");
     }
     const parts = await ctx.db
       .query("parts")
@@ -560,7 +560,7 @@ export const deleteGroup = mutation({
       .collect();
     for (const p of parts) {
       if (p.status === "rented" || p.status === "on_project") {
-        throw new Error("This group has parts out on rent or projects. Process returns first.");
+        throw new ConvexError("This group has parts out on rent or projects. Process returns first.");
       }
       await ctx.db.delete((p as any)._id);
     }
@@ -583,15 +583,15 @@ export const addPartToGroup = mutation({
     const count = args.count as number | undefined;
     await requireAdmin(ctx);
     const group = await ctx.db.get(groupId);
-    if (!group) throw new Error("Group not found");
+    if (!group) throw new ConvexError("Group not found");
     // Master containers hold groups, not units.
     if (await hasChildGroups(ctx, groupId)) {
-      throw new Error("Master containers hold groups, not units — add groups inside it instead");
+      throw new ConvexError("Master containers hold groups, not units — add groups inside it instead");
     }
     const isBulk = group.measure === "weight" || group.measure === "length";
     const n = Math.max(1, Math.min(count ?? 1, 50));
     if (isBulk && n > 1) {
-      throw new Error("Add bulk units one at a time — each holds its own amount");
+      throw new ConvexError("Add bulk units one at a time — each holds its own amount");
     }
     const parts = await ctx.db
       .query("parts")
@@ -624,7 +624,7 @@ export const addPartToGroup = mutation({
       if (tag === "BULK") continue;
       const amount = Number(args.amount);
       if (!Number.isFinite(amount) || amount <= 0) {
-        throw new Error(`Set the amount this unit holds (in ${group.measureUnit ?? "units"})`);
+        throw new ConvexError(`Set the amount this unit holds (in ${group.measureUnit ?? "units"})`);
       }
       partData.amountRemaining = String(amount);
       partData.lowAt = String(
@@ -673,13 +673,13 @@ export const updateBulkUnit = mutation({
   handler: async (ctx, { partId, amountRemaining, lowAt, note }) => {
     const admin = await requireAdmin(ctx);
     const part = await ctx.db.get(partId);
-    if (!part) throw new Error("Unit not found");
+    if (!part) throw new ConvexError("Unit not found");
     const group = await ctx.db.get(part.groupId);
     if (!group || !isAmountGroupSrv(group)) {
-      throw new Error("Only weight/length/pack group units carry amounts");
+      throw new ConvexError("Only weight/length/pack group units carry amounts");
     }
     if (!Number.isFinite(amountRemaining) || amountRemaining < 0) {
-      throw new Error("Amount must be ≥ 0");
+      throw new ConvexError("Amount must be ≥ 0");
     }
     const previous = Number(part.amountRemaining ?? 0);
     const delta = Math.round((amountRemaining - previous) * 10000) / 10000;
@@ -728,10 +728,10 @@ export const consumeBulkUnit = mutation({
   handler: async (ctx, { partId, amount, fully, note }) => {
     const admin = await requireAdmin(ctx);
     const part = await ctx.db.get(partId);
-    if (!part) throw new Error("Unit not found");
+    if (!part) throw new ConvexError("Unit not found");
     const group = await ctx.db.get(part.groupId);
     if (!group || !isAmountGroupSrv(group)) {
-      throw new Error("Only weight/length/pack group units carry amounts");
+      throw new ConvexError("Only weight/length/pack group units carry amounts");
     }
     const remaining = Number(part.amountRemaining ?? 0);
     const entry = {
@@ -743,7 +743,7 @@ export const consumeBulkUnit = mutation({
     };
     if (fully) {
       // Fully consumed: everything still on the unit is written off.
-      if (remaining <= 0) throw new Error("This unit is already empty");
+      if (remaining <= 0) throw new ConvexError("This unit is already empty");
       await ctx.db.patch(partId, {
         amountRemaining: "0",
         consumedAt: Date.now(),
@@ -757,10 +757,10 @@ export const consumeBulkUnit = mutation({
       return { consumed: remaining };
     }
     if (!Number.isFinite(amount) || (amount ?? 0) <= 0) {
-      throw new Error(`Enter the consumed amount (in ${group.measureUnit ?? "units"})`);
+      throw new ConvexError(`Enter the consumed amount (in ${group.measureUnit ?? "units"})`);
     }
     if (amount! > remaining + 1e-9) {
-      throw new Error(
+      throw new ConvexError(
         `Only ${remaining} ${group.measureUnit ?? "units"} left on this unit — use “Fully consumed” to write it all off`,
       );
     }
@@ -806,18 +806,18 @@ export const requestBulkRental = mutation({
   handler: async (ctx, { groupId, amount, note }) => {
     const user = await requireInteractingMember(ctx);
     const group = await ctx.db.get(groupId);
-    if (!group || group.deleted) throw new Error("Group not found");
+    if (!group || group.deleted) throw new ConvexError("Group not found");
     if (group.measure !== "weight" && group.measure !== "length") {
-      throw new Error("This group is counted in units or packs, not by weight/length");
+      throw new ConvexError("This group is counted in units or packs, not by weight/length");
     }
     // Master containers hold groups, not material to lend.
     if (await hasChildGroups(ctx, groupId)) {
-      throw new Error("Master containers hold groups, not material — request from the groups inside it");
+      throw new ConvexError("Master containers hold groups, not material — request from the groups inside it");
     }
     // Storage-alias groups cannot be lent, not even bulk amounts.
     await assertGroupLendable(ctx, groupId);
     if (!Number.isFinite(amount) || amount <= 0) {
-      throw new Error("Enter the amount you need");
+      throw new ConvexError("Enter the amount you need");
     }
     // Feasibility check against the per-unit ledger: the take must be
     // splittable across available units without dropping any below its
@@ -837,7 +837,7 @@ export const requestBulkRental = mutation({
       })),
       amount,
     );
-    if (!plan.ok) throw new Error(plan.error);
+    if (!plan.ok) throw new ConvexError(plan.error);
     // A "placeholder" part row carries the rental ledger for bulk groups —
     // one per group, tagged BULK so it never appears as a physical unit.
     let part = await ctx.db
@@ -886,14 +886,14 @@ export const adjustBulkStock = mutation({
   handler: async (ctx, { groupId, newStock }) => {
     await requireAdmin(ctx);
     const group = await ctx.db.get(groupId);
-    if (!group) throw new Error("Group not found");
+    if (!group) throw new ConvexError("Group not found");
     if (group.measure !== "weight" && group.measure !== "length") {
-      throw new Error("This group is not a bulk-stock group");
+      throw new ConvexError("This group is not a bulk-stock group");
     }
-    if (!Number.isFinite(newStock) || newStock < 0) throw new Error("Stock must be ≥ 0");
+    if (!Number.isFinite(newStock) || newStock < 0) throw new ConvexError("Stock must be ≥ 0");
     // The per-unit ledger is the source of truth for bulk groups: a manual
     // group-level stock set would desync it. Point admins to the units.
-    throw new Error(
+    throw new ConvexError(
       "Bulk groups keep stock per unit — edit each unit's amount in the unit list instead",
     );
   },

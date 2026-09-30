@@ -48,6 +48,7 @@ import {
   type TaskStatus,
 } from "@/lib/project-centers";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 import {
   ArrowLeft,
   BookOpen,
@@ -364,7 +365,7 @@ export default function ProjectDetail() {
       setMissionOpen(false);
       resetMission();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }
@@ -386,7 +387,7 @@ export default function ProjectDetail() {
       setNBody("");
       setNUrl("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }
@@ -480,7 +481,7 @@ export default function ProjectDetail() {
                 <>
                   <Button variant="outline" onClick={async () => {
                     try { await complete({ id: project._id }); toast.success("Marked completed"); }
-                    catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
+                    catch (e) { toast.error(asMessage(e)); }
                   }}>
                     Mark completed
                   </Button>
@@ -492,13 +493,13 @@ export default function ProjectDetail() {
                 <>
                   <Button variant="outline" onClick={async () => {
                     try { await reactivate({ id: project._id }); toast.success("Project reactivated"); }
-                    catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
+                    catch (e) { toast.error(asMessage(e)); }
                   }}>
                     <RotateCcw className="size-4" /> Reactivate
                   </Button>
                   <Button variant="outline" className="text-destructive" onClick={async () => {
                     try { await deleteProject({ id: project._id }); toast.success("Project deleted"); navigate("/projects"); }
-                    catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
+                    catch (e) { toast.error(asMessage(e)); }
                   }}>
                     <Trash2 className="size-4" /> Delete record
                   </Button>
@@ -615,7 +616,7 @@ export default function ProjectDetail() {
                                       try {
                                         await setMemberRole({ projectId, userId: m.userId as any, role: "leader" });
                                         toast.success(`${m.user.name ?? "Member"} is now the team leader`);
-                                      } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
+                                      } catch (e) { toast.error(asMessage(e)); }
                                     }}
                                   >
                                     <UserCog className="size-3.5" /> Make team leader
@@ -628,7 +629,7 @@ export default function ProjectDetail() {
                                       try {
                                         await removeMember({ projectId, userId: m.userId as any });
                                         toast.success("Removed from the team");
-                                      } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
+                                      } catch (e) { toast.error(asMessage(e)); }
                                     }}
                                   >
                                     <Trash2 className="size-3.5" /> Remove from team
@@ -764,7 +765,7 @@ export default function ProjectDetail() {
                                 await updateTask({ taskId: t._id as any, status: s });
                                 if (s === "done") toast.success("Mission completed 🎉");
                               } catch (e) {
-                                toast.error(e instanceof Error ? e.message : "Failed");
+                                toast.error(asMessage(e));
                               }
                             }}
                             onDelete={async () => {
@@ -772,7 +773,7 @@ export default function ProjectDetail() {
                                 await deleteTask({ taskId: t._id as any });
                                 toast.success("Mission deleted");
                               } catch (e) {
-                                toast.error(e instanceof Error ? e.message : "Failed");
+                                toast.error(asMessage(e));
                               }
                             }}
                           />
@@ -828,7 +829,7 @@ export default function ProjectDetail() {
                                   await deleteNote({ noteId: n._id as any });
                                   toast.success("Note removed");
                                 } catch (e) {
-                                  toast.error(e instanceof Error ? e.message : "Failed");
+                                  toast.error(asMessage(e));
                                 }
                               }}
                             >
@@ -886,7 +887,7 @@ export default function ProjectDetail() {
                     setPickUser("");
                     setPickCenter("");
                   } catch (e) {
-                    toast.error(e instanceof Error ? e.message : "Failed");
+                    toast.error(asMessage(e));
                   } finally {
                     setBusy(false);
                   }
@@ -1031,7 +1032,7 @@ export default function ProjectDetail() {
                     toast.success("Project updated");
                     setEditOpen(false);
                   } catch (e) {
-                    toast.error(e instanceof Error ? e.message : "Failed");
+                    toast.error(asMessage(e));
                   } finally {
                     setBusy(false);
                   }
@@ -1082,7 +1083,7 @@ export default function ProjectDetail() {
                     toast.success("Project dismantled — parts released");
                     setDismantleOpen(false);
                   } catch (e) {
-                    toast.error(e instanceof Error ? e.message : "Failed");
+                    toast.error(asMessage(e));
                   } finally {
                     setBusy(false);
                   }

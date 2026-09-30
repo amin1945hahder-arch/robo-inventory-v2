@@ -22,6 +22,7 @@ import {
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 import { StatusBadge } from "@/components/StatusBadge";
 import {
   DocAttachmentField,
@@ -162,7 +163,7 @@ export function ReturnDialog({
       }
       onOpenChange(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Something went wrong");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }

@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { normalizeScan } from "@/lib/qr";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 import {
   ArrowLeft,
   Barcode,
@@ -139,7 +140,7 @@ export default function RentScan() {
       toast.success("Request sent — the lab admin has been notified");
       setPayload(null);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }
@@ -154,7 +155,7 @@ export default function RentScan() {
       playSound(approve ? "approved" : "denied");
       toast.success(approve ? "Approved — student can pick it up" : "Denied");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }
@@ -173,7 +174,7 @@ export default function RentScan() {
       toast.success(functional ? "Returned to shelf" : "Marked broken and shelved");
       setNote("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }
@@ -187,7 +188,7 @@ export default function RentScan() {
       playSound("assigned");
       toast.success("Assigned to project — it stays checked out until dismantled");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }

@@ -15,6 +15,7 @@ import { PackageCardSheet, type PackageCardData } from "@/components/PackageCard
 import { downloadCardPdf, elementToPdfBase64 } from "@/lib/rent-card-hifi";
 import { prepareCardForPrint, cleanupCardPrint } from "@/lib/card-print-layout";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 
 /**
  * Whole-package card dialog — the bundle-level twin of RentCardDialog. ONE
@@ -89,7 +90,7 @@ export function PackageCardDialog({
                 if (res?.sent) toast.success("Package card sent to the club group");
                 else toast.error(`Not sent: ${res?.reason ?? "unknown"}`);
               } catch (e) {
-                toast.error(e instanceof Error ? e.message : "Failed");
+                toast.error(asMessage(e));
               } finally {
                 setBusy("");
               }
@@ -106,7 +107,7 @@ export function PackageCardDialog({
                 await downloadCardPdf(getSheet(), `package-card-${card.packageId.slice(-8)}.pdf`, layout ?? undefined);
                 toast.success("PDF downloaded");
               } catch (e) {
-                toast.error(e instanceof Error ? e.message : "Failed");
+                toast.error(asMessage(e));
               } finally {
                 setBusy("");
               }

@@ -29,6 +29,7 @@ import { UnitEditDialog } from "@/components/UnitEditDialog";
 import { GroupFormDialog } from "@/components/GroupFormDialog";
 import { groupQr, unitQr } from "@/lib/qr";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 import {
   ArrowDownUp,
   ArrowLeft,
@@ -207,7 +208,7 @@ export default function GroupDetail() {
       toast.success(`Requested ${amount} ${group.measureUnit} — the lab admin has been notified`);
       setBulkAmount("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setQtyBusy(false);
     }
@@ -223,7 +224,7 @@ export default function GroupDetail() {
         `${res.created} ${isPackGroup(group) ? `pack${res.created > 1 ? "s" : ""}` : `unit${res.created > 1 ? "s" : ""}`} requested — the lab admin has been notified`,
       );
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to send request");
+      toast.error(asMessage(e));
     } finally {
       setQtyBusy(false);
     }
@@ -237,7 +238,7 @@ export default function GroupDetail() {
       playSound("rental_request");
       toast.success("Request sent — the lab admin has been notified");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to send request");
+      toast.error(asMessage(e));
     } finally {
       setBusyTag(null);
     }
@@ -305,7 +306,7 @@ export default function GroupDetail() {
                           toast.success("Unit added with a new QR tag");
                         })
                         .catch((e: unknown) =>
-                          toast.error(e instanceof Error ? e.message : "Failed"),
+                          toast.error(asMessage(e)),
                         );
                     }
                   }}
@@ -449,7 +450,7 @@ export default function GroupDetail() {
                             await removeGroup({ id: g._id });
                             toast.success("Group deleted");
                           } catch (e) {
-                            toast.error(e instanceof Error ? e.message : "Failed");
+                            toast.error(asMessage(e));
                           }
                         }}
                       />
@@ -557,18 +558,41 @@ export default function GroupDetail() {
                   : "Units · each with its own QR"}
               </h2>
               <div className="flex items-center gap-2">
-                {isAdmin && selectedUnits.size > 0 && (
+                {isAdmin && (
                   <>
-                    <span className="text-xs text-muted-foreground">{selectedUnits.size} selected</span>
-                    <Button size="sm" variant="outline" onClick={() => setBulkEditOpen(true)}>
-                      <Pencil className="size-3.5" /> Edit selected
-                    </Button>
-                    <Button size="sm" variant="outline" className="text-destructive" onClick={bulkDeleteUnits}>
-                      <Trash2 className="size-3.5" /> Delete selected
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setSelectedUnits(new Set())}>
-                      Clear
-                    </Button>
+                    {/* Select-all: every unit of this group. */}
+                    <Checkbox
+                      checked={(parts ?? []).length > 0 && (parts ?? []).every((p) => selectedUnits.has(p._id))}
+                      onCheckedChange={() => {
+                        setSelectedUnits((prev) => {
+                          const list = parts ?? [];
+                          if (list.length > 0 && list.every((p) => prev.has(p._id))) {
+                            const next = new Set(prev);
+                            for (const p of list) next.delete(p._id);
+                            return next;
+                          }
+                          return new Set([...prev, ...list.map((p) => p._id)]);
+                        });
+                      }}
+                      aria-label="Select all units"
+                      title="Select all units"
+                    />
+                    <span className="text-xs text-muted-foreground">
+                      All{selectedUnits.size > 0 ? ` · ${selectedUnits.size} selected` : ""}
+                    </span>
+                    {selectedUnits.size > 0 && (
+                      <>
+                        <Button size="sm" variant="outline" onClick={() => setBulkEditOpen(true)}>
+                          <Pencil className="size-3.5" /> Edit selected
+                        </Button>
+                        <Button size="sm" variant="outline" className="text-destructive" onClick={bulkDeleteUnits}>
+                          <Trash2 className="size-3.5" /> Delete selected
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setSelectedUnits(new Set())}>
+                          Clear
+                        </Button>
+                      </>
+                    )}
                   </>
                 )}
                 <Button
@@ -598,7 +622,7 @@ export default function GroupDetail() {
             </div>
             {isAdmin && parts && parts.length > 0 && selectedUnits.size === 0 && (
               <p className="text-xs text-muted-foreground">
-                Tip: tick the checkboxes to edit or delete several units at once.
+                Tip: use the “All” checkbox or tick rows to edit/delete several units at once.
               </p>
             )}
             {parts === undefined ? (

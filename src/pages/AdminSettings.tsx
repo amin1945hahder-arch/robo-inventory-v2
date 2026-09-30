@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 import {
   Bell,
   Boxes,
@@ -76,7 +77,7 @@ function ListEditor({
       setItems(next);
       toast.success(`${title} updated`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }
@@ -165,7 +166,7 @@ function DataBackupSection() {
       });
       toast.success("Backup schedule saved");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }
@@ -183,7 +184,7 @@ function DataBackupSection() {
         toast.error(`Backup not sent: ${res.reason ?? "unknown"}`);
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Backup failed");
+      toast.error(asMessage(e));
     } finally {
       setBackingUp(false);
     }
@@ -340,7 +341,7 @@ function ResetDatabaseCard() {
           : "Verification code emailed — check your inbox",
       );
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }
@@ -358,7 +359,7 @@ function ResetDatabaseCard() {
       setCode("");
       setPhrase("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }
@@ -463,7 +464,7 @@ function TopicCard({ topic }: { topic: Topic }) {
         wasOn ? `“${key}” unassigned from ${topic.name}` : `“${key}” → topic “${topic.name}”`,
       );
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }
@@ -480,7 +481,7 @@ function TopicCard({ topic }: { topic: Topic }) {
       setEditing(false);
       toast.success("Topic updated");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }
@@ -535,7 +536,7 @@ function TopicCard({ topic }: { topic: Topic }) {
                     await removeTopic({ id: topic._id as Id<"telegramTopics"> });
                     toast.success(`Topic “${topic.name}” deleted`);
                   } catch (e) {
-                    toast.error(e instanceof Error ? e.message : "Failed");
+                    toast.error(asMessage(e));
                   }
                 }}
               >
@@ -588,7 +589,7 @@ function TopicsPanel({ bot }: { bot: BotId }) {
       setName("");
       setThreadId("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }
@@ -730,7 +731,7 @@ function MySoundsSection() {
               toast.success(v ? "Sounds on for you" : "You muted all sounds");
               if (v) previewTone(cfg.sounds.notification?.freq ?? 740, 0.1, cfg.sounds.notification?.vol);
             } catch (e) {
-              toast.error(e instanceof Error ? e.message : "Failed");
+              toast.error(asMessage(e));
               setEnabled(!v);
             }
           }}
@@ -862,7 +863,7 @@ function AppearanceSection() {
       );
     } catch (e) {
       setValue(prev);
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setPending(false);
     }
@@ -964,7 +965,7 @@ function StructureList({
       toast.success(isCategory ? "Category updated" : "Storage updated");
       setEditingId(null);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }
@@ -983,7 +984,7 @@ function StructureList({
       await remove({ id: row._id as never });
       toast.success(`${isCategory ? "Category" : "Storage"} “${row.name}” deleted`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     }
   };
 
@@ -1042,7 +1043,7 @@ function StructureList({
                               : `“${r.name}” marked non-consumable`,
                           ),
                         )
-                        .catch((e) => toast.error(e instanceof Error ? e.message : "Failed"))
+                        .catch((e) => toast.error(asMessage(e)))
                     }
                     aria-label="Consumable"
                   />
@@ -1366,7 +1367,7 @@ export default function AdminSettings() {
                       setPrinterToken("");
                       toast.success("Bots & groups saved");
                     } catch (e) {
-                      toast.error(e instanceof Error ? e.message : "Failed");
+                      toast.error(asMessage(e));
                     } finally {
                       setTgBusy(false);
                     }
@@ -1408,7 +1409,7 @@ export default function AdminSettings() {
                             );
                           else toast.error(`Not sent: ${res?.reason ?? "unknown"}`);
                         } catch (e) {
-                          toast.error(e instanceof Error ? e.message : "Failed");
+                          toast.error(asMessage(e));
                         } finally {
                           setTestBusy(false);
                         }
@@ -1495,7 +1496,7 @@ export default function AdminSettings() {
                       await saveCooldown({ hours: h });
                       toast.success(`Cooldown set to ${h} hours`);
                     } catch (e) {
-                      toast.error(e instanceof Error ? e.message : "Failed");
+                      toast.error(asMessage(e));
                     } finally {
                       setCdBusy(false);
                     }
@@ -1612,7 +1613,7 @@ export default function AdminSettings() {
                     });
                     toast.success("Chat backup destination saved");
                   } catch (e) {
-                    toast.error(e instanceof Error ? e.message : "Could not save");
+                    toast.error(asMessage(e));
                   } finally {
                     setBackupBusy(false);
                   }

@@ -27,6 +27,7 @@ import { normalizeScan } from "@/lib/qr";
 import { buildPackageDropdown } from "@/lib/package-dropdown";
 import { groupAllowedByFilter, scanOutcome, upsertLine, type PackageLine, type ScanFilter } from "@/lib/package-scan";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 import { Loader2, Package, Plus, ScanLine, ShieldAlert, Trash2, X } from "lucide-react";
 
 type Line = PackageLine;
@@ -206,7 +207,7 @@ export function PackageBuilderDialog({
       onOpenChange(false);
       onDone?.();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }

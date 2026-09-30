@@ -1,5 +1,5 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalQuery, mutation, query, QueryCtx } from "./_generated/server";
 import {
@@ -174,7 +174,7 @@ export const updatePersonProfile = mutation({
     // themselves (member/student) — another admin must do it, so the club can
     // never end up with zero admins by accident.
     if (role && role !== "admin" && userId === admin._id) {
-      throw new Error("Admins cannot change their own role — ask another admin");
+      throw new ConvexError("Admins cannot change their own role — ask another admin");
     }
     const patch: Record<string, unknown> = {};
     if (role) patch.role = role;
@@ -185,7 +185,7 @@ export const updatePersonProfile = mutation({
     if (dateOfBirth !== undefined) {
       const iso = dateOfBirth.trim();
       if (iso && !/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
-        throw new Error("Date of birth must be in YYYY-MM-DD format");
+        throw new ConvexError("Date of birth must be in YYYY-MM-DD format");
       }
       patch.dateOfBirth = iso || undefined;
     }
@@ -193,7 +193,7 @@ export const updatePersonProfile = mutation({
     if (email !== undefined) {
       const clean = email.trim().toLowerCase();
       if (clean && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) {
-        throw new Error("Email format looks wrong");
+        throw new ConvexError("Email format looks wrong");
       }
       if (clean) {
         // No two accounts may share one email.
@@ -202,7 +202,7 @@ export const updatePersonProfile = mutation({
           .withIndex("email", (q) => q.eq("email", clean))
           .first();
         if (dup && dup._id !== userId) {
-          throw new Error(`That email is already used by ${dup.name ?? "another account"}`);
+          throw new ConvexError(`That email is already used by ${dup.name ?? "another account"}`);
         }
         patch.email = clean;
       }
@@ -238,20 +238,20 @@ export const adminCreatePerson = mutation({
     await requireAdmin(ctx);
     const cleanEmail = email.trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-      throw new Error("Enter a valid email address");
+      throw new ConvexError("Enter a valid email address");
     }
-    if (!name.trim()) throw new Error("Name is required");
+    if (!name.trim()) throw new ConvexError("Name is required");
     // Same exact email already in the app?
     const dupEmail = await ctx.db
       .query("users")
       .withIndex("email", (q) => q.eq("email", cleanEmail))
       .first();
-    if (dupEmail) throw new Error("A person with that email already exists");
+    if (dupEmail) throw new ConvexError("A person with that email already exists");
     // Same display name (case-insensitive) already in the app?
     const cleanName = name.trim();
     const all = await ctx.db.query("users").collect();
     if (all.some((u) => (u.name ?? "").trim().toLowerCase() === cleanName.toLowerCase())) {
-      throw new Error(`A person named "${cleanName}" already exists`);
+      throw new ConvexError(`A person named "${cleanName}" already exists`);
     }
     // Next reference-sheet id: STU-0007 style, one past the current max.
     const maxCode = all.reduce((m, u) => {
@@ -272,7 +272,7 @@ export const adminCreatePerson = mutation({
     if (dateOfBirth !== undefined) {
       const iso = dateOfBirth.trim();
       if (iso && !/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
-        throw new Error("Date of birth must be in YYYY-MM-DD format");
+        throw new ConvexError("Date of birth must be in YYYY-MM-DD format");
       }
       doc.dateOfBirth = iso || undefined;
     }
@@ -313,7 +313,7 @@ export const setMyTelegramChatId = mutation({
     const user = await requireNonGuest(ctx);
     const clean = chatId.trim();
     if (clean !== "" && !/^-?\d{4,}$/.test(clean)) {
-      throw new Error("That does not look like a Telegram chat id (numbers only)");
+      throw new ConvexError("That does not look like a Telegram chat id (numbers only)");
     }
     await ctx.db.patch(user._id, {
       telegramChatId: clean === "" ? undefined : clean,
@@ -356,7 +356,7 @@ export const deletePerson = mutation({
   handler: async (ctx, { userId }) => {
     await requireAdmin(ctx);
     if (userId === (await getAuthUserId(ctx))) {
-      throw new Error("You cannot delete your own account");
+      throw new ConvexError("You cannot delete your own account");
     }
     const person = await ctx.db.get(userId);
     if (!person) return;
@@ -367,7 +367,7 @@ export const deletePerson = mutation({
       .filter((q) => q.eq(q.field("status"), "active"))
       .collect();
     if (openRentals.length > 0) {
-      throw new Error(
+      throw new ConvexError(
         `${person.name ?? person.email} still holds ${openRentals.length} rented part(s). Process their returns first.`,
       );
     }
@@ -377,7 +377,7 @@ export const deletePerson = mutation({
       .filter((q) => q.eq(q.field("status"), "pending"))
       .collect();
     if (pendingRentals.length > 0) {
-      throw new Error("This person still has pending rental requests. Deny them first.");
+      throw new ConvexError("This person still has pending rental requests. Deny them first.");
     }
     const onProject = await ctx.db
       .query("parts")
@@ -385,7 +385,7 @@ export const deletePerson = mutation({
       .filter((q) => q.eq(q.field("currentHolderId"), userId))
       .collect();
     if (onProject.length > 0) {
-      throw new Error("This person still holds parts. Process returns first.");
+      throw new ConvexError("This person still holds parts. Process returns first.");
     }
 
     // 1) Auth data — accounts, sessions, refresh tokens, verification codes —
@@ -586,13 +586,13 @@ export const requestRankUpgrade = mutation({
   handler: async (ctx, { requestedRoles, message }) => {
     const user = await requireNonGuest(ctx);
     const clean = requestedRoles.map((r) => r.trim()).filter(Boolean);
-    if (clean.length === 0) throw new Error("Select at least one position");
+    if (clean.length === 0) throw new ConvexError("Select at least one position");
     const mine = await ctx.db
       .query("rankRequests")
       .withIndex("by_status", (q) => q.eq("status", "pending"))
       .collect();
     if (mine.some((r) => r.userId === user._id)) {
-      throw new Error("You already have a pending rank request");
+      throw new ConvexError("You already have a pending rank request");
     }
     await ctx.db.insert("rankRequests", {
       userId: user._id,
@@ -649,7 +649,7 @@ export const decideRankRequest = mutation({
   handler: async (ctx, { id, approve }) => {
     await requireAdmin(ctx);
     const req = await ctx.db.get(id);
-    if (!req || req.status !== "pending") throw new Error("Request not found or already handled");
+    if (!req || req.status !== "pending") throw new ConvexError("Request not found or already handled");
     if (approve) {
       const user = await ctx.db.get(req.userId);
       if (user) {
@@ -692,14 +692,14 @@ export const requestPrinterRole = mutation({
   handler: async (ctx, { message }) => {
     const user = await requireNonGuest(ctx);
     if (hasPrinterPrivilege(user)) {
-      throw new Error("You already have printer access");
+      throw new ConvexError("You already have printer access");
     }
     const mine = await ctx.db
       .query("printerRequests")
       .withIndex("by_status", (q) => q.eq("status", "pending"))
       .collect();
     if (mine.some((r) => r.userId === user._id)) {
-      throw new Error("You already have a pending printer request");
+      throw new ConvexError("You already have a pending printer request");
     }
     await ctx.db.insert("printerRequests", {
       userId: user._id,
@@ -769,14 +769,14 @@ export const setPrinterRole = mutation({
   handler: async (ctx, { userId, granted }) => {
     const admin = await requireAdmin(ctx);
     const person = await ctx.db.get(userId);
-    if (!person) throw new Error("Person not found");
+    if (!person) throw new ConvexError("Person not found");
     if (!granted) {
       const busy = await ctx.db
         .query("printJobs")
         .withIndex("by_requester", (q) => q.eq("requesterId", userId))
         .collect();
       if (busy.some((j) => ["queued", "printing"].includes(j.status))) {
-        throw new Error(
+        throw new ConvexError(
           "This person still has queued or active prints — finish them first",
         );
       }
@@ -818,7 +818,7 @@ export const decidePrinterRequest = mutation({
     const admin = await requireAdmin(ctx);
     const req = await ctx.db.get(id);
     if (!req || req.status !== "pending")
-      throw new Error("Request not found or already handled");
+      throw new ConvexError("Request not found or already handled");
     if (approve) {
       await ctx.db.patch(req.userId, { printerRole: true });
     }
@@ -867,11 +867,11 @@ export const submitMyProfile = mutation({
   },
   handler: async (ctx, { name, studentId, phone, telegramUsername }) => {
     const user = await requireUser(ctx);
-    if (user.isAnonymous) throw new Error("Guests cannot submit a profile — sign in first");
+    if (user.isAnonymous) throw new ConvexError("Guests cannot submit a profile — sign in first");
     const cleanName = name.trim();
-    if (cleanName.length < 2) throw new Error("Enter your full name");
+    if (cleanName.length < 2) throw new ConvexError("Enter your full name");
     if (!studentId?.trim() && !phone?.trim()) {
-      throw new Error("Add your student ID or phone so the admin can verify you");
+      throw new ConvexError("Add your student ID or phone so the admin can verify you");
     }
     await ctx.db.patch(user._id, {
       name: cleanName,
@@ -905,7 +905,7 @@ export const approveProfile = mutation({
   handler: async (ctx, { userId, approved }) => {
     const admin = await requireAdmin(ctx);
     const member = await ctx.db.get(userId);
-    if (!member) throw new Error("Member not found");
+    if (!member) throw new ConvexError("Member not found");
     await ctx.db.patch(userId, { profileApproved: approved });
     await notifyTelegram(
       ctx,
@@ -954,11 +954,11 @@ export const updateMyImage = mutation({
   args: { image: v.string() },
   handler: async (ctx, { image }) => {
     const user = await requireUser(ctx);
-    if (user.isAnonymous) throw new Error("Guests cannot change a profile picture — sign in first");
+    if (user.isAnonymous) throw new ConvexError("Guests cannot change a profile picture — sign in first");
     const clean = image.trim();
-    if (!clean) throw new Error("Image URL is empty");
+    if (!clean) throw new ConvexError("Image URL is empty");
     if (clean.length > 60_000) {
-      throw new Error(
+      throw new ConvexError(
         "Image is too large after compression — try a different photo (it will be resized automatically)",
       );
     }

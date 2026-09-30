@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { requireAdmin } from "./lib";
@@ -87,7 +87,7 @@ export const clearRentalHistory = mutation({
   },
   handler: async (ctx, { userId, includeLive, releaseUnits, confirm }) => {
     await requireAdmin(ctx);
-    if (confirm !== "DELETE") throw new Error("Type DELETE to confirm");
+    if (confirm !== "DELETE") throw new ConvexError("Type DELETE to confirm");
     const all = await ctx.db.query("rentals").collect();
     const rows = all.filter(
       (r) => (!userId || r.userId === userId) && (includeLive || PROCESSED.has(r.status)),

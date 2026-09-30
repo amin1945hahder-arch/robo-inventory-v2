@@ -16,6 +16,7 @@ import { buildCardCaption } from "@/lib/rent-card-caption";
 import { downloadCardPdf, elementToPdfBase64 } from "@/lib/rent-card-hifi";
 import { prepareCardForPrint, cleanupCardPrint } from "@/lib/card-print-layout";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 
 export type CardRow = RentCardData;
 
@@ -71,7 +72,7 @@ export function RentCardDialog({ r, onClose }: { r: CardRow; onClose: () => void
                 if (res?.sent) toast.success("PDF sent to the club group");
                 else toast.error(`Not sent: ${res?.reason ?? "unknown"}`);
               } catch (e) {
-                toast.error(e instanceof Error ? e.message : "Failed");
+                toast.error(asMessage(e));
               } finally {
                 setBusy("");
               }
@@ -88,7 +89,7 @@ export function RentCardDialog({ r, onClose }: { r: CardRow; onClose: () => void
                 await downloadCardPdf(getSheet(), `rent-card-${r.tag}.pdf`, layout ?? undefined);
                 toast.success("PDF downloaded — identical to what the group receives");
               } catch (e) {
-                toast.error(e instanceof Error ? e.message : "Failed");
+                toast.error(asMessage(e));
               } finally {
                 setBusy("");
               }

@@ -23,6 +23,7 @@ import { closetQr } from "@/lib/qr";
 import { groupsInStorage } from "@/lib/containment";
 import { compressImageFile } from "@/lib/utils";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 import { Pencil, Plus, Trash2, Warehouse } from "lucide-react";
 type Stats = { total: number; available: number; rented: number; onProject: number; broken: number; pending: number };
 
@@ -111,7 +112,7 @@ export default function Closets() {
       toast.success(editing ? "Storage updated" : "Storage added");
       setOpen(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }
@@ -123,7 +124,7 @@ export default function Closets() {
       await remove({ id: c._id });
       toast.success(`Storage “${c.name}” deleted`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      toast.error(asMessage(e));
     }
   };
 

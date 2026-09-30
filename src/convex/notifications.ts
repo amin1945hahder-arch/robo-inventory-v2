@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireAdmin, requireUser, safeImage } from "./lib";
 
@@ -79,26 +79,26 @@ export const requestProfileChange = mutation({
     if (phone !== undefined && phone.trim() !== (current.phone ?? "")) payload.phone = phone.trim();
     if (dateOfBirth !== undefined && dateOfBirth.trim() !== (current.dateOfBirth ?? "")) {
       if (dateOfBirth.trim() && !/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth.trim())) {
-        throw new Error("Date of birth must be in YYYY-MM-DD format");
+        throw new ConvexError("Date of birth must be in YYYY-MM-DD format");
       }
       payload.dateOfBirth = dateOfBirth.trim() || undefined;
     }
     if (githubUrl !== undefined && githubUrl.trim() !== (current.githubUrl ?? "")) {
       const gh = githubUrl.trim();
       if (gh && !/^https:\/\/(www\.)?github\.com\/[A-Za-z0-9-]+\/?$/.test(gh)) {
-        throw new Error("GitHub must be a profile link like https://github.com/username");
+        throw new ConvexError("GitHub must be a profile link like https://github.com/username");
       }
       payload.githubUrl = gh || undefined;
     }
     if (Object.keys(payload).length === 0) {
-      throw new Error("Nothing to change");
+      throw new ConvexError("Nothing to change");
     }
     const pending = await ctx.db
       .query("profileRequests")
       .withIndex("by_status", (q) => q.eq("status", "pending"))
       .collect();
     if (pending.some((p) => p.userId === user._id)) {
-      throw new Error("You already have a pending profile change awaiting approval");
+      throw new ConvexError("You already have a pending profile change awaiting approval");
     }
     await ctx.db.insert("profileRequests", {
       userId: user._id,
@@ -147,7 +147,7 @@ export const decideProfileRequest = mutation({
   handler: async (ctx, { id, approve }) => {
     await requireAdmin(ctx);
     const req = await ctx.db.get(id);
-    if (!req || req.status !== "pending") throw new Error("Request not found or already handled");
+    if (!req || req.status !== "pending") throw new ConvexError("Request not found or already handled");
     if (approve) {
       await ctx.db.patch(req.userId, { ...req.payload });
     }

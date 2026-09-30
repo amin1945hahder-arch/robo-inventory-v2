@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 import {
   CheckCircle2,
   ClipboardList,
@@ -627,7 +628,7 @@ export function SlicerStudio({
       setSubmitOpen(false);
       setNote("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not submit the job");
+      toast.error(asMessage(e));
     } finally {
       setSubmitting(false);
     }

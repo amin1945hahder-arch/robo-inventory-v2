@@ -21,6 +21,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 import { Box, MapPin, PackagePlus } from "lucide-react";
 
 /**
@@ -161,7 +162,7 @@ export function GroupFormDialog({
       setConflict(null);
       if (!group) window.location.href = `/group/${id}`;
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Something went wrong");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }

@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireAdmin, requireNonStudent, requireUser } from "./lib";
 import { internal } from "./_generated/api";
@@ -75,8 +75,8 @@ export const dismantleProject = mutation({
   handler: async (ctx, { id, functional }) => {
     await requireAdmin(ctx);
     const project = await ctx.db.get(id);
-    if (!project) throw new Error("Project not found");
-    if (project.status === "dismantled") throw new Error("Project is already dismantled");
+    if (!project) throw new ConvexError("Project not found");
+    if (project.status === "dismantled") throw new ConvexError("Project is already dismantled");
     const parts = await ctx.db
       .query("parts")
       .filter((q) => q.eq(q.field("currentProjectId"), id))
@@ -98,7 +98,7 @@ export const completeProject = mutation({
   handler: async (ctx, { id }) => {
     await requireAdmin(ctx);
     const project = await ctx.db.get(id);
-    if (!project) throw new Error("Project not found");
+    if (!project) throw new ConvexError("Project not found");
     await ctx.db.patch(id, { status: "completed" });
   },
 });
@@ -110,8 +110,8 @@ export const reactivateProject = mutation({
   handler: async (ctx, { id }) => {
     await requireAdmin(ctx);
     const project = await ctx.db.get(id);
-    if (!project) throw new Error("Project not found");
-    if (project.status === "active") throw new Error("Project is already active");
+    if (!project) throw new ConvexError("Project not found");
+    if (project.status === "active") throw new ConvexError("Project is already active");
     await ctx.db.patch(id, { status: "active" });
   },
 });
@@ -125,7 +125,7 @@ export const deleteProject = mutation({
       .filter((q) => q.eq(q.field("currentProjectId"), id))
       .collect();
     if (parts.length > 0) {
-      throw new Error("Project still has parts. Dismantle it first to release them.");
+      throw new ConvexError("Project still has parts. Dismantle it first to release them.");
     }
     await ctx.db.delete(id);
     // The auto chat group is retired with the project.

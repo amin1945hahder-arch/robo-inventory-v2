@@ -21,6 +21,7 @@ import {
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
+import { asMessage } from "@/components/EditRentalDialog";
 import { Loader2 } from "lucide-react";
 import type { Doc } from "@/convex/_generated/dataModel";
 
@@ -100,7 +101,7 @@ export function FilamentFormDialog({
       toast.success(spool ? "Spool updated." : "Spool added to the shelf.");
       onOpenChange(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not save the spool");
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }
