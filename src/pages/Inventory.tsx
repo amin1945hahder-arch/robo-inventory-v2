@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
+import { useCachedData } from "@/hooks/use-cached-data";
 import { matchesSearch } from "@/lib/searchText";
 import { AppShell } from "@/components/AppShell";
 import { GroupCard } from "@/components/GroupCard";
@@ -80,7 +81,17 @@ export default function Inventory() {
   const allGroups = useQuery(api.catalog.childGroupOptions, {});
   // Every unit of the listed groups: the search also matches unit tags and
   // per-unit notes, so "whatever you type" finds the right group.
-  const unitRows = useQuery(api.parts.listPartsByGroups, {});
+  // DELTA-SYNC: rendered from the local IndexedDB cache and kept fresh by
+  // the reactive delta subscription — this used to pull the ENTIRE parts
+  // table as JSON on every mount (the single biggest read on the app).
+  const { data: unitRowsCached } = useCachedData("parts");
+  const unitRows = unitRowsCached?.map((p) => ({
+    groupId: p.groupId as string,
+    tag: p.tag as string,
+    note: (p.note as string | undefined) ?? undefined,
+    status: p.status as string,
+    deleted: p.deleted as boolean | undefined,
+  }));
   const [search, setSearch] = useState(qFilter);
   const [closetFilter, setClosetFilter] = useState(closetParam || "all");
   const [availFilter, setAvailFilter] = useState(availParam || "all");
@@ -137,6 +148,7 @@ export default function Inventory() {
   const unitsBlobByGroup = useMemo(() => {
     const m = new Map<string, string>();
     for (const p of unitRows ?? []) {
+      if (p.deleted) continue;
       m.set(p.groupId, [m.get(p.groupId), p.tag, p.note].filter(Boolean).join(" "));
     }
     return m;

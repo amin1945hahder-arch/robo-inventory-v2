@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireAdmin, requireNonStudent, requireUser } from "./lib";
 import { internal } from "./_generated/api";
+import { touchPatch, recordTombstone } from "./sync";
 
 export const listProjects = query({
   args: { status: v.optional(v.union(v.literal("active"), v.literal("completed"), v.literal("dismantled"))) },
@@ -54,13 +55,13 @@ export const upsertProject = mutation({
       ...(imageUrl !== undefined ? { imageUrl: imageUrl.trim() || undefined } : {}),
     };
     if (id) {
-      await ctx.db.patch(id, data);
+      await touchPatch(ctx, id, data);
       // Keep the project's chat group in sync (name/members) — auto-created
       // on first save with all admins + the owner.
       await ctx.scheduler.runAfter(0, internal.chat.syncProjectGroup, { projectId: id });
       return id;
     }
-    const projectId = await ctx.db.insert("projects", data);
+    const projectId = await ctx.db.insert("projects", { ...data, updatedAt: Date.now() });
     await ctx.scheduler.runAfter(0, internal.chat.ensureProjectGroup, {
       projectId,
       name: data.name,
@@ -82,12 +83,12 @@ export const dismantleProject = mutation({
       .filter((q) => q.eq(q.field("currentProjectId"), id))
       .collect();
     for (const p of parts) {
-      await ctx.db.patch(p._id, {
+      await touchPatch(ctx, p._id, {
         status: functional ? "available" : "broken",
         currentProjectId: undefined,
       });
     }
-    await ctx.db.patch(id, { status: "dismantled" });
+    await touchPatch(ctx, id, { status: "dismantled" });
     // Parts went back to the shelf → refresh the auto group membership.
     await ctx.scheduler.runAfter(0, internal.chat.syncProjectGroup, { projectId: id });
   },
@@ -99,7 +100,7 @@ export const completeProject = mutation({
     await requireAdmin(ctx);
     const project = await ctx.db.get(id);
     if (!project) throw new ConvexError("Project not found");
-    await ctx.db.patch(id, { status: "completed" });
+    await touchPatch(ctx, id, { status: "completed" });
   },
 });
 
@@ -112,7 +113,7 @@ export const reactivateProject = mutation({
     const project = await ctx.db.get(id);
     if (!project) throw new ConvexError("Project not found");
     if (project.status === "active") throw new ConvexError("Project is already active");
-    await ctx.db.patch(id, { status: "active" });
+    await touchPatch(ctx, id, { status: "active" });
   },
 });
 
@@ -128,6 +129,7 @@ export const deleteProject = mutation({
       throw new ConvexError("Project still has parts. Dismantle it first to release them.");
     }
     await ctx.db.delete(id);
+    await recordTombstone(ctx, "projects", id);
     // The auto chat group is retired with the project.
     await ctx.scheduler.runAfter(0, internal.chat.syncProjectGroup, { projectId: id });
   },

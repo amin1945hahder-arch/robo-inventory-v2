@@ -209,6 +209,21 @@ export const syncHead = query({
   },
 });
 
+/**
+ * Hard deletes since a timestamp: clients drop these ids from their cache.
+ * Strict by_deletedAt index scan; capped like the delta page.
+ */
+export const listTombstonesSince = query({
+  args: { since: v.number() },
+  handler: async (ctx, { since }) => {
+    const rows = await ctx.db
+      .query("syncTombstones")
+      .withIndex("by_deletedAt", (q: any) => q.gt("deletedAt", since))
+      .take(500);
+    return rows.map((r: any) => ({ table: r.table, recordId: r.recordId, deletedAt: r.deletedAt }));
+  },
+});
+
 // ---- Write-side helpers (imported by the data mutations) -------------------
 
 const SYNCED = new Set<string>(SYNC_TABLES);

@@ -2,6 +2,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalQuery, mutation, query, QueryCtx } from "./_generated/server";
+import { touchPatch, recordTombstone } from "./sync";
 import {
   hasPrinterPrivilege,
   requireAdmin,
@@ -84,7 +85,7 @@ export const claimAdminIfEligible = mutation({
     const user = await ctx.db.get(userId);
     if (!user || !user.email || user.role === "admin") return { promoted: false };
     if (!emailInAdminList(user.email)) return { promoted: false };
-    await ctx.db.patch(userId, { role: "admin" });
+    await touchPatch(ctx, userId, { role: "admin" });
     return { promoted: true };
   },
 });
@@ -113,7 +114,7 @@ export const claimAdminIfNoAdmins = mutation({
     if (Object.keys(patch).length === 0) {
       return { promoted: false, reason: "admins-exist" };
     }
-    await ctx.db.patch(userId, patch);
+    await touchPatch(ctx, userId, patch);
     return { promoted: patch.role === "admin" };
   },
 });
@@ -144,8 +145,9 @@ export const reconcileProfile = mutation({
     if (!me.clubRoles?.length && dup.clubRoles?.length) patch.clubRoles = dup.clubRoles;
     if (!me.studentCode && dup.studentCode) patch.studentCode = dup.studentCode;
     if (dup.role === "admin" && me.role !== "admin") patch.role = "admin";
-    if (Object.keys(patch).length > 0) await ctx.db.patch(userId, patch);
+    if (Object.keys(patch).length > 0) await touchPatch(ctx, userId, patch);
     await ctx.db.delete(dup._id);
+    await recordTombstone(ctx, "users", dup._id);
     return { ok: true, merged: Object.keys(patch) };
   },
 });
@@ -207,7 +209,7 @@ export const updatePersonProfile = mutation({
         patch.email = clean;
       }
     }
-    await ctx.db.patch(userId, patch);
+    await touchPatch(ctx, userId, patch);
   },
 });
 
@@ -278,7 +280,7 @@ export const adminCreatePerson = mutation({
     }
     if (githubUrl !== undefined) doc.githubUrl = githubUrl.trim() || undefined;
     if (telegramChatId !== undefined) doc.telegramChatId = telegramChatId.trim() || undefined;
-    return await ctx.db.insert("users", doc);
+    return await ctx.db.insert("users", { ...doc, updatedAt: Date.now() });
   },
 });
 
@@ -288,7 +290,7 @@ export const setMembershipStatus = mutation({
   args: { userId: v.id("users"), status: v.union(v.literal("active"), v.literal("ex")) },
   handler: async (ctx, { userId, status }) => {
     await requireAdmin(ctx);
-    await ctx.db.patch(userId, { membershipStatus: status });
+    await touchPatch(ctx, userId, { membershipStatus: status });
   },
 });
 
@@ -299,7 +301,7 @@ export const setMyTelegramUsername = mutation({
   handler: async (ctx, { username }) => {
     const user = await requireNonGuest(ctx);
     const clean = username.trim().replace(/^@/, "");
-    await ctx.db.patch(user._id, {
+    await touchPatch(ctx, user._id, {
       telegramUsername: clean === "" ? undefined : clean,
     });
   },
@@ -315,7 +317,7 @@ export const setMyTelegramChatId = mutation({
     if (clean !== "" && !/^-?\d{4,}$/.test(clean)) {
       throw new ConvexError("That does not look like a Telegram chat id (numbers only)");
     }
-    await ctx.db.patch(user._id, {
+    await touchPatch(ctx, user._id, {
       telegramChatId: clean === "" ? undefined : clean,
     });
   },
@@ -340,7 +342,7 @@ export const linkTelegramChatByUsername = mutation({
       .withIndex("by_telegram_username", (q) => q.eq("telegramUsername", cleanUser))
       .unique();
     if (!person || person.telegramChatId === clean) return { linked: false };
-    await ctx.db.patch(person._id, { telegramChatId: clean });
+    await touchPatch(ctx, person._id, { telegramChatId: clean });
     return { linked: true };
   },
 });
@@ -427,6 +429,7 @@ export const deletePerson = mutation({
     // 3) The user document itself. Past rental history rows are kept (they
     //    render "(removed)") — deleting a member never rewrites the ledger.
     await ctx.db.delete(userId);
+    await recordTombstone(ctx, "users", userId);
   },
 });
 
@@ -654,10 +657,10 @@ export const decideRankRequest = mutation({
       const user = await ctx.db.get(req.userId);
       if (user) {
         const merged = [...new Set([...(user.clubRoles ?? []), ...req.requestedRoles])];
-        await ctx.db.patch(user._id, { clubRoles: merged });
+        await touchPatch(ctx, user._id, { clubRoles: merged });
       }
     }
-    await ctx.db.patch(id, { status: approve ? "approved" : "denied", decidedAt: Date.now() });
+    await touchPatch(ctx, id, { status: approve ? "approved" : "denied", decidedAt: Date.now() });
     const user = await ctx.db.get(req.userId);
     if (user?.telegramChatId) {
       await notifyTelegram(
@@ -781,14 +784,14 @@ export const setPrinterRole = mutation({
         );
       }
     }
-    await ctx.db.patch(userId, { printerRole: granted || undefined });
+    await touchPatch(ctx, userId, { printerRole: granted || undefined });
     // Auto-resolve their pending request (if any) to keep the console clean.
     const mine = await ctx.db
       .query("printerRequests")
       .withIndex("by_status", (q) => q.eq("status", "pending"))
       .collect();
     for (const r of mine.filter((r) => r.userId === userId)) {
-      await ctx.db.patch(r._id, {
+      await touchPatch(ctx, r._id, {
         status: granted ? "approved" : "denied",
         decidedAt: Date.now(),
       });
@@ -820,9 +823,9 @@ export const decidePrinterRequest = mutation({
     if (!req || req.status !== "pending")
       throw new ConvexError("Request not found or already handled");
     if (approve) {
-      await ctx.db.patch(req.userId, { printerRole: true });
+      await touchPatch(ctx, req.userId, { printerRole: true });
     }
-    await ctx.db.patch(id, {
+    await touchPatch(ctx, id, {
       status: approve ? "approved" : "denied",
       decidedAt: Date.now(),
     });
@@ -873,7 +876,7 @@ export const submitMyProfile = mutation({
     if (!studentId?.trim() && !phone?.trim()) {
       throw new ConvexError("Add your student ID or phone so the admin can verify you");
     }
-    await ctx.db.patch(user._id, {
+    await touchPatch(ctx, user._id, {
       name: cleanName,
       studentId: studentId?.trim() || undefined,
       phone: phone?.trim() || undefined,
@@ -906,7 +909,7 @@ export const approveProfile = mutation({
     const admin = await requireAdmin(ctx);
     const member = await ctx.db.get(userId);
     if (!member) throw new ConvexError("Member not found");
-    await ctx.db.patch(userId, { profileApproved: approved });
+    await touchPatch(ctx, userId, { profileApproved: approved });
     await notifyTelegram(
       ctx,
       approved
@@ -962,7 +965,7 @@ export const updateMyImage = mutation({
         "Image is too large after compression — try a different photo (it will be resized automatically)",
       );
     }
-    await ctx.db.patch(user._id, { image: clean });
+    await touchPatch(ctx, user._id, { image: clean });
     return { ok: true };
   },
 });

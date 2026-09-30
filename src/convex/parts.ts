@@ -335,7 +335,7 @@ export const updatePart = mutation({
             .withIndex("by_group", (q) => q.eq("groupId", gid))
             .collect()
         ).length;
-        await ctx.db.patch(gid, { quantityTotal: n });
+        await touchPatch(ctx, gid, { quantityTotal: n });
       };
       await recount(currentPart.groupId);
       await recount(moveGroupId);
@@ -400,7 +400,7 @@ export const updatePart = mutation({
       patch.currentHolderId = undefined;
       patch.currentProjectId = toProject ?? undefined;
       if (openRental) {
-        await ctx.db.patch(openRental._id, {
+        await touchPatch(ctx, openRental._id, {
           status: "on_project",
           projectId: toProject ?? openRental.projectId,
           returnedAt: now,
@@ -413,7 +413,7 @@ export const updatePart = mutation({
       patch.currentProjectId = undefined;
       if (openRental) {
         if (openRental.status === "pending") {
-          await ctx.db.patch(openRental._id, {
+          await touchPatch(ctx, openRental._id, {
             status: "active",
             userId: toHolder ?? openRental.userId,
             decidedAt: now,
@@ -422,7 +422,7 @@ export const updatePart = mutation({
             returnRequestedAt: undefined,
           });
         } else if (toHolder) {
-          await ctx.db.patch(openRental._id, {
+          await touchPatch(ctx, openRental._id, {
             userId: toHolder,
             dueAt: (patch.dueAt as number | undefined) ?? openRental.dueAt,
           });
@@ -436,6 +436,7 @@ export const updatePart = mutation({
           decidedAt: now,
           pickedUpAt: (patch.rentedAt as number | undefined) ?? now,
           dueAt: patch.dueAt as number | undefined,
+          updatedAt: now,
         });
       }
     } else {
@@ -448,7 +449,7 @@ export const updatePart = mutation({
       patch.dueAt = undefined;
       if (nextStatus !== "transferred") patch.transferToName = undefined;
       if (openRental && nextStatus !== "pending") {
-        await ctx.db.patch(openRental._id, {
+        await touchPatch(ctx, openRental._id, {
           status: "returned",
           returnedAt: now,
           // Terminal admin edits keep the truth on the ledger too.
@@ -464,7 +465,7 @@ export const updatePart = mutation({
       }
     }
 
-    await ctx.db.patch(id, patch);
+    await touchPatch(ctx, id, patch);
   },
 });
 
@@ -478,17 +479,18 @@ export const deletePart = mutation({
       throw new ConvexError("Part is out on rent or a project. Process a return first.");
     }
     await ctx.db.delete(id);
+    await recordTombstone(ctx, "parts", String(id));
     const group = await ctx.db.get(part.groupId);
     if (group) {
       const remaining = await ctx.db
         .query("parts")
         .withIndex("by_group", (q) => q.eq("groupId", part.groupId))
         .collect();
-      await ctx.db.patch(group._id, { quantityTotal: remaining.length });
+      await touchPatch(ctx, group._id, { quantityTotal: remaining.length });
       // Packs keep their total pieces in measureStock — re-sum after removal.
       if (group.measure === "pack") {
         const stock = await sumUnitStock(ctx, part.groupId);
-        await ctx.db.patch(group._id, { measureStock: String(stock) });
+        await touchPatch(ctx, group._id, { measureStock: String(stock) });
       }
     }
   },
@@ -592,8 +594,9 @@ export const requestRental = mutation({
       userId: user._id,
       status: "pending",
       requestedAt: Date.now(),
+      updatedAt: Date.now(),
     });
-    await ctx.db.patch(partId, { status: "pending" });
+    await touchPatch(ctx, partId, { status: "pending" });
     const studentLabel = user.name ?? user.email ?? "A member";
     await notifyAdmin(
       ctx,
@@ -679,8 +682,9 @@ export const requestRentalQuantity = mutation({
         userId: user._id,
         status: "pending",
         requestedAt: Date.now(),
+        updatedAt: Date.now(),
       });
-      await ctx.db.patch(part._id, { status: "pending" });
+      await touchPatch(ctx, part._id, { status: "pending" });
     }
     await notifyAdmin(
       ctx,
@@ -725,9 +729,10 @@ export const rentBrokenPart = mutation({
       userId: user._id,
       status: "pending",
       requestedAt: Date.now(),
+      updatedAt: Date.now(),
       rentBroken: true,
     });
-    await ctx.db.patch(partId, { status: "pending" });
+    await touchPatch(ctx, partId, { status: "pending" });
     await notifyAdmin(
       ctx,
       `${label} requested the BROKEN unit ${group?.name ?? "part"} (${part.tag})`,
@@ -757,9 +762,10 @@ export const deleteMyRentalRequest = mutation({
     }
     const part = await ctx.db.get(rental.partId);
     await ctx.db.delete(rentalId);
+    await recordTombstone(ctx, "rentals", String(rentalId));
     if (part && part.status === "pending") {
       // Deleted broken-unit requests restore the broken flag, not the shelf.
-      await ctx.db.patch(part._id, { status: rental.rentBroken ? "broken" : "available" });
+      await touchPatch(ctx, part._id, { status: rental.rentBroken ? "broken" : "available" });
     }
     const group = part ? await ctx.db.get(part.groupId) : null;
     await telegramGroup(ctx, `🗑 ${user.name ?? user.email ?? "A member"} deleted their rental request for ${group?.name ?? "a part"}${part ? ` (${part.tag})` : ""}.`, undefined, "requests");
@@ -788,7 +794,7 @@ export const requestReturn = mutation({
         );
       }
     }
-    await ctx.db.patch(rentalId, { returnRequestedAt: Date.now() });
+    await touchPatch(ctx, rentalId, { returnRequestedAt: Date.now() });
     const part = await ctx.db.get(rental.partId);
     const group = part ? await ctx.db.get(part.groupId) : null;
     // ONE Telegram message: the printable rent-card PDF with every detail on
@@ -827,13 +833,13 @@ export const decideRental = mutation({
     if (approve) {
       // Approval does NOT hand the unit over — the admin confirms the physical
       // handover separately ("Taken" step), which decrements inventory.
-      await ctx.db.patch(rentalId, { status: "approved", decidedAt: Date.now() });
+      await touchPatch(ctx, rentalId, { status: "approved", decidedAt: Date.now() });
     } else {
-      await ctx.db.patch(rentalId, { status: "denied", decidedAt: Date.now() });
+      await touchPatch(ctx, rentalId, { status: "denied", decidedAt: Date.now() });
       // A denied broken-unit request goes back to broken, NOT available —
       // the unit was flagged broken before the request and still is.
       if (part.status === "pending") {
-        await ctx.db.patch(part._id, { status: rental.rentBroken ? "broken" : "available" });
+        await touchPatch(ctx, part._id, { status: rental.rentBroken ? "broken" : "available" });
       }
     }
     if (student?.email) {
@@ -961,7 +967,7 @@ export const adminRentalAction = mutation({
         );
         if (!plan.ok) throw new ConvexError(plan.error);
       }
-      await ctx.db.patch(rentalId, { status: "approved", decidedAt: now, pickupAt });
+      await touchPatch(ctx, rentalId, { status: "approved", decidedAt: now, pickupAt });
       const amountLabel = rental.amount !== undefined ? ` (${rental.amount} ${group?.measureUnit ?? ""})` : "";
       const pickupLabel = pickupAt
         ? new Date(pickupAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })
@@ -1007,10 +1013,10 @@ export const adminRentalAction = mutation({
       );
     } else if (action === "deny") {
       if (rental.status !== "pending") throw new ConvexError("This request was already handled");
-      await ctx.db.patch(rentalId, { status: "denied", decidedAt: now });
+      await touchPatch(ctx, rentalId, { status: "denied", decidedAt: now });
       // Broken-unit requests return the unit to the broken pool, not the shelf.
       if (part.status === "pending") {
-        await ctx.db.patch(part._id, { status: rental.rentBroken ? "broken" : "available" });
+        await touchPatch(ctx, part._id, { status: rental.rentBroken ? "broken" : "available" });
       }
       if (student?.email) {
         await ctx.scheduler.runAfter(0, api.emails.sendRentalDecisionEmail, {
@@ -1080,14 +1086,14 @@ export const adminRentalAction = mutation({
           const unit = units.find((p: any) => p._id === take.unitId);
           if (!unit) continue;
           const remaining = Number(unit.amountRemaining ?? 0) - take.amount;
-          await ctx.db.patch(unit._id, {
+          await touchPatch(ctx, unit._id, {
             amountRemaining: String(Math.max(0, Number(remaining.toFixed(4)))),
             // A fully-drained unit is out of the shelf until it returns.
             status: take.whole ? "rented" : unit.status,
             currentHolderId: take.whole ? rental.userId : unit.currentHolderId,
           });
         }
-        await ctx.db.patch(rentalId, {
+        await touchPatch(ctx, rentalId, {
           status: "active",
           pickedUpAt: now,
           // Manual hand-over: align the paper trail to now (see count branch).
@@ -1097,11 +1103,11 @@ export const adminRentalAction = mutation({
         });
         // Keep the group's headline stock in sync with the per-unit ledger.
         const stock = await sumUnitStock(ctx, group!._id);
-        await ctx.db.patch(group!._id, { measureStock: String(stock) });
+        await touchPatch(ctx, group!._id, { measureStock: String(stock) });
         // Multi-unit takes (e.g. 4 m from 3 m reels) tell the admin what to
         // physically hand over and note it on the rental for the record.
         if (plan.spansUnits) {
-          await ctx.db.patch(rentalId, {
+          await touchPatch(ctx, rentalId, {
             conditionReport: `Multi-unit take: ${allocationNote}`,
           });
         }
@@ -1123,13 +1129,13 @@ export const adminRentalAction = mutation({
         // Manual hand-over: the admin is marking the unit rented NOW, so the
         // paper trail should read like it happened at this moment — the
         // request, decision and pick-up timestamps all align to this date.
-        await ctx.db.patch(rentalId, {
+        await touchPatch(ctx, rentalId, {
           status: "active",
           pickedUpAt: now,
           requestedAt: rental.requestedAt ?? now,
           decidedAt: now,
         });
-        await ctx.db.patch(part._id, { status: "rented", currentHolderId: rental.userId });
+        await touchPatch(ctx, part._id, { status: "rented", currentHolderId: rental.userId });
       }
       if (student?.telegramChatId || student?.telegramUsername) {
         await telegramDM(
@@ -1173,7 +1179,7 @@ export const adminRentalAction = mutation({
           );
         }
       }
-      await ctx.db.patch(rentalId, {
+      await touchPatch(ctx, rentalId, {
         status: "returned",
         returnedAt: now,
         returnDestination: "shelf",
@@ -1193,7 +1199,7 @@ export const adminRentalAction = mutation({
           leftToRestore = Math.round((leftToRestore - restore) * 10000) / 10000;
           const consumedHere = Math.round((Number(alloc.amount) - restore) * 10000) / 10000;
           const base = Number(unit.amountRemaining ?? 0);
-          await ctx.db.patch(unit._id, {
+          await touchPatch(ctx, unit._id, {
             amountRemaining: String(
               Math.round((base + restore) * 10000) / 10000,
             ),
@@ -1218,11 +1224,11 @@ export const adminRentalAction = mutation({
           });
         }
         const stock = await sumUnitStock(ctx, group!._id);
-        await ctx.db.patch(group!._id, { measureStock: String(stock) });
+        await touchPatch(ctx, group!._id, { measureStock: String(stock) });
       } else if (functional === false) {
-        await ctx.db.patch(part._id, { status: "broken", currentHolderId: undefined, rentedAt: undefined, dueAt: undefined });
+        await touchPatch(ctx, part._id, { status: "broken", currentHolderId: undefined, rentedAt: undefined, dueAt: undefined });
       } else {
-        await ctx.db.patch(part._id, { status: "available", currentHolderId: undefined, rentedAt: undefined, dueAt: undefined });
+        await touchPatch(ctx, part._id, { status: "available", currentHolderId: undefined, rentedAt: undefined, dueAt: undefined });
       }
       // ONE Telegram message: PDF card + details as its caption (with the
       // acting admin), replacing the previous text+card double post.
@@ -1247,7 +1253,7 @@ export const adminRentalAction = mutation({
       if (rental.status !== "active") throw new ConvexError("Rental is not active");
       const destName = transferToName?.trim();
       if (!destName) throw new ConvexError("Enter the transfer destination name");
-      await ctx.db.patch(rentalId, {
+      await touchPatch(ctx, rentalId, {
         status: "returned",
         returnedAt: now,
         returnDestination: "transferred",
@@ -1267,7 +1273,7 @@ export const adminRentalAction = mutation({
           if (!unit) continue;
           const base = Number(unit.amountRemaining ?? 0);
           const left = Math.max(0, base - Number(alloc.amount));
-          await ctx.db.patch(unit._id, {
+          await touchPatch(ctx, unit._id, {
             amountRemaining: String(left),
             currentHolderId: undefined,
             consumedAt: left <= 0 ? now : undefined,
@@ -1285,9 +1291,9 @@ export const adminRentalAction = mutation({
           });
         }
         const stock = await sumUnitStock(ctx, group!._id);
-        await ctx.db.patch(group!._id, { measureStock: String(stock) });
+        await touchPatch(ctx, group!._id, { measureStock: String(stock) });
       } else {
-        await ctx.db.patch(part._id, {
+        await touchPatch(ctx, part._id, {
           status: "transferred",
           currentHolderId: undefined,
           currentProjectId: undefined,
@@ -1306,7 +1312,7 @@ export const adminRentalAction = mutation({
       if (!projectId) throw new ConvexError("Select a project");
       const project = await ctx.db.get(projectId);
       if (!project || project.status !== "active") throw new ConvexError("Project must be active");
-      await ctx.db.patch(rentalId, {
+      await touchPatch(ctx, rentalId, {
         status: "on_project",
         returnedAt: now,
         returnDestination: "project",
@@ -1323,15 +1329,15 @@ export const adminRentalAction = mutation({
           const unit = await ctx.db.get(alloc.partId);
           if (!unit) continue;
           const left = Math.max(0, Number(unit.amountRemaining ?? 0) - Number(alloc.amount));
-          await ctx.db.patch(unit._id, {
+          await touchPatch(ctx, unit._id, {
             amountRemaining: String(left),
             currentHolderId: undefined,
           });
         }
         const stock = await sumUnitStock(ctx, group!._id);
-        await ctx.db.patch(group!._id, { measureStock: String(stock) });
+        await touchPatch(ctx, group!._id, { measureStock: String(stock) });
       } else {
-        await ctx.db.patch(part._id, { status: "on_project", currentProjectId: projectId, currentHolderId: undefined, rentedAt: undefined, dueAt: undefined });
+        await touchPatch(ctx, part._id, { status: "on_project", currentProjectId: projectId, currentHolderId: undefined, rentedAt: undefined, dueAt: undefined });
       }
       // ONE Telegram message: PDF card + details as its caption.
       await scheduleRentCard(
@@ -1346,7 +1352,7 @@ export const adminRentalAction = mutation({
       );
     } else if (action === "mark_broken") {
       if (rental.status !== "active") throw new ConvexError("Rental is not active");
-      await ctx.db.patch(rentalId, { status: "returned", returnedAt: now, returnDestination: "shelf", functional: false, conditionReport: conditionReport?.trim(), returnRequestedAt: undefined });
+      await touchPatch(ctx, rentalId, { status: "returned", returnedAt: now, returnDestination: "shelf", functional: false, conditionReport: conditionReport?.trim(), returnRequestedAt: undefined });
       const isBulkBroken = group?.measure === "weight" || group?.measure === "length";
       if (isBulkBroken) {
         // Broken bulk stock is written off — nothing is restored.
@@ -1354,12 +1360,12 @@ export const adminRentalAction = mutation({
           const unit = await ctx.db.get(alloc.partId);
           if (!unit) continue;
           const left = Math.max(0, Number(unit.amountRemaining ?? 0) - Number(alloc.amount));
-          await ctx.db.patch(unit._id, { amountRemaining: String(left), currentHolderId: undefined });
+          await touchPatch(ctx, unit._id, { amountRemaining: String(left), currentHolderId: undefined });
         }
         const stock = await sumUnitStock(ctx, group!._id);
-        await ctx.db.patch(group!._id, { measureStock: String(stock) });
+        await touchPatch(ctx, group!._id, { measureStock: String(stock) });
       } else {
-        await ctx.db.patch(part._id, { status: "broken", currentHolderId: undefined });
+        await touchPatch(ctx, part._id, { status: "broken", currentHolderId: undefined });
       }
       await scheduleRentCard(
         ctx,
@@ -1425,7 +1431,7 @@ export const returnWholePackage = mutation({
       units.push({ tag: part.tag, groupName: group?.name ?? "Part" });
       if (destination === "transferred") {
         // Every unit of the bundle goes to the same external destination.
-        await ctx.db.patch(r._id, {
+        await touchPatch(ctx, r._id, {
           status: "returned",
           returnedAt: now,
           returnDestination: "transferred",
@@ -1441,7 +1447,7 @@ export const returnWholePackage = mutation({
             const unit = await ctx.db.get(alloc.partId);
             if (!unit) continue;
             const left = Math.max(0, Number(unit.amountRemaining ?? 0) - Number(alloc.amount));
-            await ctx.db.patch(unit._id, {
+            await touchPatch(ctx, unit._id, {
               amountRemaining: String(left),
               currentHolderId: undefined,
               consumedAt: left <= 0 ? now : undefined,
@@ -1459,9 +1465,9 @@ export const returnWholePackage = mutation({
             });
           }
           const stock = await sumUnitStock(ctx, group!._id);
-          await ctx.db.patch(group!._id, { measureStock: String(stock) });
+          await touchPatch(ctx, group!._id, { measureStock: String(stock) });
         } else {
-          await ctx.db.patch(part._id, {
+          await touchPatch(ctx, part._id, {
             status: "transferred",
             currentHolderId: undefined,
             currentProjectId: undefined,
@@ -1470,7 +1476,7 @@ export const returnWholePackage = mutation({
           });
         }
       } else if (destination === "shelf") {
-        await ctx.db.patch(r._id, {
+        await touchPatch(ctx, r._id, {
           status: "returned",
           returnedAt: now,
           returnDestination: "shelf",
@@ -1478,12 +1484,12 @@ export const returnWholePackage = mutation({
           conditionReport: conditionReport?.trim(),
           returnRequestedAt: undefined,
         });
-        await ctx.db.patch(part._id, {
+        await touchPatch(ctx, part._id, {
           status: functional ? "available" : "broken",
           currentHolderId: undefined,
         });
       } else {
-        await ctx.db.patch(r._id, {
+        await touchPatch(ctx, r._id, {
           status: "on_project",
           returnedAt: now,
           returnDestination: "project",
@@ -1492,7 +1498,7 @@ export const returnWholePackage = mutation({
           conditionReport: conditionReport?.trim(),
           returnRequestedAt: undefined,
         });
-        await ctx.db.patch(part._id, {
+        await touchPatch(ctx, part._id, {
           status: "on_project",
           currentProjectId: projectId,
           currentHolderId: undefined,
@@ -1500,7 +1506,7 @@ export const returnWholePackage = mutation({
       }
     }
     // Package row: mark the return flag cleared and log the batch decision.
-    await ctx.db.patch(packageId, { returnRequestedAt: undefined, returnDecidedAt: now });
+    await touchPatch(ctx, packageId, { returnRequestedAt: undefined, returnDecidedAt: now });
 
     const summaryText = await summarize(ctx, pkg.lines);
     // ONE combined PDF card for the whole bundle (details in its caption —
@@ -1542,7 +1548,7 @@ export const setPartStatusDirect = mutation({
     if (part.status !== "rented") {
       throw new ConvexError("Only rented parts can be returned here");
     }
-    await ctx.db.patch(part._id, {
+    await touchPatch(ctx, part._id, {
       status: functional ? "available" : "broken",
       currentHolderId: undefined,
       rentedAt: undefined,
@@ -1554,7 +1560,7 @@ export const setPartStatusDirect = mutation({
       .filter((q) => q.eq(q.field("status"), "active"))
       .collect();
     for (const r of open) {
-      await ctx.db.patch(r._id, {
+      await touchPatch(ctx, r._id, {
         status: "returned",
         returnedAt: Date.now(),
         returnDestination: "shelf",
@@ -1582,7 +1588,7 @@ export const assignPartToProject = mutation({
     }
     const project = await ctx.db.get(projectId);
     if (!project || project.status !== "active") throw new ConvexError("Project must be active");
-    await ctx.db.patch(part._id, {
+    await touchPatch(ctx, part._id, {
       status: "on_project",
       currentHolderId: undefined,
       currentProjectId: projectId,
@@ -1595,7 +1601,7 @@ export const assignPartToProject = mutation({
       .filter((q) => q.eq(q.field("status"), "active"))
       .collect();
     for (const r of open) {
-      await ctx.db.patch(r._id, {
+      await touchPatch(ctx, r._id, {
         status: "on_project",
         returnedAt: Date.now(),
         returnDestination: "project",
@@ -1669,11 +1675,11 @@ export const cancelMyRequest = mutation({
     if (!rental) throw new ConvexError("Rental not found");
     if (rental.userId !== user._id) throw new ConvexError("Not your request");
     if (rental.status !== "pending") throw new ConvexError("Only pending requests can be canceled");
-    await ctx.db.patch(rentalId, { status: "canceled", decidedAt: Date.now() });
+    await touchPatch(ctx, rentalId, { status: "canceled", decidedAt: Date.now() });
     const part = await ctx.db.get(rental.partId);
     if (part && part.status === "pending") {
       // Broken-unit requests put the unit back into the broken pool.
-      await ctx.db.patch(part._id, { status: rental.rentBroken ? "broken" : "available" });
+      await touchPatch(ctx, part._id, { status: rental.rentBroken ? "broken" : "available" });
     }
   },
 });
@@ -1994,6 +2000,7 @@ export const createPackage = mutation({
         note: l.note?.trim() || undefined,
       })),
       requestedAt: Date.now(),
+      updatedAt: Date.now(),
     });
 
     for (const { partId } of chosen) {
@@ -2005,9 +2012,10 @@ export const createPackage = mutation({
         packageId,
         status: "pending",
         requestedAt: Date.now(),
+        updatedAt: Date.now(),
         rentBroken: part.status === "broken" ? true : undefined,
       });
-      await ctx.db.patch(partId, { status: "pending" });
+      await touchPatch(ctx, partId, { status: "pending" });
     }
 
     const label = user.name ?? user.email ?? "A member";
@@ -2059,8 +2067,9 @@ export const editPackage = mutation({
       .collect();
     for (const r of oldRentals.filter((r) => r.packageId === packageId)) {
       const part = await ctx.db.get(r.partId);
-      if (part && part.status === "pending") await ctx.db.patch(part._id, { status: "available" });
+      if (part && part.status === "pending") await touchPatch(ctx, part._id, { status: "available" });
       await ctx.db.delete(r._id);
+      await recordTombstone(ctx, "rentals", String(r._id));
     }
 
     const chosen: { partId: Id<"parts">; groupId: Id<"groups"> }[] = [];
@@ -2085,7 +2094,7 @@ export const editPackage = mutation({
       for (const part of pool) chosen.push({ partId: part._id, groupId: line.groupId });
     }
 
-    await ctx.db.patch(packageId, {
+    await touchPatch(ctx, packageId, {
       note: note?.trim() || undefined,
       lines: lines.map((l) => ({
         groupId: l.groupId,
@@ -2102,9 +2111,10 @@ export const editPackage = mutation({
         packageId,
         status: "pending",
         requestedAt: Date.now(),
+        updatedAt: Date.now(),
         rentBroken: part.status === "broken" ? true : undefined,
       });
-      await ctx.db.patch(partId, { status: "pending" });
+      await touchPatch(ctx, partId, { status: "pending" });
     }
     await telegramGroup(ctx, `✏️ ${user.name ?? user.email ?? "A member"} edited their pending package rental request.`, undefined, "requests");
     return { ok: true };
@@ -2188,8 +2198,9 @@ export const adminEditPackage = mutation({
       }
       for (const r of pkgRentals) {
         const part = await ctx.db.get(r.partId);
-        if (part && part.status === "pending") await ctx.db.patch(part._id, { status: "available" });
+        if (part && part.status === "pending") await touchPatch(ctx, part._id, { status: "available" });
         await ctx.db.delete(r._id);
+        await recordTombstone(ctx, "rentals", String(r._id));
       }
       const chosen: { partId: Id<"parts">; groupId: Id<"groups"> }[] = [];
       for (const line of cleanLines) {
@@ -2210,7 +2221,7 @@ export const adminEditPackage = mutation({
         }
         for (const part of free.slice(0, wanted)) chosen.push({ partId: part._id, groupId: line.groupId });
       }
-      await ctx.db.patch(packageId, {
+      await touchPatch(ctx, packageId, {
         note: note?.trim() || undefined,
         lines: cleanLines,
         pickupAt: pickupAt === undefined ? pkg.pickupAt : (pickupAt ?? undefined),
@@ -2226,8 +2237,9 @@ export const adminEditPackage = mutation({
           status: "pending",
           requestedAt: now,
           rentBroken: part.status === "broken" ? true : undefined,
+          updatedAt: now,
         });
-        await ctx.db.patch(partId, { status: "pending" });
+        await touchPatch(ctx, partId, { status: "pending" });
       }
       await telegramGroup(
         ctx,
@@ -2263,8 +2275,9 @@ export const adminEditPackage = mutation({
         );
       }
       const part = await ctx.db.get(r.partId);
-      if (part && part.status === "pending") await ctx.db.patch(part._id, { status: "available" });
+      if (part && part.status === "pending") await touchPatch(ctx, part._id, { status: "available" });
       await ctx.db.delete(r._id);
+      await recordTombstone(ctx, "rentals", String(r._id));
       removedIds.add(r._id);
     }
 
@@ -2341,11 +2354,12 @@ export const adminEditPackage = mutation({
       for (let i = 0; i < sorted.length - target; i++) {
         const r = sorted[i];
         const part = await ctx.db.get(r.partId);
-        if (part && part.status === "pending") await ctx.db.patch(part._id, { status: "available" });
+        if (part && part.status === "pending") await touchPatch(ctx, part._id, { status: "available" });
         // Pending units go back to the shelf; approved ones were reserved for
         // this bundle only. Either way the record is deleted so the package
         // row matches the new lines exactly.
         await ctx.db.delete(r._id);
+        await recordTombstone(ctx, "rentals", String(r._id));
         released.push(r._id);
       }
     }
@@ -2355,10 +2369,10 @@ export const adminEditPackage = mutation({
     if (renterId !== pkg.userId) {
       for (const r of pkgRentals) {
         if (removedIds.has(r._id) || released.includes(r._id)) continue;
-        await ctx.db.patch(r._id, { userId: renterId as any });
+        await touchPatch(ctx, r._id, { userId: renterId as any });
         const part = r.partId ? await ctx.db.get(r.partId) : null;
         if (part && part.status === "rented") {
-          await ctx.db.patch(part._id, { currentHolderId: renterId as any });
+          await touchPatch(ctx, part._id, { currentHolderId: renterId as any });
         }
       }
     }
@@ -2375,11 +2389,12 @@ export const adminEditPackage = mutation({
         requestedAt: pkg.requestedAt,
         decidedAt: now,
         pickupAt: pickupAt === undefined ? pkg.pickupAt : (pickupAt ?? undefined),
+        updatedAt: now,
       });
-      await ctx.db.patch(partId, { status: "pending" });
+      await touchPatch(ctx, partId, { status: "pending" });
     }
 
-    await ctx.db.patch(packageId, {
+    await touchPatch(ctx, packageId, {
       note: note?.trim() || undefined,
       lines: cleanLines,
       pickupAt: pickupAt === undefined ? pkg.pickupAt : (pickupAt ?? undefined),
@@ -2425,10 +2440,10 @@ export const cancelPackage = mutation({
       .collect();
     for (const r of mine.filter((r) => r.packageId === packageId)) {
       const part = await ctx.db.get(r.partId);
-      if (part && part.status === "pending") await ctx.db.patch(part._id, { status: "available" });
-      await ctx.db.patch(r._id, { status: "canceled", decidedAt: Date.now() });
+      if (part && part.status === "pending") await touchPatch(ctx, part._id, { status: "available" });
+      await touchPatch(ctx, r._id, { status: "canceled", decidedAt: Date.now() });
     }
-    await ctx.db.patch(packageId, { status: "canceled", decidedAt: Date.now() });
+    await touchPatch(ctx, packageId, { status: "canceled", decidedAt: Date.now() });
     await telegramGroup(ctx, `🗑 ${user.name ?? user.email ?? "A member"} canceled their pending package rental request.`, undefined, "requests");
     return { ok: true };
   },
@@ -2452,19 +2467,19 @@ export const decidePackage = mutation({
     const now = Date.now();
 
     if (approve) {
-      await ctx.db.patch(packageId, { status: "approved", decidedAt: now, pickupAt });
+      await touchPatch(ctx, packageId, { status: "approved", decidedAt: now, pickupAt });
       for (const r of pkgRentals) {
         // Units stay reserved: rental -> "approved" (awaiting pick-up), the
         // part keeps its open request; inventory decrements only at the
         // physical hand-over (mark_taken) — same stages as single rentals.
-        await ctx.db.patch(r._id, { status: "approved", decidedAt: now, pickupAt });
+        await touchPatch(ctx, r._id, { status: "approved", decidedAt: now, pickupAt });
       }
     } else {
-      await ctx.db.patch(packageId, { status: "canceled", decidedAt: now });
+      await touchPatch(ctx, packageId, { status: "canceled", decidedAt: now });
       for (const r of pkgRentals) {
         const part = await ctx.db.get(r.partId);
-        await ctx.db.patch(r._id, { status: "denied", decidedAt: now });
-        if (part && part.status === "pending") await ctx.db.patch(part._id, { status: "available" });
+        await touchPatch(ctx, r._id, { status: "denied", decidedAt: now });
+        if (part && part.status === "pending") await touchPatch(ctx, part._id, { status: "available" });
       }
     }
 
@@ -2569,23 +2584,23 @@ export const markPackageTaken = mutation({
           const unit = units.find((p: any) => p._id === take.unitId);
           if (!unit) continue;
           const remaining = Number(unit.amountRemaining ?? 0) - take.amount;
-          await ctx.db.patch(unit._id, {
+          await touchPatch(ctx, unit._id, {
             amountRemaining: String(Math.max(0, Number(remaining.toFixed(4)))),
             status: take.whole ? "rented" : unit.status,
             currentHolderId: take.whole ? pkg.userId : unit.currentHolderId,
           });
         }
-        await ctx.db.patch(r._id, {
+        await touchPatch(ctx, r._id, {
           status: "active",
           pickedUpAt: now,
           decidedAt: r.decidedAt ?? now,
           allocations: plan.plan.map((p) => ({ partId: p.unitId as any, amount: p.amount })),
         });
         const stock = await sumUnitStock(ctx, group._id);
-        await ctx.db.patch(group._id, { measureStock: String(stock) });
+        await touchPatch(ctx, group._id, { measureStock: String(stock) });
       } else {
-        await ctx.db.patch(r._id, { status: "active", pickedUpAt: now });
-        await ctx.db.patch(part._id, {
+        await touchPatch(ctx, r._id, { status: "active", pickedUpAt: now });
+        await touchPatch(ctx, part._id, {
           status: "rented",
           currentHolderId: pkg.userId,
           rentedAt: now,
@@ -2649,8 +2664,8 @@ export const requestPackageReturn = mutation({
         throw new ConvexError(`You already requested a return — ask again in ${remaining}h`);
       }
     }
-    await ctx.db.patch(packageId, { returnRequestedAt: Date.now() });
-    for (const r of active) await ctx.db.patch(r._id, { returnRequestedAt: Date.now() });
+    await touchPatch(ctx, packageId, { returnRequestedAt: Date.now() });
+    for (const r of active) await touchPatch(ctx, r._id, { returnRequestedAt: Date.now() });
     const summaryText = await summarize(ctx, pkg.lines);
     // ONE combined package card: a single PDF listing every unit of the
     // bundle (no per-unit message spam).
@@ -2705,7 +2720,7 @@ export const promoteByEmail = mutation({
       .withIndex("email", (q) => q.eq("email", email.trim().toLowerCase()))
       .first();
     if (!user) throw new ConvexError("No user found with that email — they must sign in once first");
-    await ctx.db.patch(user._id, { role });
+    await touchPatch(ctx, user._id, { role });
     if (role === "admin") {
       await ctx.db.insert("notifications", {
         forRole: "admin",
@@ -2792,13 +2807,13 @@ export const pickupReminders = internalMutation({
         }
       };
       if (untilMs <= 26 * 36e5 && untilMs > 23 * 36e5 && !r.pickupRemindedDay) {
-        await ctx.db.patch(r._id, { pickupRemindedDay: true });
+        await touchPatch(ctx, r._id, { pickupRemindedDay: true });
         await dm(
           `⏰ Reminder: pick up ${group?.name ?? "your part"} (${part?.tag ?? "?"}) tomorrow — ${when}.`,
         );
       }
       if (untilMs <= 61 * 60_000 && untilMs > 45 * 60_000 && !r.pickupRemindedHour) {
-        await ctx.db.patch(r._id, { pickupRemindedHour: true });
+        await touchPatch(ctx, r._id, { pickupRemindedHour: true });
         await dm(
           `⏰ Pick-up in ~1 hour: ${group?.name ?? "your part"} (${part?.tag ?? "?"}) at ${when}. See you at the lab!`,
         );
@@ -2863,19 +2878,19 @@ export const updateRentalRecord = mutation({
       if (!newHolder) throw new ConvexError("New renter not found");
       patch.userId = userId;
     }
-    await ctx.db.patch(rentalId, patch);
+    await touchPatch(ctx, rentalId, patch);
 
     // Keep a rented unit's lend dates (shown on cards + dashboards) in sync.
     const part = rental.partId ? await ctx.db.get(rental.partId) : null;
     if (part) {
       if (patch.userId) {
         // The unit follows its record's holder while it is out.
-        await ctx.db.patch(part._id, {
+        await touchPatch(ctx, part._id, {
           currentHolderId: patch.userId as any,
         });
       }
       if (dueAt !== undefined || pickedUpAt !== undefined) {
-        await ctx.db.patch(part._id, {
+        await touchPatch(ctx, part._id, {
           ...(dueAt !== undefined ? { dueAt: dueAt || undefined } : {}),
           ...(pickedUpAt !== undefined && part.status === "rented"
             ? { rentedAt: pickedUpAt || undefined }
@@ -2884,7 +2899,7 @@ export const updateRentalRecord = mutation({
       }
       // Returning/canceling an active record via the editor releases the unit.
       if ((status === "returned" || status === "canceled") && part.status === "rented") {
-        await ctx.db.patch(part._id, {
+        await touchPatch(ctx, part._id, {
           status: "available",
           currentHolderId: undefined,
           rentedAt: undefined,
@@ -2926,7 +2941,7 @@ export const deleteRentalRecord = mutation({
         });
       }
       if (holdsUnit && alsoFreePart) {
-        await ctx.db.patch(part._id, {
+        await touchPatch(ctx, part._id, {
           status: "available",
           currentHolderId: undefined,
           currentProjectId: undefined,
@@ -2936,6 +2951,7 @@ export const deleteRentalRecord = mutation({
       }
     }
     await ctx.db.delete(rentalId);
+    await recordTombstone(ctx, "rentals", String(rentalId));
     return { ok: true };
   },
 });
