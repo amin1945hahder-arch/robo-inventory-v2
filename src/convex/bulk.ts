@@ -96,19 +96,33 @@ export const historyStats = query({
 /**
  * Clear rental history. Default: every processed record (returned, on a
  * project, denied or canceled). With includeLive: true it wipes EVERYTHING —
- * the caller must pass the explicit confirm flag and, for live records,
- * choose whether their units are released back to the shelf.
+ * for live records the caller chooses whether their units are released back
+ * to the shelf. With delNotifications: true rental records are NOT touched —
+ * the call only clears the admin notification feed, so each category can be
+ * deleted separately. The confirm flag is always required.
  */
 export const clearRentalHistory = mutation({
   args: {
     userId: v.optional(v.id("users")),
     includeLive: v.optional(v.boolean()),
     releaseUnits: v.optional(v.boolean()),
+    delNotifications: v.optional(v.boolean()),
     confirm: v.literal("DELETE"),
   },
-  handler: async (ctx, { userId, includeLive, releaseUnits, confirm }) => {
+  handler: async (ctx, { userId, includeLive, releaseUnits, delNotifications, confirm }) => {
     await requireAdmin(ctx);
     if (confirm !== "DELETE") throw new ConvexError("Type DELETE to confirm");
+
+    // Notifications-only: wipe the admin feed without touching any records.
+    if (delNotifications) {
+      const notifs = await ctx.db.query("notifications").collect();
+      for (const n of notifs) {
+        await ctx.db.delete(n._id);
+        await recordTombstone(ctx, "adminNotifications", n._id);
+      }
+      return { deleted: 0, packagesDeleted: 0, notifsDeleted: notifs.length };
+    }
+
     const all = await ctx.db.query("rentals").collect();
     const rows = all.filter(
       (r) => (!userId || r.userId === userId) && (includeLive || PROCESSED.has(r.status)),
@@ -154,7 +168,7 @@ export const clearRentalHistory = mutation({
       await recordTombstone(ctx, "rentalPackages", packageId);
       packagesDeleted++;
     }
-    return { deleted, packagesDeleted };
+    return { deleted, packagesDeleted, notifsDeleted: 0 };
   },
 });
 
