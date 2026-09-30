@@ -391,7 +391,9 @@ export default function AdminRequests() {
   const [clearOpen, setClearOpen] = useState(false);
   const [clearLive, setClearLive] = useState(false);
   const [clearRelease, setClearRelease] = useState(false);
+  const [clearNotifs, setClearNotifs] = useState(false);
   const [clearBusy, setClearBusy] = useState(false);
+  const clearNotifications = useMutation(api.notifications.clearAllNotifications);
   const submitClearHistory = async () => {
     setClearBusy(true);
     try {
@@ -400,7 +402,14 @@ export default function AdminRequests() {
         releaseUnits: clearLive ? clearRelease : undefined,
         confirm: "DELETE",
       });
-      toast.success(`Cleared ${res.deleted} rental record(s)`);
+      let notifNote = "";
+      if (clearNotifs) {
+        const n = await clearNotifications();
+        notifNote = ` · ${n.cleared} notification(s) cleared`;
+      }
+      toast.success(
+        `Cleared ${res.deleted} rental record(s)${res.packagesDeleted ? ` and ${res.packagesDeleted} empty package row(s)` : ""}${notifNote}`,
+      );
       setClearOpen(false);
     } catch (e) {
       toast.error(asMessage(e));
@@ -751,11 +760,16 @@ export default function AdminRequests() {
                   setBulkBusy(true);
                   try {
                     const res = await bulkDeleteRecords({ rentalIds: [...selected] as never, alsoFreePart: false });
-                    toast.success(
-                      res.skipped.length > 0
-                        ? `Deleted ${res.deleted}, kept ${res.skipped.length} (still holding a unit — free the unit first or edit per record)`
-                        : `Deleted ${res.deleted} record(s)`,
-                    );
+                    if (res.skipped.length > 0) {
+                      const tags = res.skipped.map((s: any) => s.tag ?? "unit").slice(0, 4).join(", ");
+                      toast.warning(
+                        `Deleted ${res.deleted}. Kept ${res.skipped.length} still holding a unit (${tags}${res.skipped.length > 4 ? "…" : ""}) — open each record and tick “Also release the unit”, or use Clear history with release.`,
+                      );
+                    } else {
+                      toast.success(
+                        `Deleted ${res.deleted} record(s)${res.packagesDeleted ? ` · ${res.packagesDeleted} empty package row(s) swept` : ""}`,
+                      );
+                    }
                     setSelected(new Set());
                   } catch (e) {
                     toast.error(asMessage(e));
@@ -1831,6 +1845,15 @@ export default function AdminRequests() {
                   </span>
                 </label>
               )}
+              <label className="flex items-start gap-2 text-sm">
+                <Checkbox checked={clearNotifs} onCheckedChange={(v) => setClearNotifs(v === true)} className="mt-0.5" />
+                <span>
+                  Also clear the in-app notification history
+                  <span className="block text-xs text-muted-foreground">
+                    Removes every row of the admin feed below the tabs.
+                  </span>
+                </span>
+              </label>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setClearOpen(false)}>

@@ -13,6 +13,7 @@ export type DropdownGroup = {
   _id: string;
   name: string;
   categoryId?: string;
+  closetId?: string;
   parentGroupId?: string | null;
   brand?: string | null;
   model?: string | null;

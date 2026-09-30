@@ -25,6 +25,17 @@ export const markAllRead = mutation({
   },
 });
 
+/** Wipe the whole admin notification history (the in-app feed). */
+export const clearAllNotifications = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+    const rows = await ctx.db.query("notifications").collect();
+    for (const r of rows) await ctx.db.delete(r._id);
+    return { ok: true, cleared: rows.length };
+  },
+});
+
 // Mark a single notification as read (tap a row in the Requests console — the
 // unread bubble decreases immediately without a reload).
 export const markRead = mutation({

@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { requireAdmin } from "./lib";
+import { touchPatch, recordTombstone } from "./sync";
 
 /**
  * Bulk record operations + the "seen" ledger behind the Updates tab.
@@ -26,6 +27,7 @@ export const bulkDeleteRentalRecords = mutation({
     await requireAdmin(ctx);
     let deleted = 0;
     const skipped: { rentalId: string; tag?: string; partStatus?: string }[] = [];
+    const packagesTouched = new Set<string>();
     for (const rentalId of rentalIds) {
       const rental = await ctx.db.get(rentalId);
       if (!rental) {
@@ -43,7 +45,7 @@ export const bulkDeleteRentalRecords = mutation({
         continue;
       }
       if (holdsUnit && alsoFreePart) {
-        await ctx.db.patch(part._id, {
+        await touchPatch(ctx, part._id, {
           status: "available",
           currentHolderId: undefined,
           currentProjectId: undefined,
@@ -51,10 +53,29 @@ export const bulkDeleteRentalRecords = mutation({
           dueAt: undefined,
         });
       }
+      if (rental.packageId) packagesTouched.add(String(rental.packageId));
       await ctx.db.delete(rentalId);
+      await recordTombstone(ctx, "rentals", rentalId);
       deleted++;
     }
-    return { ok: true, deleted, skipped };
+    // Package bundles whose last unit record just vanished are ghosts (the
+    // package row stays but renders zero units) — sweep them too.
+    let packagesDeleted = 0;
+    for (const packageId of packagesTouched) {
+      const pkg = await ctx.db.get(packageId as any);
+      if (!pkg) continue;
+      const left = (
+        await ctx.db
+          .query("rentals")
+          .withIndex("by_user", (q) => q.eq("userId", (pkg as any).userId))
+          .collect()
+      ).filter((r) => r.packageId === packageId);
+      if (left.length > 0) continue;
+      await ctx.db.delete(packageId as any);
+      await recordTombstone(ctx, "rentalPackages", packageId);
+      packagesDeleted++;
+    }
+    return { ok: true, deleted, skipped, packagesDeleted };
   },
 });
 
@@ -93,6 +114,7 @@ export const clearRentalHistory = mutation({
       (r) => (!userId || r.userId === userId) && (includeLive || PROCESSED.has(r.status)),
     );
     let deleted = 0;
+    const packagesTouched = new Set<string>();
     for (const r of rows) {
       const part = r.partId ? await ctx.db.get(r.partId) : null;
       const holds =
@@ -102,7 +124,7 @@ export const clearRentalHistory = mutation({
           (part.status === "pending" && r.status === "pending"));
       if (holds) {
         if (!releaseUnits) continue; // keep the record; it still holds its unit
-        await ctx.db.patch(part._id, {
+        await touchPatch(ctx, part._id, {
           status: "available",
           currentHolderId: undefined,
           currentProjectId: undefined,
@@ -110,12 +132,29 @@ export const clearRentalHistory = mutation({
           dueAt: undefined,
         });
       }
-      // Package units are deleted with their records — packages keep their
-      // own row; a fully-erased package simply shows zero units.
+      if (r.packageId) packagesTouched.add(String(r.packageId));
       await ctx.db.delete(r._id);
+      await recordTombstone(ctx, "rentals", r._id);
       deleted++;
     }
-    return { deleted };
+    // A package whose every unit record was cleared is an empty ghost row —
+    // clear it as well so the Packages tab doesn't keep un-deletable husks.
+    let packagesDeleted = 0;
+    for (const packageId of packagesTouched) {
+      const pkg = await ctx.db.get(packageId as any);
+      if (!pkg) continue;
+      const left = (
+        await ctx.db
+          .query("rentals")
+          .withIndex("by_user", (q) => q.eq("userId", (pkg as any).userId))
+          .collect()
+      ).filter((x) => x.packageId === packageId);
+      if (left.length > 0) continue;
+      await ctx.db.delete(packageId as any);
+      await recordTombstone(ctx, "rentalPackages", packageId);
+      packagesDeleted++;
+    }
+    return { deleted, packagesDeleted };
   },
 });
 

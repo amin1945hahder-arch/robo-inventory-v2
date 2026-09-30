@@ -2952,6 +2952,24 @@ export const deleteRentalRecord = mutation({
     }
     await ctx.db.delete(rentalId);
     await recordTombstone(ctx, "rentals", String(rentalId));
+    // Ghost sweep: deleting the last unit record of a package leaves an
+    // empty package row that can never be edited or returned — remove it so
+    // the Packages tab has no un-deletable husks.
+    if (rental.packageId) {
+      const pkg = await ctx.db.get(rental.packageId);
+      if (pkg) {
+        const left = (
+          await ctx.db
+            .query("rentals")
+            .withIndex("by_user", (q) => q.eq("userId", pkg.userId))
+            .collect()
+        ).filter((x) => x.packageId === rental.packageId);
+        if (left.length === 0) {
+          await ctx.db.delete(rental.packageId);
+          await recordTombstone(ctx, "rentalPackages", String(rental.packageId));
+        }
+      }
+    }
     return { ok: true };
   },
 });
