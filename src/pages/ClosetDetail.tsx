@@ -162,6 +162,14 @@ export default function ClosetDetail() {
                             categoryName={cat.name}
                             isAdmin={isAdmin}
                             containedGroups={contained}
+                            closetName={
+                              g.closetId
+                                ? (() => {
+                                    const c = (allClosets ?? []).find((x) => x._id === g.closetId);
+                                    return c ? [c.name, c.location].filter(Boolean).join(" — ") : undefined;
+                                  })()
+                                : undefined
+                            }
                             containerPath={chain.length > 0 ? chain.join(" > ") : undefined}
                             onEdit={() => {
                               setEditingGroup(g);

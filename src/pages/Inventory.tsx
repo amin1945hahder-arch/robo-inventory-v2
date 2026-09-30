@@ -10,6 +10,7 @@ import { GroupCard } from "@/components/GroupCard";
 import { BulkGroupDialog } from "@/components/BulkGroupDialog";
 import { GroupFormDialog } from "@/components/GroupFormDialog";
 import { QrScanDialog } from "@/components/QrScanDialog";
+import { PackageBuilderDialog } from "@/components/PackageBuilderDialog";
 import { InventorySearchDialog } from "@/components/InventorySearchDialog";
 import { QrChip } from "@/components/QrChip";
 import { LoadingGif } from "@/components/LoadingGif";
@@ -45,6 +46,7 @@ import type { Doc } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
 import { asMessage } from "@/components/EditRentalDialog";
 import {
+  Boxes,
   FolderOpen,
   MoreVertical,
   PackagePlus,
@@ -71,6 +73,14 @@ export default function Inventory() {
 
   const categories = useQuery(api.catalog.listCategories, {});
   const closets = useQuery(api.catalog.listClosets, {});
+  // Storage display names for the group cards ("📍 Main Lab — Shelf 3").
+  const closetNames = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const c of closets ?? []) {
+      byId.set(c._id, [c.name, c.location].filter(Boolean).join(" — "));
+    }
+    return byId;
+  }, [closets]);
   const stats = useQuery(api.stats.groupStats, {});
   const groups = useQuery(api.catalog.listGroups, {
     search: "",
@@ -99,6 +109,8 @@ export default function Inventory() {
   const [scanOpen, setScanOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [groupFormOpen, setGroupFormOpen] = useState(false);
+  // Package request launcher — lives right on the inventory home screen.
+  const [pkgOpen, setPkgOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<Doc<"groups"> | null>(null);
   const [catDialogOpen, setCatDialogOpen] = useState(false);
   const [catName, setCatName] = useState("");
@@ -245,6 +257,9 @@ export default function Inventory() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Button onClick={() => setPkgOpen(true)}>
+              <Boxes className="size-4" /> Request package
+            </Button>
             <Button variant="outline" onClick={() => setSearchOpen(true)}>
               <Search className="size-4" /> Search
             </Button>
@@ -479,6 +494,7 @@ export default function Inventory() {
                             categoryName={cat.name}
                             isAdmin={isAdmin}
                             containedGroups={contained}
+                            closetName={closetNames.get(g.closetId ?? "")}
                             onEdit={() => {
                               setEditingGroup(g);
                               setGroupFormOpen(true);
@@ -505,6 +521,7 @@ export default function Inventory() {
       </div>
 
       <QrScanDialog open={scanOpen} onOpenChange={setScanOpen} onResult={handleScan} />
+      <PackageBuilderDialog open={pkgOpen} onOpenChange={setPkgOpen} />
       <InventorySearchDialog
         open={searchOpen}
         onOpenChange={setSearchOpen}

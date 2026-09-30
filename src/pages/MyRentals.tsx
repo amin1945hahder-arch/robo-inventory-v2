@@ -12,6 +12,7 @@ import { EditRentalDialog } from "@/components/EditRentalDialog";
 import { containerChainOf } from "@/lib/container-chain";
 import { packageDisplayStatus } from "@/lib/package-status";
 import { PackageBuilderDialog } from "@/components/PackageBuilderDialog";
+import { formatLineAmount } from "@/lib/group-measure";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { asMessage } from "@/components/EditRentalDialog";
@@ -99,8 +100,12 @@ export default function MyRentals() {
                         <div className="flex flex-wrap items-center gap-3">
                           <Boxes className="size-5 shrink-0 text-primary" />
                           <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium">
-                              {lines.map((l: any) => `${l.requested}× ${l.groupName}`).join(" · ")}
+                            <p className="flex flex-wrap gap-x-1.5 text-sm font-medium">
+                              {lines.map((l: any) => (
+                                <span key={l.groupId} className="whitespace-nowrap">
+                                  {formatLineAmount(l, groupsIndex?.find((g: any) => g._id === l.groupId))} {l.groupName}
+                                </span>
+                              ))}
                             </p>
                             <p className="text-xs text-muted-foreground">
                               Requested {new Date(pkg.requestedAt).toLocaleDateString()} ·{" "}

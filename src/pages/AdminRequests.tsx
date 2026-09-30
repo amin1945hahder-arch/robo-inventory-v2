@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { formatLineAmount } from "@/lib/group-measure";
 import { AppShell } from "@/components/AppShell";
 import { LoadingGif, LoadingGifInline } from "@/components/LoadingGif";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -1227,7 +1228,7 @@ export default function AdminRequests() {
                         <p className="flex flex-wrap gap-x-1.5 gap-y-0.5 text-sm font-medium">
                           {lines.map((l: any) => (
                             <span key={l.groupId} className="whitespace-nowrap">
-                              {l.requested}× {l.groupName}
+                              {formatLineAmount(l, groupsIndex?.find((g: any) => g._id === l.groupId))} {l.groupName}
                             </span>
                           ))}
                         </p>

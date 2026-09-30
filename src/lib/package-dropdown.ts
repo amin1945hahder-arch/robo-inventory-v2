@@ -19,6 +19,8 @@ export type DropdownGroup = {
   model?: string | null;
   quantityTotal?: number;
   measure?: string | null;
+  /** Display unit for weight/length groups ("kg", "m"…). */
+  measureUnit?: string | null;
 };
 
 export type CategoryEntry = { _id: string; name: string };

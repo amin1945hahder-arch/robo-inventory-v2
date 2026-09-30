@@ -439,6 +439,14 @@ export default function GroupDetail() {
                         categoryName={categories?.find((c) => c._id === g.categoryId)?.name}
                         isAdmin={isAdmin}
                         containedGroups={contained.length > 0 ? contained : undefined}
+                        closetName={
+                          g.closetId
+                            ? (() => {
+                                const c = (closets ?? []).find((x) => x._id === g.closetId);
+                                return c ? [c.name, c.location].filter(Boolean).join(" — ") : undefined;
+                              })()
+                            : undefined
+                        }
                         onEdit={() => {
                           setInsideDefaults({});
                           setEditGroup(g);

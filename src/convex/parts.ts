@@ -7,6 +7,7 @@ import { telegramDM, telegramGroup, notifyTelegram } from "./notify";
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { planMeasureTake, describePlan } from "../lib/measure-alloc";
+import { formatLineAmount, roundBulk } from "../lib/group-measure";
 import { sumUnitStock, assertGroupLendable, containerChainFromIndex } from "./catalog";
 import { touchPatch, recordTombstone } from "./sync";
 
@@ -138,15 +139,40 @@ export const availabilityByGroup = query({
       .query("parts")
       .filter((q) => q.neq(q.field("deleted"), true))
       .collect();
-    const byGroup: Record<string, { available: number; broken: number; pending: number; rented: number; onProject: number }> = {};
+    const byGroup: Record<
+      string,
+      { available: number; broken: number; pending: number; rented: number; onProject: number; bulkFree: number }
+    > = {};
+    const groupMeasure = new Map<string, string | undefined>();
     for (const p of parts) {
-      const row = (byGroup[p.groupId] ??= { available: 0, broken: 0, pending: 0, rented: 0, onProject: 0 });
-      if (p.status === "available") row.available += 1;
-      else if (p.status === "broken") row.broken += 1;
+      const row = (byGroup[p.groupId] ??= {
+        available: 0,
+        broken: 0,
+        pending: 0,
+        rented: 0,
+        onProject: 0,
+        bulkFree: 0,
+      });
+      // Weight/length groups keep a per-unit amount ledger — the lendable
+      // "free" stock is the summed remaining amount of AVAILABLE units
+      // (whole reels/spools that are still on the shelf), not unit counts.
+      if (p.status === "available") {
+        row.available += 1;
+        let m = groupMeasure.get(p.groupId);
+        if (m === undefined) {
+          const g = await ctx.db.get(p.groupId);
+          m = g?.measure;
+          groupMeasure.set(p.groupId, m);
+        }
+        if (m === "weight" || m === "length") {
+          row.bulkFree += Number(p.amountRemaining ?? 0);
+        }
+      } else if (p.status === "broken") row.broken += 1;
       else if (p.status === "pending") row.pending += 1;
       else if (p.status === "rented") row.rented += 1;
       else if (p.status === "on_project") row.onProject += 1;
     }
+    for (const row of Object.values(byGroup)) row.bulkFree = roundBulk(row.bulkFree);
     return byGroup;
   },
 });
@@ -1965,13 +1991,44 @@ export const createPackage = mutation({
     // Resolve units up front: enough available units per group, skipping
     // broken ones unless the member explicitly opts in (rent-broken feature).
     const chosen: { partId: Id<"parts">; groupId: Id<"groups"> }[] = [];
-    for (const line of lines) {
+    // Bulk (weight/length) lines reserve an AMOUNT, not units: the request is
+    // validated against the per-unit ledgers now; stock is cut at hand-over
+    // (mark_taken), exactly like single bulk rentals.
+    const bulkAmountByGroup = new Map<Id<"groups">, number>();
+    const storeLines = lines.map((l) => ({
+      groupId: l.groupId,
+      count: Math.ceil(l.count),
+      note: l.note?.trim() || undefined,
+    }));
+    for (const [idx, line] of lines.entries()) {
       if (line.count < 1) throw new ConvexError("Each line needs at least 1 unit");
       if (line.count > MAX_UNITS_PER_LINE) throw new ConvexError(`Max ${MAX_UNITS_PER_LINE} units per item`);
       const group = await ctx.db.get(line.groupId);
       // Storage-alias groups cannot be lent, also not inside a package.
       await assertGroupLendable(ctx, line.groupId);
       if (!group || group.deleted) throw new ConvexError(`"${group?.name ?? "item"}" no longer exists`);
+      if (group.measure === "weight" || group.measure === "length") {
+        const amount = roundBulk(line.count);
+        const units = (
+          await ctx.db
+            .query("parts")
+            .withIndex("by_group", (q) => q.eq("groupId", line.groupId))
+            .filter((q) => q.neq(q.field("deleted"), true))
+            .collect()
+        ).filter((p) => p.status === "available" && p.tag !== "BULK");
+        const plan = planMeasureTake(
+          units.map((p) => ({
+            id: p._id,
+            remaining: Number(p.amountRemaining ?? 0),
+            lowAt: Number(p.lowAt ?? group.measureLowAt ?? 0),
+          })),
+          amount,
+        );
+        if (!plan.ok) throw new ConvexError(`${group.name}: ${plan.error}`);
+        bulkAmountByGroup.set(line.groupId, amount);
+        storeLines[idx].count = amount;
+        continue;
+      }
       const candidates = await ctx.db
         .query("parts")
         .withIndex("by_group", (q) => q.eq("groupId", line.groupId))
@@ -1994,11 +2051,7 @@ export const createPackage = mutation({
       userId: user._id,
       note: note?.trim() || undefined,
       status: "pending",
-      lines: lines.map((l) => ({
-        groupId: l.groupId,
-        count: Math.ceil(l.count),
-        note: l.note?.trim() || undefined,
-      })),
+      lines: storeLines,
       requestedAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -2017,9 +2070,23 @@ export const createPackage = mutation({
       });
       await touchPatch(ctx, partId, { status: "pending" });
     }
+    // Bulk lines: ONE pending rental on the group's BULK placeholder part,
+    // carrying the requested amount — units stay on the shelf until hand-over.
+    for (const [groupId, amount] of bulkAmountByGroup) {
+      const holder = await ensureBulkPart(ctx, groupId);
+      await ctx.db.insert("rentals", {
+        partId: holder._id,
+        userId: user._id,
+        packageId,
+        status: "pending",
+        requestedAt: Date.now(),
+        amount,
+        updatedAt: Date.now(),
+      });
+    }
 
     const label = user.name ?? user.email ?? "A member";
-    const summary = await summarize(ctx, lines.map((l) => ({ groupId: l.groupId, count: Math.ceil(l.count) })));
+    const summary = await summarize(ctx, storeLines);
     await notifyAdmin(ctx, `${label} requested a package rental (${summary})`, `/admin/requests`);
     // OS-level push to every admin device (no-op until VAPID keys are set).
     await ctx.scheduler.runAfter(0, internal.push.pushToAdmins, {
@@ -2060,19 +2127,33 @@ export const editPackage = mutation({
     if (pkg.status !== "pending") throw new ConvexError("Only pending packages can be edited");
     if (!lines.length) throw new ConvexError("Add at least one item");
 
-    // Release every claimed unit, then re-claim for the new lines.
+    // Release every claimed unit, then re-claim for the new lines. Bulk
+    // lines are never deleted — a removed line's amount record is canceled
+    // and a kept line's amount is adjusted in place, so the admin always
+    // sees the real request amount (and history keeps its allocation link).
     const oldRentals = await ctx.db
       .query("rentals")
       .withIndex("by_user", (q) => q.eq("userId", user._id))
       .collect();
+    const bulkGroupIds = new Set<string>();
+    for (const line of lines) {
+      const g = await ctx.db.get(line.groupId);
+      if (g && (g.measure === "weight" || g.measure === "length")) bulkGroupIds.add(line.groupId);
+    }
     for (const r of oldRentals.filter((r) => r.packageId === packageId)) {
-      const part = await ctx.db.get(r.partId);
+      const part = r.partId ? await ctx.db.get(r.partId) : null;
+      if (part?.tag === "BULK") {
+        if (bulkGroupIds.has(part.groupId)) continue; // amount adjusted below
+        await touchPatch(ctx, r._id, { status: "canceled", decidedAt: Date.now() });
+        continue;
+      }
       if (part && part.status === "pending") await touchPatch(ctx, part._id, { status: "available" });
       await ctx.db.delete(r._id);
       await recordTombstone(ctx, "rentals", String(r._id));
     }
 
     const chosen: { partId: Id<"parts">; groupId: Id<"groups"> }[] = [];
+    const bulkAmountByGroup = new Map<Id<"groups">, number>();
     for (const line of lines) {
       if (line.count < 1) throw new ConvexError("Each line needs at least 1 unit");
       if (line.count > MAX_UNITS_PER_LINE) throw new ConvexError(`Max ${MAX_UNITS_PER_LINE} units per item`);
@@ -2080,6 +2161,27 @@ export const editPackage = mutation({
       // Storage-alias groups cannot be lent, also not inside a package.
       await assertGroupLendable(ctx, line.groupId);
       if (!group || group.deleted) throw new ConvexError(`"${group?.name ?? "item"}" no longer exists`);
+      if (group.measure === "weight" || group.measure === "length") {
+        const amount = roundBulk(line.count);
+        const units = (
+          await ctx.db
+            .query("parts")
+            .withIndex("by_group", (q) => q.eq("groupId", line.groupId))
+            .filter((q) => q.neq(q.field("deleted"), true))
+            .collect()
+        ).filter((p) => p.status === "available" && p.tag !== "BULK");
+        const plan = planMeasureTake(
+          units.map((p) => ({
+            id: p._id,
+            remaining: Number(p.amountRemaining ?? 0),
+            lowAt: Number(p.lowAt ?? group.measureLowAt ?? 0),
+          })),
+          amount,
+        );
+        if (!plan.ok) throw new ConvexError(`${group.name}: ${plan.error}`);
+        bulkAmountByGroup.set(line.groupId, amount);
+        continue;
+      }
       const candidates = await ctx.db
         .query("parts")
         .withIndex("by_group", (q) => q.eq("groupId", line.groupId))
@@ -2098,7 +2200,7 @@ export const editPackage = mutation({
       note: note?.trim() || undefined,
       lines: lines.map((l) => ({
         groupId: l.groupId,
-        count: Math.ceil(l.count),
+        count: l.count,
         note: l.note?.trim() || undefined,
       })),
     });
@@ -2115,6 +2217,27 @@ export const editPackage = mutation({
         rentBroken: part.status === "broken" ? true : undefined,
       });
       await touchPatch(ctx, partId, { status: "pending" });
+    }
+    // Bulk lines: upsert the amount on the group's existing pending record,
+    // or create one on the BULK placeholder when the line is new.
+    for (const [groupId, amount] of bulkAmountByGroup) {
+      const holder = await ensureBulkPart(ctx, groupId);
+      const existing = oldRentals.find(
+        (r) => r.packageId === packageId && r.partId === holder._id && r.status === "pending",
+      );
+      if (existing) {
+        await touchPatch(ctx, existing._id, { amount });
+      } else {
+        await ctx.db.insert("rentals", {
+          partId: holder._id,
+          userId: user._id,
+          packageId,
+          status: "pending",
+          requestedAt: Date.now(),
+          amount,
+          updatedAt: Date.now(),
+        });
+      }
     }
     await telegramGroup(ctx, `✏️ ${user.name ?? user.email ?? "A member"} edited their pending package rental request.`, undefined, "requests");
     return { ok: true };
@@ -2169,6 +2292,16 @@ export const adminEditPackage = mutation({
       count: Math.ceil(l.count),
       note: l.note?.trim() || undefined,
     }));
+    // Bulk (weight/length) lines carry their real amount (not whole units) in
+    // pkg.lines — keep it instead of the ceiled count.
+    const bulkGroupIds = new Set<string>();
+    for (const [idx, l] of lines.entries()) {
+      const g = await ctx.db.get(l.groupId);
+      if (g && (g.measure === "weight" || g.measure === "length")) {
+        bulkGroupIds.add(l.groupId);
+        cleanLines[idx].count = roundBulk(l.count);
+      }
+    }
 
     const myRentals = await ctx.db
       .query("rentals")
@@ -2197,18 +2330,47 @@ export const adminEditPackage = mutation({
         );
       }
       for (const r of pkgRentals) {
-        const part = await ctx.db.get(r.partId);
+        const part = r.partId ? await ctx.db.get(r.partId) : null;
+        if (part?.tag === "BULK") {
+          // Bulk lines are never deleted — the amount is adjusted below so
+          // the admin always sees the real request amount in the console.
+          if (bulkGroupIds.has(part.groupId)) continue;
+          await touchPatch(ctx, r._id, { status: "canceled", decidedAt: now });
+          continue;
+        }
         if (part && part.status === "pending") await touchPatch(ctx, part._id, { status: "available" });
         await ctx.db.delete(r._id);
         await recordTombstone(ctx, "rentals", String(r._id));
       }
       const chosen: { partId: Id<"parts">; groupId: Id<"groups"> }[] = [];
+      const bulkAmounts = new Map<Id<"groups">, number>();
       for (const line of cleanLines) {
         if (line.count < 1) throw new ConvexError("Each line needs at least 1 unit");
         if (line.count > MAX_UNITS_PER_LINE) throw new ConvexError(`Max ${MAX_UNITS_PER_LINE} units per item`);
         const group = await ctx.db.get(line.groupId);
         await assertGroupLendable(ctx, line.groupId);
         if (!group || group.deleted) throw new ConvexError(`"${group?.name ?? "item"}" no longer exists`);
+        if (group.measure === "weight" || group.measure === "length") {
+          const amount = roundBulk(line.count);
+          const units = (
+            await ctx.db
+              .query("parts")
+              .withIndex("by_group", (q) => q.eq("groupId", line.groupId))
+              .filter((q) => q.neq(q.field("deleted"), true))
+              .collect()
+          ).filter((p) => p.status === "available" && p.tag !== "BULK");
+          const plan = planMeasureTake(
+            units.map((p) => ({
+              id: p._id,
+              remaining: Number(p.amountRemaining ?? 0),
+              lowAt: Number(p.lowAt ?? group.measureLowAt ?? 0),
+            })),
+            amount,
+          );
+          if (!plan.ok) throw new ConvexError(`${group.name}: ${plan.error}`);
+          bulkAmounts.set(line.groupId, amount);
+          continue;
+        }
         const candidates = await ctx.db
           .query("parts")
           .withIndex("by_group", (q) => q.eq("groupId", line.groupId))
@@ -2221,6 +2383,27 @@ export const adminEditPackage = mutation({
         }
         for (const part of free.slice(0, wanted)) chosen.push({ partId: part._id, groupId: line.groupId });
       }
+      // Bulk lines: upsert the amount on the group's surviving pending
+      // record, or create one on the BULK placeholder for a new line.
+      for (const [groupId, amount] of bulkAmounts) {
+        const holder = await ensureBulkPart(ctx, groupId);
+        const existing = pkgRentals.find(
+          (r) => r.status === "pending" && r.partId === holder._id,
+        );
+        if (existing) {
+          await touchPatch(ctx, existing._id, { amount });
+        } else {
+          await ctx.db.insert("rentals", {
+            partId: holder._id,
+            userId: renterId,
+            packageId,
+            status: "pending",
+            requestedAt: now,
+            amount,
+            updatedAt: now,
+          });
+        }
+      }
       await touchPatch(ctx, packageId, {
         note: note?.trim() || undefined,
         lines: cleanLines,
@@ -2230,15 +2413,15 @@ export const adminEditPackage = mutation({
       for (const { partId } of chosen) {
         const part = await ctx.db.get(partId);
         if (!part) continue;
-        await ctx.db.insert("rentals", {
-          partId,
-          userId: renterId,
-          packageId,
-          status: "pending",
-          requestedAt: now,
-          rentBroken: part.status === "broken" ? true : undefined,
-          updatedAt: now,
-        });
+      await ctx.db.insert("rentals", {
+        partId,
+        userId: renterId,
+        packageId,
+        status: "pending",
+        requestedAt: now,
+        rentBroken: part.status === "broken" ? true : undefined,
+        updatedAt: now,
+      });
         await touchPatch(ctx, partId, { status: "pending" });
       }
       await telegramGroup(
@@ -2285,7 +2468,9 @@ export const adminEditPackage = mutation({
       (r) => !removedIds.has(r._id) && (r.status === "pending" || r.status === "approved"),
     );
 
-    // 3. Plan adds: wanted minus (locked + still-held) units per group.
+    // 3. Plan adds: wanted minus (locked + still-held) units per group. Bulk
+    // lines skip unit accounting entirely — their amount is adjusted in
+    // place (kept records are never canceled in an approved edit).
     const keepCountByGroup = new Map<Id<"groups">, number>();
     for (const r of releaseable) {
       const part = await ctx.db.get(r.partId);
@@ -2300,7 +2485,30 @@ export const adminEditPackage = mutation({
       lockedByGroup.set(part.groupId, (lockedByGroup.get(part.groupId) ?? 0) + 1);
     }
     const adds: { groupId: Id<"groups">; wanted: number }[] = [];
+    const approvedBulkAmounts = new Map<Id<"groups">, number>();
     for (const line of cleanLines) {
+      if (bulkGroupIds.has(line.groupId)) {
+        const amount = roundBulk(line.count);
+        const group = await ctx.db.get(line.groupId);
+        const units = (
+          await ctx.db
+            .query("parts")
+            .withIndex("by_group", (q) => q.eq("groupId", line.groupId))
+            .filter((q) => q.neq(q.field("deleted"), true))
+            .collect()
+        ).filter((p) => p.status === "available" && p.tag !== "BULK");
+        const plan = planMeasureTake(
+          units.map((p) => ({
+            id: p._id,
+            remaining: Number(p.amountRemaining ?? 0),
+            lowAt: Number(p.lowAt ?? group?.measureLowAt ?? 0),
+          })),
+          amount,
+        );
+        if (!plan.ok) throw new ConvexError(`${group?.name ?? "item"}: ${plan.error}`);
+        approvedBulkAmounts.set(line.groupId, amount);
+        continue;
+      }
       const locked = lockedByGroup.get(line.groupId) ?? 0;
       const keep = keepCountByGroup.get(line.groupId) ?? 0;
       // A package edit can add units or release spare ones — it can never pull
@@ -2361,6 +2569,34 @@ export const adminEditPackage = mutation({
         await ctx.db.delete(r._id);
         await recordTombstone(ctx, "rentals", String(r._id));
         released.push(r._id);
+      }
+    }
+
+    // Bulk lines: upsert the requested amount on the group's pending/approved
+    // BULK record (create one when the line was just added).
+    for (const [groupId, amount] of approvedBulkAmounts) {
+      const holder = await ensureBulkPart(ctx, groupId);
+      const existing = pkgRentals.find(
+        (r) =>
+          !removedIds.has(r._id) &&
+          !released.includes(r._id) &&
+          r.partId === holder._id &&
+          (r.status === "pending" || r.status === "approved"),
+      );
+      if (existing) {
+        await touchPatch(ctx, existing._id, { amount });
+      } else {
+        await ctx.db.insert("rentals", {
+          partId: holder._id,
+          userId: renterId,
+          packageId,
+          status: "approved",
+          requestedAt: pkg.requestedAt,
+          decidedAt: now,
+          amount,
+          pickupAt: pickupAt === undefined ? pkg.pickupAt : (pickupAt ?? undefined),
+          updatedAt: now,
+        });
       }
     }
 
@@ -2487,6 +2723,32 @@ export const decidePackage = mutation({
     const pickupLabel = pickupAt
       ? new Date(pickupAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })
       : "as soon as the lab is open";
+
+    if (approve) {
+      // Bulk lines: stock may have drifted since the request — re-check that
+      // a feasible per-unit split still exists before saying yes (same rule
+      // as single bulk approvals).
+      for (const line of pkg.lines) {
+        const g = await ctx.db.get(line.groupId);
+        if (!g || (g.measure !== "weight" && g.measure !== "length")) continue;
+        const units = (
+          await ctx.db
+            .query("parts")
+            .withIndex("by_group", (q: any) => q.eq("groupId", g._id))
+            .filter((q: any) => q.neq(q.field("deleted"), true))
+            .collect()
+        ).filter((p: any) => p.status === "available" && p.tag !== "BULK");
+        const plan = planMeasureTake(
+          units.map((p: any) => ({
+            id: p._id,
+            remaining: Number(p.amountRemaining ?? 0),
+            lowAt: Number(p.lowAt ?? g.measureLowAt ?? 0),
+          })),
+          line.count,
+        );
+        if (!plan.ok) throw new ConvexError(`${g.name}: ${plan.error}`);
+      }
+    }
 
     if (member?.telegramChatId || member?.telegramUsername) {
       await telegramDM(
@@ -2636,9 +2898,34 @@ async function summarize(ctx: any, lines: { groupId: any; count: number }[]) {
   const parts: string[] = [];
   for (const l of lines) {
     const g = await ctx.db.get(l.groupId);
-    parts.push(`${l.count}× ${g?.name ?? "item"}`);
+    parts.push(`${formatLineAmount({ count: l.count }, g)} ${g?.name ?? "item"}`);
   }
   return parts.join(", ");
+}
+
+/**
+ * Bulk (weight/length) groups keep ONE placeholder part row per group, tagged
+ * "BULK", that carries the rental ledger for amount-based loans — a bulk take
+ * is a reservation of stock, not of a physical unit. Reuses the row that
+ * requestBulkRental (single rentals) already created, so both flows share it.
+ */
+async function ensureBulkPart(ctx: any, groupId: any): Promise<any> {
+  let part = await ctx.db
+    .query("parts")
+    .withIndex("by_group", (q: any) => q.eq("groupId", groupId))
+    .filter((q: any) => q.eq(q.field("tag"), "BULK"))
+    .first();
+  if (!part) {
+    const partId = await ctx.db.insert("parts", {
+      groupId,
+      tag: "BULK",
+      status: "available",
+      note: "Bulk stock holder (weight/length group)",
+      updatedAt: Date.now(),
+    });
+    part = await ctx.db.get(partId);
+  }
+  return part;
 }
 
 /** Member asks to return the whole package (admin then processes units one by

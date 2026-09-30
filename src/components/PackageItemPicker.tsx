@@ -3,7 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Check, ChevronDown, Search, X } from "lucide-react";
 import { brandModelLine, type DropdownSection } from "@/lib/package-dropdown";
-import { describePackSize, isPackGroup } from "@/lib/group-measure";
+import { describePackSize, isBulkMaterialGroup, isPackGroup, roundBulk } from "@/lib/group-measure";
 import { cn } from "@/lib/utils";
 
 type Row = DropdownSection["items"][number] & { available?: number; closetName?: string };
@@ -30,7 +30,7 @@ export function PackageItemPicker({
   value,
 }: {
   sections: DropdownSection[];
-  availability: Record<string, { available: number }> | undefined;
+  availability: Record<string, { available: number; bulkFree?: number }> | undefined;
   /** groupId → closet (storage) display name. */
   closetNames: Map<string, string>;
   /** Every group already used by another line — hidden from the list. */
@@ -168,7 +168,16 @@ export function PackageItemPicker({
                     {s.categoryName}
                   </p>
                   {s.items.map((g) => {
-                    const a = availability?.[g._id]?.available;
+                    const row = availability?.[g._id];
+                    // Bulk (weight/length) groups lend by AMOUNT: show the
+                    // lendable stock in the group's unit, not a unit count.
+                    const bulk = isBulkMaterialGroup(g as any);
+                    const free =
+                      row === undefined
+                        ? undefined
+                        : bulk
+                          ? `${roundBulk(row.bulkFree ?? 0)}${g.measureUnit ? ` ${g.measureUnit}` : ""} free`
+                          : `${row.available} free`;
                     const bm = brandModelLine(g);
                     return (
                       <button
@@ -196,7 +205,7 @@ export function PackageItemPicker({
                           </span>
                         </span>
                         <span className="flex shrink-0 items-center gap-1.5 pt-0.5 text-[11px] tabular-nums text-muted-foreground">
-                          {a === undefined ? "…" : `${a} free`}
+                          {free ?? "…"}
                           {g._id === value && <Check className="size-3.5 text-primary" />}
                         </span>
                       </button>

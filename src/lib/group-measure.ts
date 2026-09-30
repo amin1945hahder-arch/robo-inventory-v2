@@ -16,6 +16,8 @@
 export type GroupMeasureLite = {
   measure?: "count" | "weight" | "length" | "pack" | null;
   packSize?: number | null;
+  /** Display unit for weight/length groups: "kg" | "g" | "m" | "cm" | "mm". */
+  measureUnit?: string | null;
 } | null | undefined;
 
 /** Pack-measured group (whole packs of N pieces each). */
@@ -66,12 +68,37 @@ export function piecesInUnit(
   group: GroupMeasureLite,
 ): number {
   const raw = unit?.amountRemaining;
-  // null/undefined/blank/NaN = legacy row without a ledger → full pack.
+ // null/undefined/blank/NaN = legacy row without a ledger → full pack.
   if (raw !== null && raw !== undefined && String(raw).trim() !== "") {
     const n = Number(raw);
     if (Number.isFinite(n) && n >= 0) return n;
   }
   return Math.max(0, Number(group?.packSize ?? 0));
+}
+
+/**
+ * Trim float noise from bulk ledger sums: 2 decimals is plenty for kg/m and
+ * keeps "1.1 + 2.2" from rendering as "3.3000000000000003".
+ */
+export function roundBulk(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/**
+ * "2.5 kg" / "3×" — a package line's amount with its unit, for cards,
+ * toasts and summaries. Bulk lines read "N unit"; count/pack lines read
+ * "N×"; groups without a unit fall back to a plain number.
+ */
+export function formatLineAmount(
+  line: { count: number },
+  group: GroupMeasureLite,
+): string {
+  const n = Number(line.count ?? 0);
+  if (isBulkMaterialGroup(group)) {
+    const u = group?.measureUnit?.trim();
+    return u ? `${roundBulk(n)} ${u}` : `${roundBulk(n)}`;
+  }
+  return `${Math.max(0, Math.round(n))}×`;
 }
 
 /**

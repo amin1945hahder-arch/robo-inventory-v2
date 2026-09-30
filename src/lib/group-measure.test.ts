@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   describePackSize,
+  formatLineAmount,
   isBulkMaterialGroup,
   isCountFlowGroup,
   isPackGroup,
   piecesInPacks,
   piecesInUnit,
+  roundBulk,
   sumPiecesInUnits,
 } from "./group-measure";
 
@@ -115,5 +117,33 @@ describe("sumPiecesInUnits", () => {
 
   it("is 0 for an empty list", () => {
     expect(sumPiecesInUnits([], { measure: "pack", packSize: 40 })).toBe(0);
+  });
+});
+
+describe("roundBulk", () => {
+  it("trims float noise from ledger sums", () => {
+    expect(roundBulk(1.1 + 2.2)).toBe(3.3);
+    expect(roundBulk(0.1 + 0.2)).toBe(0.3);
+    expect(roundBulk(2)).toBe(2);
+    expect(roundBulk(0.005)).toBe(0.01);
+  });
+});
+
+describe("formatLineAmount", () => {
+  it("formats bulk lines as amount + measure unit", () => {
+    expect(formatLineAmount({ count: 2.5 }, { measure: "weight", measureUnit: "kg" })).toBe("2.5 kg");
+    expect(formatLineAmount({ count: 120 }, { measure: "length", measureUnit: "cm" })).toBe("120 cm");
+    expect(formatLineAmount({ count: 2.555 }, { measure: "length", measureUnit: "m" })).toBe("2.56 m");
+  });
+
+  it("falls back to a plain number without a unit", () => {
+    expect(formatLineAmount({ count: 1.25 }, { measure: "weight" })).toBe("1.25");
+    expect(formatLineAmount({ count: 3 }, null)).toBe("3×");
+  });
+
+  it("formats count/pack lines as N×", () => {
+    expect(formatLineAmount({ count: 3 }, { measure: "count" })).toBe("3×");
+    expect(formatLineAmount({ count: 2 }, { measure: "pack", packSize: 40 })).toBe("2×");
+    expect(formatLineAmount({ count: 2.7 }, { measure: "count" })).toBe("3×");
   });
 });

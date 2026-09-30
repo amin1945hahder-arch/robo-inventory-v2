@@ -18,6 +18,7 @@ import { QrScanDialog } from "@/components/QrScanDialog";
 import { PackageItemPicker } from "@/components/PackageItemPicker";
 import { normalizeScan } from "@/lib/qr";
 import { buildPackageDropdown } from "@/lib/package-dropdown";
+import { isBulkMaterialGroup, roundBulk } from "@/lib/group-measure";
 import { groupAllowedByFilter, scanOutcome, upsertLine, type PackageLine, type ScanFilter } from "@/lib/package-scan";
 import { toast } from "sonner";
 import { asMessage } from "@/components/EditRentalDialog";
@@ -93,7 +94,23 @@ export function PackageBuilderDialog({
     return m;
   }, [groups]);
 
+  // Bulk (weight/length) groups keep their amount ledger on unit rows — the
+  // per-group measure lookup drives the amount-vs-count line UI.
+  const groupsQuery = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const g of groups ?? []) m.set(g._id, g);
+    return m;
+  }, [groups]);
+
   const maxFor = (groupId: string) => availability?.[groupId]?.available ?? 0;
+  /** Headroom of a line: units for count/pack groups, lendable amount for
+   *  weight/length groups (Σ per-unit ledgers of available units). */
+  const maxForLine = (groupId: string) => {
+    const g = groupsQuery.get(groupId);
+    if (g && isBulkMaterialGroup(g)) return roundBulk(availability?.[groupId]?.bulkFree ?? 0);
+    return maxFor(groupId);
+  };
+  const isBulkLine = (groupId: string) => isBulkMaterialGroup(groupsQuery.get(groupId));
 
   // Dropdown content: lendable groups sectioned by category (fixed labels),
   // sorted container → name → brand → model; the scanned category/storage
@@ -138,8 +155,9 @@ export function PackageBuilderDialog({
     if (out.action === "add-line") {
       const g = (groups ?? []).find((x: any) => x._id === out.groupId);
       const alreadyListed = lines.some((l) => l.groupId === out.groupId);
-      const max = maxFor(out.groupId);
-      if (max < 1) {
+      const min = isBulkLine(out.groupId) ? 0.01 : 1;
+      const max = maxForLine(out.groupId);
+      if (max < min) {
         const free = availability?.[out.groupId];
         const total = free
           ? free.available + free.broken + free.pending + free.rented + free.onProject
@@ -177,23 +195,32 @@ export function PackageBuilderDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scanResolved, scanPayload]);
 
-  const totalUnits = lines.reduce((n, l) => n + (Number.isFinite(l.count) ? l.count : 0), 0);
+  // "1 unit" style total — bulk lines carry an amount instead of a count.
+  const totalUnits = lines.reduce(
+    (n, l) => n + (Number.isFinite(l.count) ? (isBulkLine(l.groupId) ? 0 : Math.ceil(l.count)) : 0),
+    0,
+  );
+  const bulkLineCount = lines.filter((l) => l.groupId && isBulkLine(l.groupId)).length;
 
   const shortages = lines
-    .map((l) => ({ ...l, max: maxFor(l.groupId) }))
-    .filter((l) => l.count > l.max);
+    .map((l) => ({ ...l, max: maxForLine(l.groupId) }))
+    .filter((l) => l.groupId && l.count > l.max + 1e-9);
 
   const submit = async () => {
-    const clean = lines.filter((l) => l.groupId && l.count >= 1);
+    const clean = lines.filter((l) => l.groupId && l.count > 0);
     if (clean.length === 0) {
       toast.error("Add at least one item");
       return;
     }
     if (shortages.length > 0) {
       const names = shortages
-        .map((l) => `${groupById.get(l.groupId)?.name ?? "item"} (max ${l.max})`)
+        .map((l) => {
+          const g = groupsQuery.get(l.groupId);
+          const unit = isBulkMaterialGroup(g) ? ` ${g?.measureUnit ?? ""}`.trimEnd() : " units";
+          return `${g?.name ?? "item"} (max ${l.max}${unit})`;
+        })
         .join(", ");
-      toast.error(`Not enough units available for: ${names}`);
+      toast.error(`Not enough available for: ${names}`);
       return;
     }
     setBusy(true);
@@ -210,7 +237,7 @@ export function PackageBuilderDialog({
           lines: clean.map((l) => ({ groupId: l.groupId as any, count: l.count, note: l.note || undefined })),
           note: note.trim() || undefined,
         });
-        toast.success(`Package of ${totalUnits} unit(s) requested — the admin has been notified`);
+        toast.success(`Package requested — the admin has been notified`);
       }
       onOpenChange(false);
       onDone?.();
@@ -259,7 +286,9 @@ export function PackageBuilderDialog({
 
         <div className="flex max-h-[50vh] flex-col gap-2 overflow-y-auto pr-1">
           {lines.map((line, i) => {
-            const max = maxFor(line.groupId);
+            const max = maxForLine(line.groupId);
+            const bulk = isBulkLine(line.groupId);
+            const unit = bulk ? (groupsQuery.get(line.groupId)?.measureUnit ?? "") : "";
             return (
               <div key={i} className="flex flex-col gap-2 glass-3d rounded-md border p-2">
                 {/* Row 1: the item picker (full width — readable on phones). */}
@@ -272,58 +301,109 @@ export function PackageBuilderDialog({
                   onClear={line.groupId ? () => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, groupId: "", count: 1 } : l))) : undefined}
                   onPick={(groupId) =>
                     setLines((prev) =>
-                      prev.map((l, j) =>
-                        j === i ? { ...l, groupId, count: Math.min(Math.max(1, l.count), Math.max(1, maxFor(groupId))) } : l,
-                      ),
+                      prev.map((l, j) => {
+                        if (j !== i) return l;
+                        // Bulk lines keep an AMOUNT (not units) — clamp it to
+                        // the lendable stock of the newly picked group.
+                        if (isBulkLine(groupId)) {
+                          const kept = l.count > 0 ? l.count : 1;
+                          return { ...l, groupId, count: roundBulk(Math.min(kept, maxForLine(groupId))) };
+                        }
+                        return { ...l, groupId, count: Math.min(Math.max(1, Math.ceil(l.count)), Math.max(1, maxFor(groupId))) };
+                      }),
                     )
                   }
                 />
                 {/* Row 2: quantity + availability + delete — always visible,
-                    never squeezed next to the dropdown on a phone. */}
+                    never squeezed next to the dropdown on a phone. Bulk
+                    (weight/length) lines take a decimal AMOUNT in the group's
+                    unit instead of a unit count. */}
                 <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1">
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="outline"
-                      className="size-8"
-                      aria-label="Decrease quantity"
-                      onClick={() =>
-                        setLines((prev) => prev.map((l, j) => (j === i ? { ...l, count: Math.max(1, l.count - 1) } : l)))
-                      }
-                    >
-                      −
-                    </Button>
-                    <Input
-                      type="number"
-                      min={1}
-                      value={line.count}
-                      onChange={(e) =>
-                        setLines((prev) =>
-                          prev.map((l, j) => (j === i ? { ...l, count: Math.max(1, Math.floor(Number(e.target.value) || 1)) } : l)),
-                        )
-                      }
-                      className="h-8 w-14 text-center"
-                    />
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="outline"
-                      className="size-8"
-                      aria-label="Increase quantity"
-                      onClick={() =>
-                        setLines((prev) => prev.map((l, j) => (j === i ? { ...l, count: l.count + 1 } : l)))
-                      }
-                    >
-                      +
-                    </Button>
-                  </div>
+                  {bulk ? (
+                    <div className="flex items-center gap-1">
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="outline"
+                        className="size-8"
+                        aria-label="Decrease amount"
+                        onClick={() =>
+                          setLines((prev) => prev.map((l, j) => (j === i ? { ...l, count: roundBulk(Math.max(0.01, l.count - 0.5)) } : l)))
+                        }
+                      >
+                        −
+                      </Button>
+                      <Input
+                        type="number"
+                        min={0.01}
+                        step={0.01}
+                        value={line.count}
+                        onChange={(e) => {
+                          const n = Number(e.target.value);
+                          setLines((prev) =>
+                            prev.map((l, j) => (j === i ? { ...l, count: Number.isFinite(n) && n > 0 ? roundBulk(n) : 0 } : l)),
+                          );
+                        }}
+                        className="h-8 w-24 text-center"
+                        aria-label={`Amount in ${unit || "units"}`}
+                      />
+                      <span className="w-8 text-xs text-muted-foreground">{unit}</span>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="outline"
+                        className="size-8"
+                        aria-label="Increase amount"
+                        onClick={() => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, count: roundBulk(l.count + 0.5) } : l)))}
+                      >
+                        +
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1">
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="outline"
+                        className="size-8"
+                        aria-label="Decrease quantity"
+                        onClick={() =>
+                          setLines((prev) => prev.map((l, j) => (j === i ? { ...l, count: Math.max(1, l.count - 1) } : l)))
+                        }
+                      >
+                        −
+                      </Button>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={line.count}
+                        onChange={(e) =>
+                          setLines((prev) =>
+                            prev.map((l, j) => (j === i ? { ...l, count: Math.max(1, Math.floor(Number(e.target.value) || 1)) } : l)),
+                          )
+                        }
+                        className="h-8 w-14 text-center"
+                      />
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="outline"
+                        className="size-8"
+                        aria-label="Increase quantity"
+                        onClick={() =>
+                          setLines((prev) => prev.map((l, j) => (j === i ? { ...l, count: l.count + 1 } : l)))
+                        }
+                      >
+                        +
+                      </Button>
+                    </div>
+                  )}
                   <span
                     className={`text-right text-[11px] ${
-                      line.groupId && line.count > max ? "font-semibold text-rose-400" : "text-muted-foreground"
+                      line.groupId && line.count > max + 1e-9 ? "font-semibold text-rose-400" : "text-muted-foreground"
                     }`}
                   >
-                    {line.groupId ? `${max} free` : ""}
+                    {line.groupId ? `${max}${bulk ? ` ${unit} free` : " free"}` : ""}
                   </span>
                   <Button
                     type="button"
@@ -374,6 +454,7 @@ export function PackageBuilderDialog({
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span>
             {lines.filter((l) => l.groupId).length} item(s) · {totalUnits} unit(s) total
+            {bulkLineCount > 0 ? ` · ${bulkLineCount} by amount` : ""}
           </span>
           {shortages.length > 0 && (
             <span className="font-medium text-rose-400">Some items exceed availability</span>
