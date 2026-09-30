@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { requireAdmin, requireUser, safeImage } from "./lib";
+import { recordTombstone } from "./sync";
 
 // ===== Admin notifications =====
 
@@ -31,7 +32,10 @@ export const clearAllNotifications = mutation({
   handler: async (ctx) => {
     await requireAdmin(ctx);
     const rows = await ctx.db.query("notifications").collect();
-    for (const r of rows) await ctx.db.delete(r._id);
+    for (const r of rows) {
+      await ctx.db.delete(r._id);
+      await recordTombstone(ctx, "notifications", r._id);
+    }
     return { ok: true, cleared: rows.length };
   },
 });
