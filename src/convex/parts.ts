@@ -1898,6 +1898,9 @@ export const listPackages = query({
           groupId: line.groupId,
           groupName: group?.name ?? "(deleted group)",
           requested: line.count,
+          // Same amount under the raw field name so generic formatters
+          // (formatLineAmount) work on server lines without reshaping.
+          count: line.count,
           note: line.note,
           units,
         });
@@ -1959,7 +1962,7 @@ export const getPackage = query({
           });
         }
       }
-      lines.push({ groupId: line.groupId, groupName: group?.name ?? "(deleted group)", requested: line.count, note: line.note, units });
+      lines.push({ groupId: line.groupId, groupName: group?.name ?? "(deleted group)", requested: line.count, count: line.count, note: line.note, units });
     }
     return {
       package: pkg,

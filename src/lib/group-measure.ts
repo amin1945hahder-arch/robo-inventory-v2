@@ -87,13 +87,15 @@ export function roundBulk(n: number): number {
 /**
  * "2.5 kg" / "3×" — a package line's amount with its unit, for cards,
  * toasts and summaries. Bulk lines read "N unit"; count/pack lines read
- * "N×"; groups without a unit fall back to a plain number.
+ * "N×"; groups without a unit fall back to a plain number. Accepts raw
+ * package lines (`count`) or server list lines (`requested`) — otherwise
+ * stored decimals would render as "0" everywhere outside the dialogs.
  */
 export function formatLineAmount(
-  line: { count: number },
+  line: { count?: number; requested?: number },
   group: GroupMeasureLite,
 ): string {
-  const n = Number(line.count ?? 0);
+  const n = Number(line.count ?? line.requested ?? 0);
   if (isBulkMaterialGroup(group)) {
     const u = group?.measureUnit?.trim();
     return u ? `${roundBulk(n)} ${u}` : `${roundBulk(n)}`;

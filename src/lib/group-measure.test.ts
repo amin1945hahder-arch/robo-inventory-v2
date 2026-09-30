@@ -146,4 +146,12 @@ describe("formatLineAmount", () => {
     expect(formatLineAmount({ count: 2 }, { measure: "pack", packSize: 40 })).toBe("2×");
     expect(formatLineAmount({ count: 2.7 }, { measure: "count" })).toBe("3×");
   });
+
+  it("reads server list lines where the amount is named requested", () => {
+    // listPackages/getPackage lines carry the amount as `requested`; before
+    // this fallback every package row outside the dialogs rendered "0×".
+    expect(formatLineAmount({ requested: 4 }, { measure: "count" })).toBe("4×");
+    expect(formatLineAmount({ requested: 2.5 }, { measure: "weight", measureUnit: "kg" })).toBe("2.5 kg");
+    expect(formatLineAmount({}, { measure: "count" })).toBe("0×");
+  });
 });
