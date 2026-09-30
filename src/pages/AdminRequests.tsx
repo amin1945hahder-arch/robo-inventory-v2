@@ -671,10 +671,10 @@ export default function AdminRequests() {
           {row.group?.name ?? "Part"}{" "}
           <span className="font-mono text-xs text-muted-foreground">{row.part?.tag}</span>
         </p>
-        <p className="text-xs text-muted-foreground">
-          {row.student?.name ?? row.student?.email ?? "Member"}
-          {row.student?.studentId ? ` · ${row.student.studentId}` : ""} ·{" "}
-          {new Date(row.rental.requestedAt).toLocaleDateString()}
+        <p className="flex flex-wrap gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
+          <span className="whitespace-nowrap">{row.student?.name ?? row.student?.email ?? "Member"}</span>
+          {row.student?.studentId ? <span className="whitespace-nowrap">· {row.student.studentId}</span> : null}
+          <span className="whitespace-nowrap">· {new Date(row.rental.requestedAt).toLocaleDateString()}</span>
         </p>
         {row.rental.status === "active" && row.rental.returnRequestedAt !== undefined && (
           <p className="mt-1 flex items-center gap-1.5 text-xs font-medium text-amber-500">
@@ -916,21 +916,41 @@ export default function AdminRequests() {
                           <ScanLine className="size-5 shrink-0 text-primary" />
                         )}
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium">
-                            {u.kind === "single" &&
-                              `${u.data.student?.name ?? "Member"} requested ${u.data.group?.name ?? "a part"} (${u.data.part?.tag ?? "—"})`}
-                            {u.kind === "package" &&
-                              `${u.data.requester?.name ?? "Member"} requested a package · ${u.data.lines.reduce((n: number, l: any) => n + l.units.length, 0)} unit(s)`}
-                            {u.kind === "rank" &&
-                              `${u.data.user?.name ?? "Member"} requests rank/position: ${u.data.request.requestedRoles?.join(", ")}`}
-                            {u.kind === "printer" && `${u.data.user?.name ?? "Member"} requests printer access`}
-                            {u.kind === "profile" && `${u.data.user?.name ?? "Member"} requests profile changes`}
-                            {u.kind === "signup" && `${u.data.name ?? u.data.email ?? "A member"} awaits profile approval`}
+                          <p className="flex flex-wrap gap-x-1.5 gap-y-0.5 text-sm font-medium">
+                            {u.kind === "single" && (
+                              <>
+                                <span className="whitespace-nowrap">{u.data.student?.name ?? "Member"} requested</span>
+                                <span className="whitespace-nowrap">{u.data.group?.name ?? "a part"}</span>
+                                <span className="whitespace-nowrap font-mono text-xs text-muted-foreground">{u.data.part?.tag ?? "—"}</span>
+                              </>
+                            )}
+                            {u.kind === "package" && (
+                              <>
+                                <span className="whitespace-nowrap">{u.data.requester?.name ?? "Member"} requested a package</span>
+                                <span className="whitespace-nowrap">· {u.data.lines.reduce((n: number, l: any) => n + l.units.length, 0)} unit(s)</span>
+                              </>
+                            )}
+                            {u.kind === "rank" && (
+                              <>
+                                <span className="whitespace-nowrap">{u.data.user?.name ?? "Member"} requests:</span>
+                                {u.data.request.requestedRoles?.map((r: string) => (
+                                  <span key={r} className="whitespace-nowrap">{r}</span>
+                                ))}
+                              </>
+                            )}
+                            {u.kind === "printer" && (
+                              <span className="whitespace-nowrap">{u.data.user?.name ?? "Member"} requests printer access</span>
+                            )}
+                            {u.kind === "profile" && (
+                              <span className="whitespace-nowrap">{u.data.user?.name ?? "Member"} requests profile changes</span>
+                            )}
+                            {u.kind === "signup" && (
+                              <span className="whitespace-nowrap">{u.data.name ?? u.data.email ?? "A member"} awaits profile approval</span>
+                            )}
                           </p>
-                          <p className="text-xs text-muted-foreground">
-                            <span className="uppercase tracking-wide">{u.kind}</span>
-                            {" · "}
-                            {new Date(u.at).toLocaleString()}
+                          <p className="flex flex-wrap gap-x-1.5 text-xs text-muted-foreground">
+                            <span className="whitespace-nowrap uppercase tracking-wide">{u.kind}</span>
+                            <span className="whitespace-nowrap">· {new Date(u.at).toLocaleString()}</span>
                           </p>
                         </div>
                         <div className="flex flex-wrap gap-2">
@@ -1185,14 +1205,17 @@ export default function AdminRequests() {
                   const pkgStatus = packageDisplayStatus(pkg.status, { approvedUnits, activeUnits, returnedUnits });
                   return (
                   <li key={pkg._id} className="glass-3d rounded-lg border p-4">
-                    <div className="flex flex-wrap items-center gap-3">
+                    {/* Column on phones, row on ≥sm — text never squeezes
+                        into the buttons/badge, chips wrap onto their own line. */}
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                       {/* Bundle-level multi-select (bulk pick-up/return/delete). */}
                       <Checkbox
                         checked={selected.has(pkg._id)}
                         onCheckedChange={() => toggleSel(pkg._id)}
                         aria-label="Select package"
-                        className="mt-0.5 shrink-0"
+                        className="shrink-0 self-start sm:self-center"
                       />
+                      <div className="flex min-w-0 flex-1 items-start gap-3">
                       <Boxes className="size-5 shrink-0 text-primary" />
                       <Avatar className="size-8 shrink-0">
                         <AvatarImage src={requester?.image} />
@@ -1201,17 +1224,22 @@ export default function AdminRequests() {
                         </AvatarFallback>
                       </Avatar>
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium">
-                          {lines.map((l: any) => `${l.requested}× ${l.groupName}`).join(" · ")}
+                        <p className="flex flex-wrap gap-x-1.5 gap-y-0.5 text-sm font-medium">
+                          {lines.map((l: any) => (
+                            <span key={l.groupId} className="whitespace-nowrap">
+                              {l.requested}× {l.groupName}
+                            </span>
+                          ))}
                         </p>
-                        <p className="text-xs text-muted-foreground">
-                          {requester?.name ?? requester?.email ?? "Member"}
-                          {requester?.studentId ? ` · ${requester.studentId}` : ""} ·{" "}
-                          {new Date(pkg.requestedAt).toLocaleString()} · {totalUnits} unit(s)
-                          {pkg.status === "approved"
-                            ? ` · ${openUnits} out, ${returnedUnits} processed`
-                            : ""}
-                          {pkg.note ? ` · “${pkg.note}”` : ""}
+                        <p className="flex flex-wrap gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
+                          <span className="whitespace-nowrap">{requester?.name ?? requester?.email ?? "Member"}</span>
+                          {requester?.studentId ? <span className="whitespace-nowrap">· {requester.studentId}</span> : null}
+                          <span className="whitespace-nowrap">· {new Date(pkg.requestedAt).toLocaleString()}</span>
+                          <span className="whitespace-nowrap">· {totalUnits} unit(s)</span>
+                          {pkg.status === "approved" ? (
+                            <span className="whitespace-nowrap">· {openUnits} out, {returnedUnits} processed</span>
+                          ) : null}
+                          {pkg.note ? <span className="whitespace-nowrap">· “{pkg.note}”</span> : null}
                         </p>
                         {pkg.status === "approved" && pkg.returnRequestedAt !== undefined && (
                           <p className="mt-1 flex items-center gap-1.5 text-xs font-medium text-amber-500">
@@ -1221,8 +1249,9 @@ export default function AdminRequests() {
                           </p>
                         )}
                       </div>
+                      </div>
                       {pkg.status === "pending" ? (
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap gap-2">
                           <Button
                             size="sm"
                             variant="outline"
@@ -1254,7 +1283,7 @@ export default function AdminRequests() {
                           </Button>
                         </div>
                       ) : (
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <Button
                             size="sm"
                             variant="outline"
@@ -1326,8 +1355,8 @@ export default function AdminRequests() {
                           </li>
                         ) : (
                           l.units.map((u: any) => (
-                            <li key={u.rentalId} className="flex flex-wrap items-center gap-2 text-xs">
-                              <span className="font-mono">{u.tag}</span>
+                            <li key={u.rentalId} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                              <span className="whitespace-nowrap font-mono">{u.tag}</span>
                               <StatusBadge status={u.status} />
                               {u.rentBroken && (
                                 <span className="rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-rose-400">

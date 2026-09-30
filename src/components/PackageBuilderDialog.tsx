@@ -14,15 +14,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { QrScanDialog } from "@/components/QrScanDialog";
-import { PackageItemSelectContent } from "@/components/PackageItemSelectContent";
+import { PackageItemPicker } from "@/components/PackageItemPicker";
 import { normalizeScan } from "@/lib/qr";
 import { buildPackageDropdown } from "@/lib/package-dropdown";
 import { groupAllowedByFilter, scanOutcome, upsertLine, type PackageLine, type ScanFilter } from "@/lib/package-scan";
@@ -51,6 +44,7 @@ export function PackageBuilderDialog({
 }) {
   const groups = useQuery(api.catalog.listGroups, open ? {} : "skip");
   const categories = useQuery(api.catalog.listCategories, open ? {} : "skip");
+  const closets = useQuery(api.catalog.listClosets, open ? {} : "skip");
   const availability = useQuery(api.parts.availabilityByGroup, open ? {} : "skip");
   const existing = useQuery(
     api.parts.getPackage,
@@ -110,6 +104,20 @@ export function PackageBuilderDialog({
     );
     return buildPackageDropdown(pool as any, categories ?? []);
   }, [groups, categories, scanFilter]);
+
+  // groupId → storage display name ("Main Lab — Shelf 3").
+  const closetNames = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const c of closets ?? []) {
+      byId.set(c._id, [c.name, c.location].filter(Boolean).join(" — "));
+    }
+    return byId;
+  }, [closets]);
+  // Every group already on a line: hidden from the picker everywhere.
+  const usedGroupIds = useMemo(
+    () => new Set(lines.map((l) => l.groupId).filter(Boolean) as string[]),
+    [lines],
+  );
 
   // QR scans resolve through the server lookup query (same resolver the QR
   // route uses): set the payload, the query resolves, the effect applies it.
@@ -253,66 +261,81 @@ export function PackageBuilderDialog({
           {lines.map((line, i) => {
             const max = maxFor(line.groupId);
             return (
-              <div key={i} className="flex items-center gap-2 glass-3d rounded-md border p-2">
-                <Select value={line.groupId} onValueChange={(v) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, groupId: v, count: Math.min(l.count, Math.max(1, maxFor(v))) } : l)))}>
-                  <SelectTrigger className="flex-1">
-                    <SelectValue placeholder="Choose an item" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[60vh]">
-                    <PackageItemSelectContent
-                      sections={dropdownSections}
-                      availability={availability}
-                      value={line.groupId}
+              <div key={i} className="flex flex-col gap-2 glass-3d rounded-md border p-2">
+                {/* Row 1: the item picker (full width — readable on phones). */}
+                <PackageItemPicker
+                  sections={dropdownSections}
+                  availability={availability}
+                  closetNames={closetNames}
+                  selectedIds={usedGroupIds}
+                  value={line.groupId || undefined}
+                  onClear={line.groupId ? () => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, groupId: "", count: 1 } : l))) : undefined}
+                  onPick={(groupId) =>
+                    setLines((prev) =>
+                      prev.map((l, j) =>
+                        j === i ? { ...l, groupId, count: Math.min(Math.max(1, l.count), Math.max(1, maxFor(groupId))) } : l,
+                      ),
+                    )
+                  }
+                />
+                {/* Row 2: quantity + availability + delete — always visible,
+                    never squeezed next to the dropdown on a phone. */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1">
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className="size-8"
+                      aria-label="Decrease quantity"
+                      onClick={() =>
+                        setLines((prev) => prev.map((l, j) => (j === i ? { ...l, count: Math.max(1, l.count - 1) } : l)))
+                      }
+                    >
+                      −
+                    </Button>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={line.count}
+                      onChange={(e) =>
+                        setLines((prev) =>
+                          prev.map((l, j) => (j === i ? { ...l, count: Math.max(1, Math.floor(Number(e.target.value) || 1)) } : l)),
+                        )
+                      }
+                      className="h-8 w-14 text-center"
                     />
-                  </SelectContent>
-                </Select>
-                <div className="flex w-28 items-center gap-1">
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className="size-8"
+                      aria-label="Increase quantity"
+                      onClick={() =>
+                        setLines((prev) => prev.map((l, j) => (j === i ? { ...l, count: l.count + 1 } : l)))
+                      }
+                    >
+                      +
+                    </Button>
+                  </div>
+                  <span
+                    className={`text-right text-[11px] ${
+                      line.groupId && line.count > max ? "font-semibold text-rose-400" : "text-muted-foreground"
+                    }`}
+                  >
+                    {line.groupId ? `${max} free` : ""}
+                  </span>
                   <Button
                     type="button"
                     size="icon"
-                    variant="outline"
-                    className="size-7"
-                    onClick={() =>
-                      setLines((prev) => prev.map((l, j) => (j === i ? { ...l, count: Math.max(1, l.count - 1) } : l)))
-                    }
+                    variant="ghost"
+                    className="size-8 text-destructive"
+                    aria-label="Remove this item"
+                    onClick={() => setLines((prev) => prev.filter((_, j) => j !== i))}
                   >
-                    −
-                  </Button>
-                  <Input
-                    type="number"
-                    min={1}
-                    value={line.count}
-                    onChange={(e) =>
-                      setLines((prev) =>
-                        prev.map((l, j) => (j === i ? { ...l, count: Math.max(1, Math.floor(Number(e.target.value) || 1)) } : l)),
-                      )
-                    }
-                    className="h-7 text-center"
-                  />
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="outline"
-                    className="size-7"
-                    onClick={() =>
-                      setLines((prev) => prev.map((l, j) => (j === i ? { ...l, count: l.count + 1 } : l)))
-                    }
-                  >
-                    +
+                    <Trash2 className="size-4" />
                   </Button>
                 </div>
-                <span className={`w-16 shrink-0 text-right text-[11px] ${line.count > max ? "font-semibold text-rose-400" : "text-muted-foreground"}`}>
-                  {max} free
-                </span>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  className="size-7 text-destructive"
-                  onClick={() => setLines((prev) => prev.filter((_, j) => j !== i))}
-                >
-                  <Trash2 className="size-3.5" />
-                </Button>
               </div>
             );
           })}

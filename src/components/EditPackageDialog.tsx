@@ -4,7 +4,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { StatusBadge } from "@/components/StatusBadge";
 import { asMessage, toLocalInput } from "@/components/EditRentalDialog";
-import { PackageItemSelectContent } from "@/components/PackageItemSelectContent";
+import { PackageItemPicker } from "@/components/PackageItemPicker";
 import { buildPackageDropdown } from "@/lib/package-dropdown";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -168,6 +168,19 @@ export function EditPackageDialog({
     () => buildPackageDropdown((groups ?? []) as any, categories ?? []),
     [groups, categories],
   );
+  const closets = useQuery(api.catalog.listClosets, open ? {} : "skip");
+  // groupId → storage display name; used lines are hidden from the picker.
+  const closetNames = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const c of closets ?? []) {
+      byId.set(c._id, [c.name, c.location].filter(Boolean).join(" — "));
+    }
+    return byId;
+  }, [closets]);
+  const usedGroupIds = useMemo(
+    () => new Set(lines.map((l) => l.groupId).filter(Boolean) as string[]),
+    [lines],
+  );
 
   /** Free units of a group NOT already in this package (additions see the
    *  real headroom — the package's own held units are not "free", but units
@@ -323,76 +336,72 @@ export function EditPackageDialog({
               : line.existing - line.removed.size + freeOutside(line.groupId);
             const g = groupById.get(line.groupId);
             return (
-              <div key={i} className="glass-3d flex items-center gap-2 rounded-md border p-2">
+              <div key={i} className="glass-3d flex flex-col gap-2 rounded-md border p-2">
                 {g ? (
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{g.name}</span>
+                  <span className="min-w-0 truncate text-sm font-medium">{g.name}</span>
                 ) : (
-                  <Select
-                    value={line.groupId || undefined}
-                    onValueChange={(v) => setLine(i, { groupId: v, count: 1, note: undefined, existing: 0, removed: new Set() })}
-                  >
-                    <SelectTrigger className="flex-1">
-                      <SelectValue placeholder="Choose an item" />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-[60vh]">
-                      <PackageItemSelectContent
-                        sections={dropdownSections}
-                        availability={availability}
-                        value={line.groupId}
-                      />
-                    </SelectContent>
-                  </Select>
-                )}
-                <div className="flex w-28 items-center gap-1">
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="outline"
-                    className="size-7"
-                    onClick={() => setLine(i, { count: Math.max(1, line.count - 1) })}
-                  >
-                    −
-                  </Button>
-                  <Input
-                    type="number"
-                    min={1}
-                    value={line.count}
-                    onChange={(e) =>
-                      setLine(i, { count: Math.max(1, Math.floor(Number(e.target.value) || 1)) })
-                    }
-                    className="h-7 text-center"
+                  <PackageItemPicker
+                    sections={dropdownSections}
+                    availability={availability}
+                    closetNames={closetNames}
+                    selectedIds={usedGroupIds}
+                    onPick={(groupId) => setLine(i, { groupId, count: 1, note: undefined, existing: 0, removed: new Set() })}
                   />
+                )}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1">
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className="size-8"
+                      aria-label="Decrease quantity"
+                      onClick={() => setLine(i, { count: Math.max(1, line.count - 1) })}
+                    >
+                      −
+                    </Button>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={line.count}
+                      onChange={(e) =>
+                        setLine(i, { count: Math.max(1, Math.floor(Number(e.target.value) || 1)) })
+                      }
+                      className="h-8 w-14 text-center"
+                    />
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className="size-8"
+                      aria-label="Increase quantity"
+                      onClick={() => setLine(i, { count: line.count + 1 })}
+                    >
+                      +
+                    </Button>
+                  </div>
+                  <span
+                    className={`text-right text-[11px] ${
+                      shortages.some((s) => s.groupId === line.groupId)
+                        ? "font-semibold text-rose-400"
+                        : "text-muted-foreground"
+                    }`}
+                  >
+                    {isPending
+                      ? `${max} free`
+                      : `${line.existing - line.removed.size} in pkg · ${freeOutside(line.groupId)} free`}
+                  </span>
                   <Button
                     type="button"
                     size="icon"
-                    variant="outline"
-                    className="size-7"
-                    onClick={() => setLine(i, { count: line.count + 1 })}
+                    variant="ghost"
+                    className="size-8 text-destructive"
+                    title="Remove this item (its not-yet-handed-out units are released)"
+                    onClick={() => removeLine(i)}
                   >
-                    +
+                    <Trash2 className="size-4" />
                   </Button>
                 </div>
-                <span
-                  className={`w-20 shrink-0 text-right text-[11px] ${
-                    shortages.some((s) => s.groupId === line.groupId)
-                      ? "font-semibold text-rose-400"
-                      : "text-muted-foreground"
-                  }`}
-                >
-                  {isPending
-                    ? `${max} free`
-                    : `${line.existing - line.removed.size} in pkg · ${freeOutside(line.groupId)} free`}
-                </span>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  className="size-7 text-destructive"
-                  title="Remove this item (its not-yet-handed-out units are released)"
-                  onClick={() => removeLine(i)}
-                >
-                  <Trash2 className="size-3.5" />
-                </Button>
               </div>
             );
           })}
