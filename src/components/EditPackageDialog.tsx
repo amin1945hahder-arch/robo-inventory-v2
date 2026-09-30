@@ -107,6 +107,18 @@ export function EditPackageDialog({
   const [pickupLocal, setPickupLocal] = useState("");
   const [pickupTouched, setPickupTouched] = useState(false);
   const [pickupCleared, setPickupCleared] = useState(false);
+  // Date corrections — every date the per-unit record editor offers, applied
+  // to the WHOLE bundle (package row + every rental record + held units).
+  const [requestedLocal, setRequestedLocal] = useState("");
+  const [requestedTouched, setRequestedTouched] = useState(false);
+  const [decidedLocal, setDecidedLocal] = useState("");
+  const [decidedTouched, setDecidedTouched] = useState(false);
+  const [pickedUpLocal, setPickedUpLocal] = useState("");
+  const [pickedUpTouched, setPickedUpTouched] = useState(false);
+  const [returnedLocal, setReturnedLocal] = useState("");
+  const [returnedTouched, setReturnedTouched] = useState(false);
+  const [dueLocal, setDueLocal] = useState("");
+  const [dueTouched, setDueTouched] = useState(false);
   const [busy, setBusy] = useState(false);
 
   // Hydrate the editor from the package row when it opens — keyed on the
@@ -122,6 +134,16 @@ export function EditPackageDialog({
     setPickupLocal(toLocalInput(pkg.package?.pickupAt ?? null));
     setPickupTouched(false);
     setPickupCleared(false);
+    setRequestedLocal(toLocalInput(pkg.package?.requestedAt ?? null));
+    setRequestedTouched(false);
+    setDecidedLocal(toLocalInput(pkg.package?.decidedAt ?? null));
+    setDecidedTouched(false);
+    setPickedUpLocal(toLocalInput(pkg.package?.decidedAt ?? null));
+    setPickedUpTouched(false);
+    setReturnedLocal("");
+    setReturnedTouched(false);
+    setDueLocal("");
+    setDueTouched(false);
     setRemovedExtra(new Set());
     const next: EditLine[] = (pkg.lines ?? []).map((l: any) => ({
       groupId: l.groupId as string,
@@ -294,6 +316,12 @@ export function EditPackageDialog({
         lines: clean.map((l) => ({ groupId: l.groupId as any, count: l.count, note: l.note || undefined })),
         note: note.trim() || undefined,
         pickupAt: pickupCleared ? null : pickupTouched && pickupLocal ? new Date(pickupLocal).getTime() : undefined,
+        // Dates: only sent when the admin actually edited the field.
+        requestedAt: requestedTouched ? (requestedLocal ? new Date(requestedLocal).getTime() : null) : undefined,
+        decidedAt: decidedTouched ? (decidedLocal ? new Date(decidedLocal).getTime() : null) : undefined,
+        pickedUpAt: pickedUpTouched ? (pickedUpLocal ? new Date(pickedUpLocal).getTime() : null) : undefined,
+        returnedAt: returnedTouched ? (returnedLocal ? new Date(returnedLocal).getTime() : null) : undefined,
+        dueAt: dueTouched ? (dueLocal ? new Date(dueLocal).getTime() : null) : undefined,
         // Renter: only sent when the admin picked a different member.
         ...(renter && renter !== originalRenter ? { userId: renter as any } : {}),
         removeRentalIds:
@@ -529,34 +557,112 @@ export function EditPackageDialog({
           />
         </div>
 
-        <div className="grid gap-2">
-          <Label className="flex items-center gap-1.5">
-            <CalendarClock className="size-3.5" /> Scheduled pick-up
-          </Label>
-          <Input
-            type="datetime-local"
-            value={pickupLocal}
-            onChange={(e) => {
-              setPickupLocal(e.target.value);
-              setPickupTouched(true);
-              setPickupCleared(false);
-            }}
-            className="h-8 sm:w-64"
-          />
-          {(pkg?.package?.pickupAt || pickupLocal) && (
-            <button
-              type="button"
-              className="self-start text-xs text-muted-foreground underline-offset-2 hover:underline"
-              onClick={() => {
-                setPickupLocal("");
-                setPickupTouched(false);
-                setPickupCleared(true);
+        {/* ALL dates, editable — saved to the package row, every unit record
+            in the bundle AND the held units themselves (rent-at / return-by).
+            Leave a field untouched to keep its stored value; clear it to erase. */}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-1.5">
+            <Label className="flex items-center gap-1.5 text-xs">
+              <CalendarClock className="size-3.5" /> Requested at
+            </Label>
+            <Input
+              type="datetime-local"
+              value={requestedLocal}
+              onChange={(e) => {
+                setRequestedLocal(e.target.value);
+                setRequestedTouched(true);
               }}
-            >
-              Clear pick-up time (whole bundle)
-            </button>
-          )}
+              className="h-8"
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label className="flex items-center gap-1.5 text-xs">
+              <CalendarClock className="size-3.5" /> Decided at (approve/deny)
+            </Label>
+            <Input
+              type="datetime-local"
+              value={decidedLocal}
+              onChange={(e) => {
+                setDecidedLocal(e.target.value);
+                setDecidedTouched(true);
+              }}
+              className="h-8"
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label className="flex items-center gap-1.5 text-xs">
+              <CalendarClock className="size-3.5" /> Scheduled pick-up
+            </Label>
+            <Input
+              type="datetime-local"
+              value={pickupLocal}
+              onChange={(e) => {
+                setPickupLocal(e.target.value);
+                setPickupTouched(true);
+                setPickupCleared(false);
+              }}
+              className="h-8"
+            />
+            {(pkg?.package?.pickupAt || pickupLocal) && (
+              <button
+                type="button"
+                className="self-start text-xs text-muted-foreground underline-offset-2 hover:underline"
+                onClick={() => {
+                  setPickupLocal("");
+                  setPickupTouched(false);
+                  setPickupCleared(true);
+                }}
+              >
+                Clear pick-up time (whole bundle)
+              </button>
+            )}
+          </div>
+          <div className="grid gap-1.5">
+            <Label className="flex items-center gap-1.5 text-xs">
+              <CalendarClock className="size-3.5" /> Picked up at
+            </Label>
+            <Input
+              type="datetime-local"
+              value={pickedUpLocal}
+              onChange={(e) => {
+                setPickedUpLocal(e.target.value);
+                setPickedUpTouched(true);
+              }}
+              className="h-8"
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label className="flex items-center gap-1.5 text-xs">
+              <CalendarClock className="size-3.5" /> Return by (lend window)
+            </Label>
+            <Input
+              type="datetime-local"
+              value={dueLocal}
+              onChange={(e) => {
+                setDueLocal(e.target.value);
+                setDueTouched(true);
+              }}
+              className="h-8"
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label className="flex items-center gap-1.5 text-xs">
+              <CalendarClock className="size-3.5" /> Returned at
+            </Label>
+            <Input
+              type="datetime-local"
+              value={returnedLocal}
+              onChange={(e) => {
+                setReturnedLocal(e.target.value);
+                setReturnedTouched(true);
+              }}
+              className="h-8"
+            />
+          </div>
         </div>
+        <p className="text-xs text-muted-foreground">
+          Saved dates apply to the whole package — every unit record and each held unit inherits them.
+        </p>
 
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span>

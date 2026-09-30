@@ -12,6 +12,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router";
 import "./index.css";
 import { LoadingGif } from "@/components/LoadingGif";
+import { PreviousLocationTracker } from "@/hooks/use-previous-location";
 import { CoverBackground } from "@/components/CoverBackground";
 
 // Lazy load route components for better code splitting
@@ -152,6 +153,9 @@ createRoot(document.getElementById("root")!).render(
             the artwork — height fits the window, width follows the A4 ratio. */}
         <CoverBackground />
         <BrowserRouter>
+          {/* Tracks the previous route so detail pages can offer a truthful
+              back button ("return to the storage I came from"). */}
+          <PreviousLocationTracker />
           <RouteSyncer />
           <Suspense fallback={<RouteLoading />}>
             <RoutedBoundary>

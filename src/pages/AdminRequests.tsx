@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { formatLineAmount } from "@/lib/group-measure";
+import { contains, matchesSearch as deepMatch } from "@/lib/searchText";
 import { AppShell } from "@/components/AppShell";
 import { LoadingGif, LoadingGifInline } from "@/components/LoadingGif";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -281,10 +282,51 @@ export default function AdminRequests() {
   );
 
   const fPending = useMemo(() => filterRentalRows(pendingRows), [filterRentalRows, pendingRows]);
+  // Packages tab: the search filters whole packages by requester, line item,
+  // note or status — matching the tab-scoped search on every other tab.
+  const fPackages = useMemo(() => {
+    if (!search.trim()) return packages;
+    const q = search.trim().toLowerCase();
+    return (packages ?? []).filter(
+      (p) =>
+        deepMatch(p.requester as any, q) ||
+        deepMatch(p.package as any, q) ||
+        p.lines.some(
+          (l: any) =>
+            contains(l.groupName, q) ||
+            contains(l.note, q) ||
+            l.units.some((u: any) => contains(u.tag, q) || contains(u.status, q)),
+        ),
+    );
+  }, [packages, search]);
   const fAwaiting = useMemo(() => filterRentalRows(awaiting), [filterRentalRows, awaiting]);
   const fActive = useMemo(() => filterRentalRows(active), [filterRentalRows, active]);
   const fOnProject = useMemo(() => filterRentalRows(onProject), [filterRentalRows, onProject]);
   const fHistory = useMemo(() => filterRentalRows(history), [filterRentalRows, history]);
+  // The remaining request kinds are tab-scoped too: name/email/message/roles.
+  const matchesRowText = useCallback(
+    (obj: unknown) => Boolean(search.trim()) && deepMatch(obj as any, search.trim().toLowerCase()),
+    [search],
+  );
+  const fRank = useMemo(
+    () => (search.trim() ? (rankReqs ?? []).filter((e) => matchesRowText(e) || matchesRowText(e.request)) : rankReqs),
+    [rankReqs, matchesRowText],
+  );
+  const fPrinter = useMemo(
+    () => (search.trim() ? (printerReqs ?? []).filter((e) => matchesRowText(e) || matchesRowText(e.request)) : printerReqs),
+    [printerReqs, matchesRowText],
+  );
+  const fProfile = useMemo(
+    () =>
+      search.trim()
+        ? (profileReqs ?? []).filter((e) => matchesRowText(e) || matchesRowText(e.request))
+        : profileReqs,
+    [profileReqs, matchesRowText],
+  );
+  const fUnapproved = useMemo(
+    () => (search.trim() ? (unapproved ?? []).filter((u: any) => matchesRowText(u)) : unapproved),
+    [unapproved, matchesRowText],
+  );
 
   // ---- Updates tab: every NEW request of every kind, newest first ----
   // Keys mirror bulk.seenRequests entries: once an action lands (or the row
@@ -1102,25 +1144,30 @@ export default function AdminRequests() {
                 ))}
                 {pendingPkgRows.map((row: any) => (
                   <li key={row.key} className="glass-3d rounded-lg border border-primary/30 p-4">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <Boxes className="size-5 shrink-0 text-primary" />
-                      <Avatar className="size-8 shrink-0">
-                        <AvatarImage src={row.student?.image} />
-                        <AvatarFallback className="text-xs font-semibold">
-                          {(row.student?.name ?? row.student?.email ?? "?").slice(0, 1).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium">
-                          Package · {row.units.length} unit(s)
-                          {row.packageNote ? ` · “${row.packageNote}”` : ""}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {row.units.map((u: any) => u.groupName).join(" · ")} ·{" "}
-                          {new Date(row.package.requestedAt).toLocaleString()}
-                        </p>
+                    {/* Column on phones, row on ≥sm — like the People list. */}
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                      <div className="flex min-w-0 flex-1 items-center gap-3">
+                        <Boxes className="size-5 shrink-0 text-primary" />
+                        <Avatar className="size-8 shrink-0">
+                          <AvatarImage src={row.student?.image} />
+                          <AvatarFallback className="text-xs font-semibold">
+                            {(row.student?.name ?? row.student?.email ?? "?").slice(0, 1).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
+                          <p className="flex flex-wrap gap-x-1.5 gap-y-0.5 text-sm font-medium">
+                            <span className="whitespace-nowrap">Package · {row.units.length} unit(s)</span>
+                            {row.packageNote ? <span className="whitespace-nowrap">· “{row.packageNote}”</span> : null}
+                          </p>
+                          <p className="flex flex-wrap gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
+                            {row.units.map((u: any) => (
+                              <span key={u.rentalId ?? u.tag} className="whitespace-nowrap">{u.groupName}</span>
+                            ))}
+                            <span className="whitespace-nowrap">· {new Date(row.package.requestedAt).toLocaleString()}</span>
+                          </p>
+                        </div>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2 sm:ml-auto">
                         {packages?.some((p) => p.package._id === row.key) && (
                           <>
                             <Button
@@ -1199,7 +1246,7 @@ export default function AdminRequests() {
               </p>
             ) : (
               <ul className="flex flex-col gap-3">
-                {packages.map(({ package: pkg, lines, requester, openUnits, totalUnits, returnedUnits, approvedUnits, activeUnits }) => {
+                {(fPackages ?? []).map(({ package: pkg, lines, requester, openUnits, totalUnits, returnedUnits, approvedUnits, activeUnits }) => {
                   // Truthful badge: derived from the unit stages, not the frozen
                   // stored status — a fully returned package must not read
                   // "Active" forever.
@@ -1601,43 +1648,46 @@ export default function AdminRequests() {
           </TabsContent>
 
           <TabsContent value="ranks" className="mt-4">
-            {rankReqs === undefined ? (
+            {fRank === undefined ? (
               <LoadingGif size={48} label={null} />
-            ) : rankReqs.length === 0 ? (
+            ) : fRank.length === 0 ? (
               <p className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
                 No rank requests — members can send them from their profile page.
               </p>
             ) : (
               <ul className="divide-y glass-3d rounded-lg border">
-                {rankReqs.map(({ request, user }) => (
-                  <li key={request._id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                {fRank.map(({ request, user }) => (
+                  <li key={request._id} className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center">
                     <Checkbox
                       checked={selected.has(request._id)}
                       onCheckedChange={() => toggleSel(request._id)}
                       aria-label="Select rank request"
-                      className="mt-0.5 shrink-0"
+                      className="shrink-0 self-start sm:self-center"
                     />
-                    <Award className="size-4 shrink-0 text-violet-400" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">
-                        {user?.name ?? user?.email ?? "(removed)"}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        wants: {request.requestedRoles.join(" · ")}
-                        {request.message ? ` — “${request.message}”` : ""}
-                      </p>
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                      <Award className="size-4 shrink-0 text-violet-400" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">
+                          {user?.name ?? user?.email ?? "(removed)"}
+                        </p>
+                        <p className="flex flex-wrap gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
+                          <span className="whitespace-nowrap">wants: {request.requestedRoles.join(" · ")}</span>
+                          {request.message ? <span className="whitespace-nowrap">— “{request.message}”</span> : null}
+                        </p>
+                      </div>
                     </div>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      title="Member badge card"
-                      onClick={() => setBadgeFor(badgeOf(user))}
-                    >
-                      <IdCard className="size-4" /> Badge
-                    </Button>
-                    <Button
-                      size="sm"
-                      disabled={busyId === request._id}
+                    <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        title="Member badge card"
+                        onClick={() => setBadgeFor(badgeOf(user))}
+                      >
+                        <IdCard className="size-4" /> Badge
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={busyId === request._id}
                       onClick={async () => {
                         setBusyId(request._id);
                         try {
@@ -1649,27 +1699,28 @@ export default function AdminRequests() {
                           setBusyId(null);
                         }
                       }}
-                    >
-                      <Check className="size-4" /> Grant
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={busyId === request._id}
-                      onClick={async () => {
-                        setBusyId(request._id);
-                        try {
-                          await decideRank({ id: request._id, approve: false });
-                          toast.success("Request denied");
-                        } catch (e) {
-                          toast.error(asMessage(e));
-                        } finally {
-                          setBusyId(null);
-                        }
-                      }}
-                    >
-                      <X className="size-4" />
-                    </Button>
+                      >
+                        <Check className="size-4" /> Grant
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busyId === request._id}
+                        onClick={async () => {
+                          setBusyId(request._id);
+                          try {
+                            await decideRank({ id: request._id, approve: false });
+                            toast.success("Request denied");
+                          } catch (e) {
+                            toast.error(asMessage(e));
+                          } finally {
+                            setBusyId(null);
+                          }
+                        }}
+                      >
+                        <X className="size-4" />
+                      </Button>
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -1677,42 +1728,46 @@ export default function AdminRequests() {
           </TabsContent>
 
           <TabsContent value="printers" className="mt-4">
-            {printerReqs === undefined ? (
+            {fPrinter === undefined ? (
               <LoadingGif size={48} label={null} />
-            ) : printerReqs.length === 0 ? (
+            ) : fPrinter.length === 0 ? (
               <p className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
                 No printer-access requests — members can send them from their profile page.
               </p>
             ) : (
               <ul className="divide-y glass-3d rounded-lg border">
-                {printerReqs.map(({ request, user }) => (
-                  <li key={request._id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                {fPrinter.map(({ request, user }) => (
+                  <li key={request._id} className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center">
                     <Checkbox
                       checked={selected.has(request._id)}
                       onCheckedChange={() => toggleSel(request._id)}
                       aria-label="Select printer request"
-                      className="mt-0.5 shrink-0"
+                      className="shrink-0 self-start sm:self-center"
                     />
-                    <Printer className="size-4 shrink-0 text-cyan-400" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">
-                        {user?.name ?? user?.email ?? "(removed)"}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        requests printer access{request.message ? ` — “${request.message}”` : ""}
-                      </p>
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                      <Printer className="size-4 shrink-0 text-cyan-400" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">
+                          {user?.name ?? user?.email ?? "(removed)"}
+                        </p>
+                        <p className="flex flex-wrap gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
+                          <span className="whitespace-nowrap">requests printer access</span>
+                          {request.message ? <span className="whitespace-nowrap">— “{request.message}”</span> : null}
+                        </p>
+                      </div>
                     </div>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      title="Member badge card"
-                      onClick={() => setBadgeFor(badgeOf(user))}
-                    >
-                      <IdCard className="size-4" /> Badge
-                    </Button>
-                    <Button
-                      size="sm"
-                      disabled={busyId === request._id}
+                    <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        title="Member badge card"
+                        onClick={() => setBadgeFor(badgeOf(user))}
+                      >
+                        <IdCard className="size-4" /> Badge
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={busyId === request._id}
                       onClick={async () => {
                         setBusyId(request._id);
                         try {
@@ -1724,27 +1779,28 @@ export default function AdminRequests() {
                           setBusyId(null);
                         }
                       }}
-                    >
-                      <Check className="size-4" /> Grant
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={busyId === request._id}
-                      onClick={async () => {
-                        setBusyId(request._id);
-                        try {
-                          await decidePrinter({ id: request._id, approve: false });
-                          toast.success("Request denied");
-                        } catch (e) {
-                          toast.error(asMessage(e));
-                        } finally {
-                          setBusyId(null);
-                        }
-                      }}
-                    >
-                      <X className="size-4" />
-                    </Button>
+                      >
+                        <Check className="size-4" /> Grant
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busyId === request._id}
+                        onClick={async () => {
+                          setBusyId(request._id);
+                          try {
+                            await decidePrinter({ id: request._id, approve: false });
+                            toast.success("Request denied");
+                          } catch (e) {
+                            toast.error(asMessage(e));
+                          } finally {
+                            setBusyId(null);
+                          }
+                        }}
+                      >
+                        <X className="size-4" />
+                      </Button>
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -1752,65 +1808,67 @@ export default function AdminRequests() {
           </TabsContent>
 
           <TabsContent value="profiles" className="mt-4">
-            {profileReqs === undefined ? (
+            {fProfile === undefined ? (
               <LoadingGif size={48} label={null} />
-            ) : profileReqs.length === 0 ? (
+            ) : fProfile.length === 0 ? (
               <p className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
                 No profile change requests.
               </p>
             ) : (
               <ul className="divide-y glass-3d rounded-lg border">
-                {profileReqs.map(({ request, user }) => (
-                  <li key={request._id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                {fProfile.map(({ request, user }) => (
+                  <li key={request._id} className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center">
                     <Checkbox
                       checked={selected.has(request._id)}
                       onCheckedChange={() => toggleSel(request._id)}
                       aria-label="Select profile request"
-                      className="mt-0.5 shrink-0"
+                      className="shrink-0 self-start sm:self-center"
                     />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{user?.name ?? user?.email}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {Object.entries(request.payload)
-                          .map(([k, v]) => `${k}: ${v}`)
-                          .join(" · ")}
+                      <p className="flex flex-wrap gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
+                        {Object.entries(request.payload).map(([k, v]) => (
+                          <span key={k} className="whitespace-nowrap">{k}: {String(v)}</span>
+                        ))}
                       </p>
                     </div>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      title="Member badge card"
-                      onClick={() => setBadgeFor(badgeOf(user))}
-                    >
-                      <IdCard className="size-4" /> Badge
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={async () => {
-                        try {
-                          await decideProfile({ id: request._id, approve: true });
-                          toast.success("Profile updated");
-                        } catch (e) {
-                          toast.error(asMessage(e));
-                        }
-                      }}
-                    >
-                      <Check className="size-4" /> Apply
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={async () => {
-                        try {
-                          await decideProfile({ id: request._id, approve: false });
-                          toast.success("Request denied");
-                        } catch (e) {
-                          toast.error(asMessage(e));
-                        }
-                      }}
-                    >
-                      <X className="size-4" />
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        title="Member badge card"
+                        onClick={() => setBadgeFor(badgeOf(user))}
+                      >
+                        <IdCard className="size-4" /> Badge
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={async () => {
+                          try {
+                            await decideProfile({ id: request._id, approve: true });
+                            toast.success("Profile updated");
+                          } catch (e) {
+                            toast.error(asMessage(e));
+                          }
+                        }}
+                      >
+                        <Check className="size-4" /> Apply
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={async () => {
+                          try {
+                            await decideProfile({ id: request._id, approve: false });
+                            toast.success("Request denied");
+                          } catch (e) {
+                            toast.error(asMessage(e));
+                          }
+                        }}
+                      >
+                        <X className="size-4" />
+                      </Button>
+                    </div>
                   </li>
                 ))}
               </ul>

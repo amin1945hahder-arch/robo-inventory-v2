@@ -167,6 +167,8 @@ export default function Inventory() {
   }, [unitRows]);
 
   const filtered = useMemo(() => {
+    const searching = Boolean(search.trim()) || Boolean(qFilter.trim());
+    const q = (search || qFilter).trim();
     let list = (groups ?? []).filter(
       (g) =>
         // Groups inside a master container live on the container's page —
@@ -175,8 +177,20 @@ export default function Inventory() {
         !g.parentGroupId &&
         // Units of this group: matching a unit tag or unit note surfaces
         // the group in the results.
-        matchesSearch(g, search, unitsBlobByGroup.get(g._id)),
+        matchesSearch(g, q, unitsBlobByGroup.get(g._id)),
     );
+    // SEARCHING ALSO FINDS GROUPS INSIDE CONTAINERS: they are appended as
+    // extra cards (the card shows the 📦 container path) — a search hit must
+    // never be invisible just because the group lives inside a box.
+    if (searching) {
+      const shown = new Set(list.map((g) => g._id));
+      for (const g of allGroups ?? []) {
+        if (g.parentGroupId && !shown.has(g._id) && matchesSearch(g, q, unitsBlobByGroup.get(g._id))) {
+          list.push(g as any);
+          shown.add(g._id);
+        }
+      }
+    }
     if (closetFilter !== "all") list = list.filter((g) => g.closetId === closetFilter);
     if (availFilter !== "all") {
       list = list.filter((g) => {
@@ -199,7 +213,7 @@ export default function Inventory() {
       return a.name.localeCompare(b.name);
     });
     return sorted;
-  }, [groups, unitsBlobByGroup, search, qFilter, closetFilter, availFilter, sortKey, stats]);
+  }, [groups, allGroups, unitsBlobByGroup, search, qFilter, closetFilter, availFilter, sortKey, stats]);
 
   const byCategory = useMemo(() => {
     const map = new Map<string, Doc<"groups">[]>();

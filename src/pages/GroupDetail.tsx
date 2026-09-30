@@ -24,6 +24,8 @@ import { GroupCard } from "@/components/GroupCard";
 import { PackageBuilderDialog } from "@/components/PackageBuilderDialog";
 import { GroupDetailUnits, isBulkGroup, ConsumeBulkDialog } from "@/components/GroupDetailUnits";
 import { describePackSize, isPackGroup, sumPiecesInUnits } from "@/lib/group-measure";
+import { containerPathOf } from "@/lib/package-dropdown";
+import { usePreviousLocation } from "@/hooks/use-previous-location";
 import { BulkUnitDialog } from "@/components/BulkUnitDialog";
 import { UnitEditDialog } from "@/components/UnitEditDialog";
 import { GroupFormDialog } from "@/components/GroupFormDialog";
@@ -79,6 +81,29 @@ export default function GroupDetail() {
   const closets = useQuery(api.catalog.listClosets, {});
   const categories = useQuery(api.catalog.listCategories, {});
   const groupsIndex = useQuery(api.catalog.childGroupOptions, {});
+  // Where the member came from (storage, container page, inventory…) — the
+  // back button returns THERE instead of always jumping to /inventory.
+  const prevLocation = usePreviousLocation();
+
+  // ← → flip through the groups of the SAME container (or storage when the
+  // group sits loose), sorted like the inventory grid. Container siblings
+  // keep the browse inside the box the member is looking at.
+  const navSiblingIds = useMemo(() => {
+    if (!group) return [];
+    if (group.parentGroupId) {
+      return (groupsIndex ?? [])
+        .filter((g) => g.parentGroupId === group.parentGroupId && !isContainer(g))
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((g) => g._id);
+    }
+    return (groupsIndex ?? [])
+      .filter((g) => !g.parentGroupId && g.closetId === group.closetId && !isContainer(g))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((g) => g._id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [group?._id, group?.parentGroupId, group?.closetId, groupsIndex]);
+
+
   // Project names for the on-project chips + the unit editor.
   const activeProjects = useQuery(api.projects.listProjects, isAdmin ? { status: "active" } : "skip");
   const [busyTag, setBusyTag] = useState<string | null>(null);
@@ -194,6 +219,24 @@ export default function GroupDetail() {
   // groups it stops offering unit/lending UI entirely.
   const isMaster = childGroups.length > 0 && !isBulk;
 
+  // Back target: the container page when the group sits inside one (even if
+  // the member arrived another way — that is the natural parent), otherwise
+  // wherever they navigated from (storage page, inventory with its filters).
+  const backTo = parentGroup
+    ? `/group/${parentGroup._id}`
+    : prevLocation
+      ? `${prevLocation.pathname}${prevLocation.search}`
+      : "/inventory";
+  const backLabel = parentGroup
+    ? parentGroup.name
+    : (prevLocation?.pathname ?? "").startsWith("/closets/")
+      ? "Storage"
+      : prevLocation?.pathname === "/closets"
+        ? "Storages"
+        : prevLocation?.pathname === "/inventory" || prevLocation?.pathname === "/"
+          ? "Inventory"
+          : "Back";
+
   const requestBulk = async () => {
     if (!group) return;
     const amount = Number(bulkAmount);
@@ -246,14 +289,9 @@ export default function GroupDetail() {
 
   return (
     <AppShell>
-      {/* ← → flip through the groups of the same storage (storage view order). */}
+      {/* ← → flip through the groups of the same container (or storage). */}
       <NavArrows
-        items={(groupsIndex ?? [])
-          // ← → flips through the groups of the same storage — including
-          // groups nested inside master containers, not just top-level ones.
-          .filter((g) => g.closetId === group?.closetId && !isContainer(g))
-          .sort((a, b) => a.name.localeCompare(b.name))
-          .map((g) => g._id)}
+        items={navSiblingIds}
         currentId={group?._id}
         onNavigate={(nid) => navigate(`/group/${nid}`)}
       />
@@ -262,8 +300,8 @@ export default function GroupDetail() {
       ) : (
         <div className="flex flex-col gap-6">
           <div>
-            <Button variant="ghost" size="sm" onClick={() => navigate("/inventory")}>
-              <ArrowLeft className="size-4" /> Inventory
+            <Button variant="ghost" size="sm" onClick={() => navigate(backTo)}>
+              <ArrowLeft className="size-4" /> {backLabel}
             </Button>
           </div>
 

@@ -2268,6 +2268,16 @@ export const adminEditPackage = mutation({
     ),
     note: v.optional(v.string()),
     pickupAt: v.optional(v.union(v.number(), v.null())),
+    // Date corrections — same null-clears/omit-keeps semantics as the
+    // per-record editor (updateRentalRecord). Applied to the package row,
+    // every rental record in the bundle and the held UNITS themselves
+    // (a rented part carries rentedAt/dueAt), so the whole bundle shows
+    // exactly the dates the admin set.
+    requestedAt: v.optional(v.union(v.number(), v.null())),
+    decidedAt: v.optional(v.union(v.number(), v.null())),
+    pickedUpAt: v.optional(v.union(v.number(), v.null())),
+    returnedAt: v.optional(v.union(v.number(), v.null())),
+    dueAt: v.optional(v.union(v.number(), v.null())),
     // Units the admin explicitly un-tagged in the package editor. Only
     // pending/approved records can be removed this way — live/processed ones
     // are refused (they are managed per unit instead).
@@ -2276,7 +2286,10 @@ export const adminEditPackage = mutation({
     // member — the bundle-level twin of the per-record renter edit.
     userId: v.optional(v.id("users")),
   },
-  handler: async (ctx, { packageId, lines, note, pickupAt, removeRentalIds, userId }) => {
+  handler: async (
+    ctx,
+    { packageId, lines, note, pickupAt, requestedAt, decidedAt, pickedUpAt, returnedAt, dueAt, removeRentalIds, userId },
+  ) => {
     const admin = await requireAdmin(ctx);
     const pkg = await ctx.db.get(packageId);
     if (!pkg) throw new ConvexError("Package not found");
@@ -2302,6 +2315,16 @@ export const adminEditPackage = mutation({
         cleanLines[idx].count = roundBulk(l.count);
       }
     }
+
+    // Date corrections — null clears a date, omit keeps the stored value
+    // (same rules as the per-record editor). Applied per branch below.
+    const datePatch: Record<string, unknown> = {};
+    if (requestedAt !== undefined) datePatch.requestedAt = requestedAt || undefined;
+    if (decidedAt !== undefined) datePatch.decidedAt = decidedAt || undefined;
+    if (pickedUpAt !== undefined) datePatch.pickedUpAt = pickedUpAt || undefined;
+    if (returnedAt !== undefined) datePatch.returnedAt = returnedAt || undefined;
+    if (dueAt !== undefined) datePatch.dueAt = dueAt || undefined;
+    if (pickupAt !== undefined) datePatch.pickupAt = pickupAt || undefined;
 
     const myRentals = await ctx.db
       .query("rentals")
@@ -2408,8 +2431,17 @@ export const adminEditPackage = mutation({
         note: note?.trim() || undefined,
         lines: cleanLines,
         pickupAt: pickupAt === undefined ? pkg.pickupAt : (pickupAt ?? undefined),
+        ...datePatch,
         userId: renterId,
       });
+      // Date corrections also land on the freshly re-picked pending records.
+      if (Object.keys(datePatch).length > 0 && Object.keys(datePatch).some((k) => k !== "pickupAt")) {
+        const recPatch = { ...datePatch };
+        delete (recPatch as any).pickupAt;
+        for (const r of pkgRentals) {
+          if (r.status === "pending") await touchPatch(ctx, r._id, recPatch);
+        }
+      }
       for (const { partId } of chosen) {
         const part = await ctx.db.get(partId);
         if (!part) continue;
@@ -2600,6 +2632,26 @@ export const adminEditPackage = mutation({
       }
     }
 
+    // Date corrections — cascade to every rental record of the bundle and
+    // the held UNITS (rentedAt/dueAt live on parts), so the whole bundle
+    // shows exactly the dates the admin set.
+    if (Object.keys(datePatch).length > 0) {
+      for (const r of pkgRentals) {
+        if (removedIds.has(r._id) || released.includes(r._id)) continue;
+        await touchPatch(ctx, r._id, datePatch);
+        const part = r.partId ? await ctx.db.get(r.partId) : null;
+        if (part) {
+          // The physical unit carries the lend window while it is out.
+          const unitPatch: Record<string, unknown> = {};
+          if (dueAt !== undefined) unitPatch.dueAt = dueAt || undefined;
+          if (pickedUpAt !== undefined && part.status === "rented") {
+            unitPatch.rentedAt = pickedUpAt || undefined;
+          }
+          if (Object.keys(unitPatch).length > 0) await touchPatch(ctx, part._id, unitPatch);
+        }
+      }
+    }
+
     // Renter change: move every surviving record of the bundle to the new
     // member and keep held units' holder pointers in sync.
     if (renterId !== pkg.userId) {
@@ -2641,6 +2693,7 @@ export const adminEditPackage = mutation({
     const bits: string[] = [];
     if (claimed.length) bits.push(`+${claimed.length} unit(s) added`);
     if (released.length) bits.push(`−${released.length} unit(s) released`);
+    if (Object.keys(datePatch).length) bits.push("dates corrected");
     if (!bits.length) bits.push("details updated");
     if (member?.telegramChatId || member?.telegramUsername) {
       await telegramDM(

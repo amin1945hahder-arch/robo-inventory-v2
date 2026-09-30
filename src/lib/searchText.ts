@@ -24,8 +24,20 @@ export function matchesSearch(
   if (!needle) return true;
   if (extra !== undefined && contains(extra, needle)) return true;
   if (!item) return false;
-  for (const value of Object.values(item)) {
+  // Deep walk: nested objects (or arrays of values at the call sites) are
+  // searched too, so fields like description/datasheet/brand/model match
+  // even when the caller wraps them in arrays or objects.
+  const walk = (value: unknown, depth: number): boolean => {
     if (contains(value, needle)) return true;
+    if (depth > 0 && value !== null && typeof value === "object") {
+      for (const v of Object.values(value as Record<string, unknown>)) {
+        if (walk(v, depth - 1)) return true;
+      }
+    }
+    return false;
+  };
+  for (const value of Object.values(item)) {
+    if (walk(value, 2)) return true;
   }
   return false;
 }
