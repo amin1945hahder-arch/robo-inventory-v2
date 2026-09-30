@@ -730,18 +730,18 @@ export default function AdminRequests() {
         </AvatarFallback>
       </Avatar>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium">
-          {row.group?.name ?? "Part"}{" "}
+        <p className="flex flex-wrap items-baseline gap-x-1.5 text-sm font-medium">
+          {row.group?.name ?? "Part"}
           <span className="font-mono text-xs text-muted-foreground">{row.part?.tag}</span>
         </p>
         <p className="flex flex-wrap gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
-          <span className="whitespace-nowrap">{row.student?.name ?? row.student?.email ?? "Member"}</span>
+          <span className="break-words">{row.student?.name ?? row.student?.email ?? "Member"}</span>
           {row.student?.studentId ? <span className="whitespace-nowrap">· {row.student.studentId}</span> : null}
           <span className="whitespace-nowrap">· {new Date(row.rental.requestedAt).toLocaleDateString()}</span>
         </p>
         {row.rental.status === "active" && row.rental.returnRequestedAt !== undefined && (
-          <p className="mt-1 flex items-center gap-1.5 text-xs font-medium text-amber-500">
-            <RotateCcw className="size-3.5" />
+          <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs font-medium text-amber-500">
+            <RotateCcw className="size-3.5 shrink-0" />
             Member asked to return this · {new Date(row.rental.returnRequestedAt).toLocaleString()}
           </p>
         )}
@@ -966,7 +966,8 @@ export default function AdminRequests() {
                 <ul className="flex flex-col gap-3">
                   {newUpdates.map((u) => (
                     <li key={u.key} className="glass-3d rounded-lg border border-primary/30 p-4">
-                      <div className="flex flex-wrap items-center gap-3">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                        <div className="flex min-w-0 flex-1 items-start gap-3">
                         {u.kind === "package" ? (
                           <Boxes className="size-5 shrink-0 text-primary" />
                         ) : u.kind === "rank" ? (
@@ -982,33 +983,33 @@ export default function AdminRequests() {
                           <p className="flex flex-wrap gap-x-1.5 gap-y-0.5 text-sm font-medium">
                             {u.kind === "single" && (
                               <>
-                                <span className="whitespace-nowrap">{u.data.student?.name ?? "Member"} requested</span>
-                                <span className="whitespace-nowrap">{u.data.group?.name ?? "a part"}</span>
+                                <span className="break-words">{u.data.student?.name ?? "Member"} requested</span>
+                                <span className="break-words">{u.data.group?.name ?? "a part"}</span>
                                 <span className="whitespace-nowrap font-mono text-xs text-muted-foreground">{u.data.part?.tag ?? "—"}</span>
                               </>
                             )}
                             {u.kind === "package" && (
                               <>
-                                <span className="whitespace-nowrap">{u.data.requester?.name ?? "Member"} requested a package</span>
+                                <span className="break-words">{u.data.requester?.name ?? "Member"} requested a package</span>
                                 <span className="whitespace-nowrap">· {u.data.lines.reduce((n: number, l: any) => n + l.units.length, 0)} unit(s)</span>
                               </>
                             )}
                             {u.kind === "rank" && (
                               <>
-                                <span className="whitespace-nowrap">{u.data.user?.name ?? "Member"} requests:</span>
+                                <span className="break-words">{u.data.user?.name ?? "Member"} requests:</span>
                                 {u.data.request.requestedRoles?.map((r: string) => (
                                   <span key={r} className="whitespace-nowrap">{r}</span>
                                 ))}
                               </>
                             )}
                             {u.kind === "printer" && (
-                              <span className="whitespace-nowrap">{u.data.user?.name ?? "Member"} requests printer access</span>
+                              <span className="break-words">{u.data.user?.name ?? "Member"} requests printer access</span>
                             )}
                             {u.kind === "profile" && (
-                              <span className="whitespace-nowrap">{u.data.user?.name ?? "Member"} requests profile changes</span>
+                              <span className="break-words">{u.data.user?.name ?? "Member"} requests profile changes</span>
                             )}
                             {u.kind === "signup" && (
-                              <span className="whitespace-nowrap">{u.data.name ?? u.data.email ?? "A member"} awaits profile approval</span>
+                              <span className="break-words">{u.data.name ?? u.data.email ?? "A member"} awaits profile approval</span>
                             )}
                           </p>
                           <p className="flex flex-wrap gap-x-1.5 text-xs text-muted-foreground">
@@ -1016,7 +1017,8 @@ export default function AdminRequests() {
                             <span className="whitespace-nowrap">· {new Date(u.at).toLocaleString()}</span>
                           </p>
                         </div>
-                        <div className="flex flex-wrap gap-2">
+                        </div>
+                        <div className="flex flex-wrap gap-2 sm:ml-auto">
                           {u.kind === "single" && (
                             <>
                               <Button size="sm" onClick={() => { setApproveFor(u.data as Row); setPickupLocal(""); }}>
@@ -1177,11 +1179,11 @@ export default function AdminRequests() {
                         <div className="min-w-0 flex-1">
                           <p className="flex flex-wrap gap-x-1.5 gap-y-0.5 text-sm font-medium">
                             <span className="whitespace-nowrap">Package · {row.units.length} unit(s)</span>
-                            {row.packageNote ? <span className="whitespace-nowrap">· “{row.packageNote}”</span> : null}
+                            {row.packageNote ? <span className="break-words">· “{row.packageNote}”</span> : null}
                           </p>
                           <p className="flex flex-wrap gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
                             {row.units.map((u: any) => (
-                              <span key={u.rentalId ?? u.tag} className="whitespace-nowrap">{u.groupName}</span>
+                              <span key={u.rentalId ?? u.tag} className="break-words">{u.groupName}</span>
                             ))}
                             <span className="whitespace-nowrap">· {new Date(row.package.requestedAt).toLocaleString()}</span>
                           </p>
@@ -1294,24 +1296,24 @@ export default function AdminRequests() {
                       <div className="min-w-0 flex-1">
                         <p className="flex flex-wrap gap-x-1.5 gap-y-0.5 text-sm font-medium">
                           {lines.map((l: any) => (
-                            <span key={l.groupId} className="whitespace-nowrap">
+                            <span key={l.groupId} className="break-words">
                               {formatLineAmount(l, groupsIndex?.find((g: any) => g._id === l.groupId))} {l.groupName}
                             </span>
                           ))}
                         </p>
                         <p className="flex flex-wrap gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
-                          <span className="whitespace-nowrap">{requester?.name ?? requester?.email ?? "Member"}</span>
+                          <span className="break-words">{requester?.name ?? requester?.email ?? "Member"}</span>
                           {requester?.studentId ? <span className="whitespace-nowrap">· {requester.studentId}</span> : null}
                           <span className="whitespace-nowrap">· {new Date(pkg.requestedAt).toLocaleString()}</span>
                           <span className="whitespace-nowrap">· {totalUnits} unit(s)</span>
                           {pkg.status === "approved" ? (
                             <span className="whitespace-nowrap">· {openUnits} out, {returnedUnits} processed</span>
                           ) : null}
-                          {pkg.note ? <span className="whitespace-nowrap">· “{pkg.note}”</span> : null}
+                          {pkg.note ? <span className="break-words">· “{pkg.note}”</span> : null}
                         </p>
                         {pkg.status === "approved" && pkg.returnRequestedAt !== undefined && (
-                          <p className="mt-1 flex items-center gap-1.5 text-xs font-medium text-amber-500">
-                            <RotateCcw className="size-3.5" />
+                          <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs font-medium text-amber-500">
+                            <RotateCcw className="size-3.5 shrink-0" />
                             Member asked to return this package ·{" "}
                             {new Date(pkg.returnRequestedAt).toLocaleString()}
                           </p>
@@ -1691,8 +1693,8 @@ export default function AdminRequests() {
                           {user?.name ?? user?.email ?? "(removed)"}
                         </p>
                         <p className="flex flex-wrap gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
-                          <span className="whitespace-nowrap">wants: {request.requestedRoles.join(" · ")}</span>
-                          {request.message ? <span className="whitespace-nowrap">— “{request.message}”</span> : null}
+                          <span className="break-words">wants: {request.requestedRoles.join(" · ")}</span>
+                          {request.message ? <span className="break-words">— “{request.message}”</span> : null}
                         </p>
                       </div>
                     </div>
@@ -1772,7 +1774,7 @@ export default function AdminRequests() {
                         </p>
                         <p className="flex flex-wrap gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
                           <span className="whitespace-nowrap">requests printer access</span>
-                          {request.message ? <span className="whitespace-nowrap">— “{request.message}”</span> : null}
+                          {request.message ? <span className="break-words">— “{request.message}”</span> : null}
                         </p>
                       </div>
                     </div>
@@ -1848,7 +1850,7 @@ export default function AdminRequests() {
                       <p className="truncate text-sm font-medium">{user?.name ?? user?.email}</p>
                       <p className="flex flex-wrap gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
                         {Object.entries(request.payload).map(([k, v]) => (
-                          <span key={k} className="whitespace-nowrap">{k}: {String(v)}</span>
+                          <span key={k} className="break-words">{k}: {String(v)}</span>
                         ))}
                       </p>
                     </div>
