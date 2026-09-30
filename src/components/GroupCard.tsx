@@ -62,10 +62,13 @@ function GroupCardBase({
   onDelete,
   containedGroups,
   containerPath,
+  closetName,
 }: {
   group: Doc<"groups">;
   stats?: GroupStats;
   categoryName?: string;
+  /** Storage (closet) display name, e.g. "Main room — basement shelf". */
+  closetName?: string;
   isAdmin: boolean;
   onEdit?: () => void;
   onDelete?: () => void;
@@ -163,6 +166,11 @@ function GroupCardBase({
               {group.parentGroupId ? "📦 Container · " : ""}
               {[group.brand, group.model].filter(Boolean).join(" · ") || "—"}
             </p>
+            {closetName && (
+              <p className="mt-0.5 truncate text-[11px] text-muted-foreground" title={closetName}>
+                📍 {closetName}
+              </p>
+            )}
             {containerPath && (
               <p className="mt-0.5 truncate text-[11px] text-muted-foreground" title={containerPath}>
                 📦 in {containerPath}
@@ -304,5 +312,6 @@ export const GroupCard = memo(
     a.categoryName === b.categoryName &&
     a.isAdmin === b.isAdmin &&
     a.containedGroups === b.containedGroups &&
-    a.containerPath === b.containerPath,
+    a.containerPath === b.containerPath &&
+    a.closetName === b.closetName,
 );
