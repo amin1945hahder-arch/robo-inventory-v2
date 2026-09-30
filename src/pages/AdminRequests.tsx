@@ -1927,24 +1927,48 @@ export default function AdminRequests() {
             <DialogHeader>
               <DialogTitle>Clear rental history</DialogTitle>
               <DialogDescription>
-                Removes processed records (returned, on project, denied, canceled).
-                {historyStatsQ && ` ${historyStatsQ.processed} processed · ${historyStatsQ.live} live record(s).`}
+                Tick what you want to delete — nothing is removed until you press
+                the button, and unticked categories are left untouched.
+                {historyStatsQ &&
+                  ` Now: ${historyStatsQ.processed} processed · ${historyStatsQ.live} live rental record(s).`}
               </DialogDescription>
             </DialogHeader>
             <div className="flex flex-col gap-3">
               <label className="flex items-start gap-2 text-sm">
-                <Checkbox checked={clearLive} onCheckedChange={(v) => setClearLive(v === true)} className="mt-0.5" />
+                <Checkbox
+                  checked={delProcessed}
+                  onCheckedChange={(v) => setDelProcessed(v === true)}
+                  className="mt-0.5"
+                />
                 <span>
-                  Also delete LIVE records (pending/approved/active/on project)
+                  Rental records — processed (returned, on project, denied, canceled)
+                  {historyStatsQ ? ` — ${historyStatsQ.processed} record(s)` : ""}
+                  <span className="block text-xs text-muted-foreground">
+                    The safe default: the finished tail of the History tab.
+                  </span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-sm">
+                <Checkbox
+                  checked={delLive}
+                  onCheckedChange={(v) => setDelLive(v === true)}
+                  className="mt-0.5"
+                />
+                <span>
+                  Rental records — LIVE (pending/approved/active/on project)
                   {historyStatsQ ? ` — ${historyStatsQ.live} record(s)` : ""}
                   <span className="block text-xs text-muted-foreground">
                     Dangerous: current loans lose their paper trail. Units stay marked unless released below.
                   </span>
                 </span>
               </label>
-              {clearLive && (
+              {delLive && (
                 <label className="flex items-start gap-2 text-sm">
-                  <Checkbox checked={clearRelease} onCheckedChange={(v) => setClearRelease(v === true)} className="mt-0.5" />
+                  <Checkbox
+                    checked={clearRelease}
+                    onCheckedChange={(v) => setClearRelease(v === true)}
+                    className="mt-0.5"
+                  />
                   <span>
                     Release units still held by deleted records back to the shelf
                     <span className="block text-xs text-muted-foreground">
@@ -1954,11 +1978,15 @@ export default function AdminRequests() {
                 </label>
               )}
               <label className="flex items-start gap-2 text-sm">
-                <Checkbox checked={clearNotifs} onCheckedChange={(v) => setClearNotifs(v === true)} className="mt-0.5" />
+                <Checkbox
+                  checked={delNotifs}
+                  onCheckedChange={(v) => setDelNotifs(v === true)}
+                  className="mt-0.5"
+                />
                 <span>
-                  Also clear the in-app notification history
+                  Notifications — the whole in-app admin feed
                   <span className="block text-xs text-muted-foreground">
-                    Removes every row of the admin feed below the tabs.
+                    Removes every row of the feed below the tabs. Record history is not touched.
                   </span>
                 </span>
               </label>
@@ -1967,9 +1995,14 @@ export default function AdminRequests() {
               <Button variant="outline" onClick={() => setClearOpen(false)}>
                 Cancel
               </Button>
-              <Button variant="destructive" disabled={clearBusy} onClick={submitClearHistory}>
+              <Button
+                variant="destructive"
+                disabled={clearBusy || !anyClearSelected}
+                title={anyClearSelected ? undefined : "Select at least one thing to delete"}
+                onClick={submitClearHistory}
+              >
                 {clearBusy ? <LoadingGifInline size={18} className="size-4" /> : <Trash2 className="size-4" />}
-                Clear history
+                Delete selected
               </Button>
             </DialogFooter>
           </DialogContent>
