@@ -74,9 +74,13 @@ const schema = defineSchema(
       appearance: v.optional(
         v.union(v.literal("dark"), v.literal("light"), v.literal("system")),
       ),
+      // Delta-sync stamp (see sync.ts): bumped on every write so clients can
+      // range-scan only what changed since their last pull.
+      updatedAt: v.optional(v.number()),
     })
       .index("email", ["email"]) // index for the email. do not remove or modify
-      .index("by_telegram_username", ["telegramUsername"]),
+      .index("by_telegram_username", ["telegramUsername"])
+      .index("by_updatedAt", ["updatedAt"]),
 
     // ===== Robotics Club Inventory =====
 
@@ -86,8 +90,10 @@ const schema = defineSchema(
       note: v.optional(v.string()),
       // Storage photo (compressed data URL or URL) shown on storage cards.
       imageUrl: v.optional(v.string()),
+      updatedAt: v.optional(v.number()),
     })
-      .index("by_name", ["name"]),
+      .index("by_name", ["name"])
+      .index("by_updatedAt", ["updatedAt"]),
 
     categories: defineTable({
       name: v.string(),
@@ -96,7 +102,10 @@ const schema = defineSchema(
       // returns of such groups record how much actually came back and the
       // group can take routine "consumption" writes without a rental.
       consumable: v.optional(v.boolean()),
-    }).index("by_name", ["name"]),
+      updatedAt: v.optional(v.number()),
+    })
+      .index("by_name", ["name"])
+      .index("by_updatedAt", ["updatedAt"]),
 
     groups: defineTable({
       name: v.string(),
@@ -136,9 +145,11 @@ const schema = defineSchema(
       // they can also hold units, so nothing else changes.
       parentGroupId: v.optional(v.id("groups")),
       deleted: v.optional(v.boolean()),
+      updatedAt: v.optional(v.number()),
     })
       .index("by_category", ["categoryId"])
-      .index("by_closet", ["closetId"]),
+      .index("by_closet", ["closetId"])
+      .index("by_updatedAt", ["updatedAt"]),
 
     parts: defineTable({
       groupId: v.id("groups"),
@@ -196,9 +207,11 @@ const schema = defineSchema(
       // destination; cleared when the unit returns to circulation.
       transferToName: v.optional(v.string()),
       deleted: v.optional(v.boolean()),
+      updatedAt: v.optional(v.number()),
     })
       .index("by_group", ["groupId"])
-      .index("by_tag", ["tag"]),
+      .index("by_tag", ["tag"])
+      .index("by_updatedAt", ["updatedAt"]),
 
     projects: defineTable({
       name: v.string(),
@@ -212,7 +225,10 @@ const schema = defineSchema(
       ),
       ownerId: v.optional(v.id("users")),
       deleted: v.optional(v.boolean()),
-    }).index("by_status", ["status"]),
+      updatedAt: v.optional(v.number()),
+    })
+      .index("by_status", ["status"])
+      .index("by_updatedAt", ["updatedAt"]),
 
     // ===== Project workspace (professional working center) =====
 
@@ -315,9 +331,11 @@ const schema = defineSchema(
       returnRequestedAt: v.optional(v.number()),
       // When the admin processes the package return (all-or-nothing).
       returnDecidedAt: v.optional(v.number()),
+      updatedAt: v.optional(v.number()),
     })
       .index("by_user", ["userId"])
-      .index("by_status", ["status"]),
+      .index("by_status", ["status"])
+      .index("by_updatedAt", ["updatedAt"]),
 
     rentals: defineTable({
       partId: v.id("parts"),
@@ -384,10 +402,12 @@ const schema = defineSchema(
       returnRequestedAt: v.optional(v.number()),
       // True when the member knowingly rented a unit flagged broken.
       rentBroken: v.optional(v.boolean()),
+      updatedAt: v.optional(v.number()),
     })
       .index("by_user", ["userId"])
       .index("by_part", ["partId"])
-      .index("by_status", ["status"]),
+      .index("by_status", ["status"])
+      .index("by_updatedAt", ["updatedAt"]),
 
     notifications: defineTable({
       forRole: v.literal("admin"),
@@ -736,6 +756,18 @@ const schema = defineSchema(
       .index("by_status", ["status"])
       .index("by_printer", ["printerId"])
       .index("by_requester", ["requesterId"]),
+
+    // ===== Delta-sync tombstones =====
+    // Hard deletes can't appear in an updatedAt range scan (the row is gone),
+    // so every hard delete of a synced table records { table, recordId } here.
+    // Clients remove those ids from their local cache on the next delta pull.
+    // Row keys are unique-ish (table + id); swept once a month by
+    // sync:pruneTombstones.
+    syncTombstones: defineTable({
+      table: v.string(),
+      recordId: v.string(),
+      deletedAt: v.number(),
+    }).index("by_deletedAt", ["deletedAt"]),
   },
   {
     schemaValidation: false,

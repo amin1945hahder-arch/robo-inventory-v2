@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import { matchesSearch } from "../lib/searchText";
+import { touchPatch, recordTombstone } from "./sync";
 
 /** Human name of a group (null-safe, for joins). */
 export async function getGroupNameById(ctx: any, groupId: any): Promise<string | null> {
@@ -126,10 +127,10 @@ export const upsertCloset = mutation({
       ...(imageUrl !== undefined ? { imageUrl: imageUrl.trim() || undefined } : {}),
     };
     if (id) {
-      await ctx.db.patch(id, data as any);
+      await touchPatch(ctx, id, data);
       return id;
     }
-    return await ctx.db.insert("closets", data as any);
+    return await ctx.db.insert("closets", { ...data, updatedAt: Date.now() } as any);
   },
 });
 
@@ -146,6 +147,7 @@ export const deleteCloset = mutation({
       throw new ConvexError("Closet still contains groups. Move or delete them first.");
     }
     await ctx.db.delete(id);
+    await recordTombstone(ctx, "closets", id);
   },
 });
 
@@ -194,10 +196,10 @@ export const upsertCategory = mutation({
       ...(consumable !== undefined ? { consumable } : {}),
     };
     if (id) {
-      await ctx.db.patch(id, data);
+      await touchPatch(ctx, id, data);
       return id;
     }
-    return await ctx.db.insert("categories", data);
+    return await ctx.db.insert("categories", { ...data, updatedAt: Date.now() });
   },
 });
 
@@ -206,7 +208,7 @@ export const setCategoryConsumable = mutation({
   args: { id: v.id("categories"), consumable: v.boolean() },
   handler: async (ctx, { id, consumable }) => {
     await requireAdmin(ctx);
-    await ctx.db.patch(id, { consumable });
+    await touchPatch(ctx, id, { consumable });
     return { ok: true };
   },
 });
@@ -224,6 +226,7 @@ export const deleteCategory = mutation({
       throw new ConvexError("Category still contains groups. Move or delete them first.");
     }
     await ctx.db.delete(id);
+    await recordTombstone(ctx, "categories", id);
   },
 });
 
@@ -461,10 +464,10 @@ export const upsertGroup = mutation({
       await becomeMasterContainer(ctx, parentGroupId);
     }
     if (id) {
-      await ctx.db.patch(id, data as any);
+      await touchPatch(ctx, id, data);
       return id;
     }
-    const groupId = await ctx.db.insert("groups", data as any);
+    const groupId = await ctx.db.insert("groups", { ...data, updatedAt: Date.now() } as any);
 
     // Bulk groups (weight/length) have no discrete units to tag.
     if (isBulk) return groupId;
@@ -493,6 +496,7 @@ export const upsertGroup = mutation({
         groupId,
         tag,
         status: "available",
+        updatedAt: Date.now(),
         // Packs start full — the per-unit ledger mirrors the pieces inside.
         ...(measure === "pack"
           ? {
@@ -542,7 +546,7 @@ export const moveGroupToContainer = mutation({
       // Gaining its first child turns the container into a master.
       await becomeMasterContainer(ctx, parentGroupId);
     }
-    await ctx.db.patch(groupId, { parentGroupId: (parentGroupId || undefined) as any });
+    await touchPatch(ctx, groupId, { parentGroupId: (parentGroupId || undefined) as any });
     return { ok: true };
   },
 });
@@ -563,8 +567,10 @@ export const deleteGroup = mutation({
         throw new ConvexError("This group has parts out on rent or projects. Process returns first.");
       }
       await ctx.db.delete((p as any)._id);
+      await recordTombstone(ctx, "parts", p._id);
     }
     await ctx.db.delete(id);
+    await recordTombstone(ctx, "groups", id);
   },
 });
 
@@ -638,13 +644,13 @@ export const addPartToGroup = mutation({
       partData.amountRemaining = String(Math.max(1, Math.round(Number(group.packSize) || 1)));
       partData.lowAt = "0";
     }
-      await ctx.db.insert("parts", partData);
+      await ctx.db.insert("parts", { ...partData, updatedAt: Date.now() });
       num += 1;
     }
     if (isBulk) {
       // Keep the group's headline stock in sync with the per-unit ledger.
       const stock = await sumUnitStock(ctx, groupId);
-      await ctx.db.patch(groupId, { measureStock: String(stock) });
+      await touchPatch(ctx, groupId, { measureStock: String(stock) });
     } else {
       const patch: Record<string, unknown> = { quantityTotal: parts.length + n };
       if (group.measure === "pack") {
@@ -652,7 +658,7 @@ export const addPartToGroup = mutation({
         const stock = await sumUnitStock(ctx, groupId);
         patch.measureStock = String(stock);
       }
-      await ctx.db.patch(groupId, patch);
+      await touchPatch(ctx, groupId, patch);
     }
     return parts.length + n;
   },
@@ -683,7 +689,7 @@ export const updateBulkUnit = mutation({
     }
     const previous = Number(part.amountRemaining ?? 0);
     const delta = Math.round((amountRemaining - previous) * 10000) / 10000;
-    await ctx.db.patch(partId, {
+    await touchPatch(ctx, partId, {
       amountRemaining: String(amountRemaining),
       // Stock came back → the unit is no longer "fully consumed".
       ...(amountRemaining > 0 ? { consumedAt: undefined } : {}),
@@ -705,7 +711,7 @@ export const updateBulkUnit = mutation({
         : {}),
     });
     const stock = await sumUnitStock(ctx, part.groupId);
-    await ctx.db.patch(group._id, { measureStock: String(stock) });
+    await touchPatch(ctx, group._id, { measureStock: String(stock) });
     return { ok: true };
   },
 });
@@ -744,7 +750,7 @@ export const consumeBulkUnit = mutation({
     if (fully) {
       // Fully consumed: everything still on the unit is written off.
       if (remaining <= 0) throw new ConvexError("This unit is already empty");
-      await ctx.db.patch(partId, {
+      await touchPatch(ctx, partId, {
         amountRemaining: "0",
         consumedAt: Date.now(),
         consumptionLog: [
@@ -765,7 +771,7 @@ export const consumeBulkUnit = mutation({
       );
     }
     const left = Math.max(0, Math.round((remaining - amount!) * 10000) / 10000);
-    await ctx.db.patch(partId, {
+    await touchPatch(ctx, partId, {
       amountRemaining: String(left),
       // Emptied by hand == fully consumed as well.
       consumedAt: left <= 0 ? Date.now() : undefined,
@@ -775,7 +781,7 @@ export const consumeBulkUnit = mutation({
       ],
     });
     const stock = await sumUnitStock(ctx, part.groupId);
-    await ctx.db.patch(group._id, { measureStock: String(stock) });
+    await touchPatch(ctx, group._id, { measureStock: String(stock) });
     return { consumed: amount };
   },
 });
@@ -851,6 +857,7 @@ export const requestBulkRental = mutation({
         tag: "BULK",
         status: "available",
         note: "Bulk stock holder (weight/length group)",
+        updatedAt: Date.now(),
       });
       part = await ctx.db.get(partId);
     }
@@ -860,6 +867,7 @@ export const requestBulkRental = mutation({
       status: "pending",
       requestedAt: Date.now(),
       amount,
+      updatedAt: Date.now(),
     });
     await ctx.db.insert("notifications", {
       forRole: "admin",
@@ -951,7 +959,7 @@ export const bulkUpdateGroups = mutation({
           moved += 1;
         }
       }
-      if (Object.keys(patch).length > 0) await ctx.db.patch(groupId, patch as any);
+      if (Object.keys(patch).length > 0) await touchPatch(ctx, groupId, patch);
     }
     return { ok: true, moved };
   },
@@ -986,8 +994,12 @@ export const bulkDeleteGroups = mutation({
         skipped.push(`${group.name} (units out on rent/project)`);
         continue;
       }
-      for (const p of parts) await ctx.db.delete((p as any)._id);
+      for (const p of parts) {
+        await ctx.db.delete((p as any)._id);
+        await recordTombstone(ctx, "parts", p._id);
+      }
       await ctx.db.delete(groupId);
+      await recordTombstone(ctx, "groups", groupId);
       deleted += 1;
     }
     return { ok: true, deleted, skipped };

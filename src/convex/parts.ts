@@ -8,6 +8,7 @@ import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { planMeasureTake, describePlan } from "../lib/measure-alloc";
 import { sumUnitStock, assertGroupLendable, containerChainFromIndex } from "./catalog";
+import { touchPatch, recordTombstone } from "./sync";
 
 /**
  * Per-execution memo for joined docs.

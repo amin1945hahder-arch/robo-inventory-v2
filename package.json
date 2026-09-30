@@ -58,6 +58,7 @@
     "embla-carousel-react": "^8.6.0",
     "framer-motion": "^12.23.25",
     "hono": "^4.10.7",
+    "idb-keyval": "^6.3.0",
     "input-otp": "^1.4.2",
     "jsqr": "^1.4.0",
     "jszip": "^3.10.2",
