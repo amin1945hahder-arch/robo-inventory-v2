@@ -431,28 +431,48 @@ export default function AdminRequests() {
   };
 
   // ---- Clear history (History tab) ----
+  // Independent categories — nothing is deleted unless it is ticked here, and
+  // the confirm button stays disabled until at least one thing is selected.
   const [clearOpen, setClearOpen] = useState(false);
-  const [clearLive, setClearLive] = useState(false);
+  const [delProcessed, setDelProcessed] = useState(false);
+  const [delLive, setDelLive] = useState(false);
   const [clearRelease, setClearRelease] = useState(false);
-  const [clearNotifs, setClearNotifs] = useState(false);
+  const [delNotifs, setDelNotifs] = useState(false);
   const [clearBusy, setClearBusy] = useState(false);
+  const anyClearSelected = delProcessed || delLive || delNotifs;
   const clearNotifications = useMutation(api.notifications.clearAllNotifications);
   const submitClearHistory = async () => {
+    if (!anyClearSelected) return;
     setClearBusy(true);
     try {
-      const res = await clearHistory({
-        includeLive: clearLive,
-        releaseUnits: clearLive ? clearRelease : undefined,
-        confirm: "DELETE",
-      });
       let notifNote = "";
-      if (clearNotifs) {
+      if (delNotifs) {
         const n = await clearNotifications();
-        notifNote = ` · ${n.cleared} notification(s) cleared`;
+        notifNote = `${n.cleared} notification(s)`;
       }
-      toast.success(
-        `Cleared ${res.deleted} rental record(s)${res.packagesDeleted ? ` and ${res.packagesDeleted} empty package row(s)` : ""}${notifNote}`,
-      );
+      let deleted = 0;
+      let packagesDeleted = 0;
+      if (delProcessed || delLive) {
+        const res = await clearHistory({
+          includeLive: delLive,
+          releaseUnits: delLive ? clearRelease : undefined,
+          confirm: "DELETE",
+        });
+        deleted = res.deleted;
+        packagesDeleted = res.packagesDeleted;
+      }
+      const parts: string[] = [];
+      if (deleted || packagesDeleted) {
+        parts.push(
+          `Cleared ${deleted} rental record(s)${packagesDeleted ? ` and ${packagesDeleted} empty package row(s)` : ""}`,
+        );
+      }
+      if (notifNote) parts.push(`Cleared ${notifNote}`);
+      toast.success(parts.join(" · ") || "Nothing selected");
+      setDelProcessed(false);
+      setDelLive(false);
+      setClearRelease(false);
+      setDelNotifs(false);
       setClearOpen(false);
     } catch (e) {
       toast.error(asMessage(e));
