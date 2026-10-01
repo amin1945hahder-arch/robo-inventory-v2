@@ -97,12 +97,14 @@ export default function MyRentals() {
                       Date.now() - pkg.returnRequestedAt < cooldownMs;
                     return (
                       <li key={pkg._id} className="glass-3d rounded-lg border p-4">
-                        <div className="flex flex-wrap items-center gap-3">
+                        {/* Chip rows: info on top, actions on their own row —
+                            side-by-side only with real width headroom. */}
+                        <div className="flex items-start gap-3">
                           <Boxes className="size-5 shrink-0 text-primary" />
                           <div className="min-w-0 flex-1">
-                            <p className="flex flex-wrap gap-x-1.5 text-sm font-medium">
+                            <p className="flex flex-wrap gap-x-1.5 gap-y-0.5 text-sm font-medium">
                               {lines.map((l: any) => (
-                                <span key={l.groupId} className="whitespace-nowrap">
+                                <span key={l.groupId} className="break-words">
                                   {formatLineAmount(l, groupsIndex?.find((g: any) => g._id === l.groupId))} {l.groupName}
                                 </span>
                               ))}
@@ -118,6 +120,8 @@ export default function MyRentals() {
                               {pkg.note ? ` · ${pkg.note}` : ""}
                             </p>
                           </div>
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
                           <StatusBadge
                             status={
                               packageDisplayStatus(pkg.status, { approvedUnits, activeUnits, returnedUnits })
@@ -241,10 +245,10 @@ export default function MyRentals() {
                   <h2 className="text-sm font-semibold">{title === "Awaiting approval" ? "Requests & scheduled pickups" : title}</h2>
                   <ul className="divide-y glass-3d rounded-lg border">
                     {visible.map(({ rental, part, group, projectName }) => (
-                      <li key={rental._id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                      <li key={rental._id} className="flex flex-col gap-2 px-4 py-3 wide:flex-row wide:items-center">
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium">
-                            {group?.name ?? "Part"}{" "}
+                          <p className="flex flex-wrap items-baseline gap-x-1.5 text-sm font-medium">
+                            {group?.name ?? "Part"}
                             {part && (
                               <span className="font-mono text-xs text-muted-foreground">{part.tag}</span>
                             )}
@@ -261,7 +265,8 @@ export default function MyRentals() {
                             {rental.conditionReport ? ` · ${rental.conditionReport}` : ""}
                           </p>
                         </div>
-                        <StatusBadge status={rental.status} />
+                        <div className="flex flex-wrap items-center gap-2 wide:ml-auto wide:justify-end">
+                          <StatusBadge status={rental.status} />
                         {isAdmin && (
                           <Button
                             size="sm"
@@ -342,6 +347,7 @@ export default function MyRentals() {
                             <Link to={`/part/${part._id}`}>Details</Link>
                           </Button>
                         )}
+                        </div>
                       </li>
                     ))}
                   </ul>

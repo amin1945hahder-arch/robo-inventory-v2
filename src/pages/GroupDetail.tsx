@@ -874,58 +874,63 @@ function UnitRow({
           {p.note && <p className="text-xs text-muted-foreground">{p.note}</p>}
         </Link>
       </div>
-      {/* Bottom row: chips, then action buttons — never squeezed against text. */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        <StatusBadge status={p.status} />
-        {/* On a project? One click takes the admin to the project page. */}
-        {p.status === "on_project" && p.currentProjectId && (
-          <Link
-            to={`/projects/${p.currentProjectId}`}
-            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[11px] font-medium text-violet-400 hover:border-violet-400 hover:text-violet-300"
-            title={
-              (activeProjects ?? []).find((x) => x._id === p.currentProjectId)?.name ??
-              "Open assigned project"
-            }
-          >
-            <ExternalLink className="size-3" />
-            {(activeProjects ?? []).find((x) => x._id === p.currentProjectId)?.name ?? "project"}
-          </Link>
-        )}
-        {p.status === "available" && (
-          <Button
-            size="sm"
-            variant={isAdmin ? "outline" : "default"}
-            disabled={busyTag === p.tag || isStorageAlias}
-            onClick={() => requestUnit(p._id, p.tag)}
-          >
-            {busyTag === p.tag ? (
-              <LoadingGifInline size={18} className="size-4" />
-            ) : (
-              <Package className="size-4" />
-            )}
-            Request
-          </Button>
-        )}
-        {!isAdmin && p.status === "pending" && myPending && (
-          <span className="text-xs text-muted-foreground">your request pending</span>
-        )}
-        {isAdmin && p.status === "rented" && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => onReturn(p.tag, p._id)}
-          >
-            <RotateCcw className="size-4" /> Return
-          </Button>
-        )}
-        {!isAdmin && myActive && p.status === "rented" && (
-          <span className="text-xs text-muted-foreground">with you</span>
-        )}
-        {isAdmin && (
-          <Button size="sm" variant="ghost" onClick={() => setEditOpen(true)} title="Edit this unit">
-            <Pencil className="size-3.5" />
-          </Button>
-        )}
+      {/* Chip rows: status/details first, action buttons on their own row —
+          nothing squeezes against anything on phones or portrait windows. */}
+      <div className="flex flex-col gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <StatusBadge status={p.status} />
+          {/* On a project? One click takes the admin to the project page. */}
+          {p.status === "on_project" && p.currentProjectId && (
+            <Link
+              to={`/projects/${p.currentProjectId}`}
+              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-[11px] font-medium text-violet-400 hover:border-violet-400 hover:text-violet-300"
+              title={
+                (activeProjects ?? []).find((x) => x._id === p.currentProjectId)?.name ??
+                "Open assigned project"
+              }
+            >
+              <ExternalLink className="size-3" />
+              {(activeProjects ?? []).find((x) => x._id === p.currentProjectId)?.name ?? "project"}
+            </Link>
+          )}
+          {!isAdmin && p.status === "pending" && myPending && (
+            <span className="text-xs text-muted-foreground">your request pending</span>
+          )}
+          {!isAdmin && myActive && p.status === "rented" && (
+            <span className="text-xs text-muted-foreground">with you</span>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {p.status === "available" && (
+            <Button
+              size="sm"
+              variant={isAdmin ? "outline" : "default"}
+              disabled={busyTag === p.tag || isStorageAlias}
+              onClick={() => requestUnit(p._id, p.tag)}
+            >
+              {busyTag === p.tag ? (
+                <LoadingGifInline size={18} className="size-4" />
+              ) : (
+                <Package className="size-4" />
+              )}
+              Request
+            </Button>
+          )}
+          {isAdmin && p.status === "rented" && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onReturn(p.tag, p._id)}
+            >
+              <RotateCcw className="size-4" /> Return
+            </Button>
+          )}
+          {isAdmin && (
+            <Button size="sm" variant="ghost" onClick={() => setEditOpen(true)} title="Edit this unit">
+              <Pencil className="size-3.5" />
+            </Button>
+          )}
+        </div>
       </div>
       {editOpen && (
         <UnitEditDialog

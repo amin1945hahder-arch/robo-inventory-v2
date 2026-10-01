@@ -58,7 +58,7 @@ export default function Dashboard() {
   return (
     <AppShell>
       <div className="flex flex-col gap-8">
-        <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+        <header className="flex flex-col justify-between gap-4 wide:flex-row wide:items-end">
           <div>
             <p className="text-sm text-muted-foreground">
               {isAdmin ? "Lab admin console" : "Welcome back"}

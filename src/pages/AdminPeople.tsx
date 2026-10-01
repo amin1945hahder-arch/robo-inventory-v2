@@ -174,7 +174,7 @@ function PersonRow({
   const age = ageFromIso(user.dateOfBirth);
   const navigate = useNavigate();
   return (
-    <li className={`flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center ${isEx ? "opacity-60" : ""}`}>
+    <li className={`flex flex-col gap-3 px-4 py-3 wide:flex-row wide:items-center ${isEx ? "opacity-60" : ""}`}>
       <div className="flex min-w-0 flex-1 items-center gap-3">
         <Avatar className={`size-8 shrink-0 border ${isAdminGroup ? "ring-1 ring-primary/40" : ""}`}>
           <AvatarImage src={user.image} />
@@ -254,9 +254,9 @@ function PersonRow({
           )}
         </div>
       </div>
-      {/* Meta + actions: sit beside the identity on ≥sm, wrap below it on
-          phones so nothing collides. */}
-      <div className="flex flex-wrap items-center gap-2 sm:ml-auto sm:flex-nowrap">
+      {/* Chip rows: meta chips on their own row, then the icon actions row —
+          beside the identity only with real width headroom. */}
+      <div className="flex flex-wrap items-center gap-2 wide:ml-auto wide:justify-end">
         <span
           className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${
             isAdminGroup
@@ -270,7 +270,7 @@ function PersonRow({
           {activeRentals} active · {pending} pending
         </span>
       </div>
-      <div className="flex items-center gap-1">
+      <div className="flex flex-wrap items-center gap-1">
         <Button variant="ghost" size="icon" className="size-7" title="Send a Telegram message" onClick={onMessage}>
           <MessageSquare className="size-3.5" />
         </Button>

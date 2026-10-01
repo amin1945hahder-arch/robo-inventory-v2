@@ -133,7 +133,7 @@ export function PermissionsManager() {
         return (
           <div
             key={kind}
-            className="glass-3d flex flex-col gap-3 rounded-lg p-4 sm:flex-row sm:items-center"
+            className="glass-3d flex flex-col gap-3 rounded-lg p-4 wide:flex-row wide:items-center"
           >
             <AppIcon fallback={icon} className="size-9" />
             <div className="min-w-0 flex-1">
@@ -153,7 +153,7 @@ export function PermissionsManager() {
                 </p>
               )}
             </div>
-            <div className="flex shrink-0 items-center gap-2 sm:self-center">
+            <div className="flex shrink-0 items-center gap-2 wide:self-center">
               {perm.busy ? (
                 <LoadingGifInline size={18} className="size-4" />
               ) : perm.status === "granted" ? (
@@ -200,7 +200,7 @@ function PushCard({ platform }: { platform: Platform }) {
     );
   }
   return (
-    <div className="glass-3d flex flex-col gap-3 rounded-lg border border-primary/30 p-4 sm:flex-row sm:items-center">
+    <div className="glass-3d flex flex-col gap-3 rounded-lg border border-primary/30 p-4 wide:flex-row wide:items-center">
       <AppIcon fallback={BellRing} className="size-9" />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
@@ -229,7 +229,7 @@ function PushCard({ platform }: { platform: Platform }) {
           </p>
         )}
       </div>
-      <div className="flex shrink-0 items-center gap-2 sm:self-center">
+      <div className="flex shrink-0 items-center gap-2 wide:self-center">
         {push.state === "working" ? (
           <LoadingGifInline size={18} className="size-4" />
         ) : push.state === "on" ? (

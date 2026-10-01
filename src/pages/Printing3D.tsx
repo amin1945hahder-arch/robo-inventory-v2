@@ -219,7 +219,7 @@ export default function Printing3D() {
   return (
     <AppShell>
       <div className="flex flex-col gap-6">
-        <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+        <header className="flex flex-col justify-between gap-4 wide:flex-row wide:items-end">
           <div>
             <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
               <Printer className="size-6 text-primary" /> 3D Print Farm
@@ -415,7 +415,7 @@ export default function Printing3D() {
                 <h2 className="text-sm font-semibold text-muted-foreground">Awaiting approval</h2>
                 {pendingJobs.map((j) => (
                   <Card key={j._id} className="border-amber-500/30 py-3">
-                    <CardContent className="flex flex-col gap-2 px-4 sm:flex-row sm:items-center sm:justify-between">
+                    <CardContent className="flex flex-col gap-2 px-4 wide:flex-row wide:items-center wide:justify-between">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="truncate text-sm font-medium">{j.name}</p>
@@ -450,7 +450,7 @@ export default function Printing3D() {
                   const meta = STATUS_META[j.status];
                   return (
                     <Card key={j._id} className="py-3">
-                      <CardContent className="flex flex-col gap-2 px-4 sm:flex-row sm:items-center sm:justify-between">
+                      <CardContent className="flex flex-col gap-2 px-4 wide:flex-row wide:items-center wide:justify-between">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
                             <p className="truncate text-sm font-medium">{j.name}</p>
@@ -495,7 +495,7 @@ export default function Printing3D() {
                   const spool = jobSpool(j.filamentId);
                   return (
                     <Card key={j._id} className="py-3">
-                      <CardContent className="flex flex-col gap-2 px-4 sm:flex-row sm:items-center sm:justify-between">
+                      <CardContent className="flex flex-col gap-2 px-4 wide:flex-row wide:items-center wide:justify-between">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
                             <p className="truncate text-sm font-medium">{j.name}</p>
@@ -537,7 +537,7 @@ export default function Printing3D() {
                 const meta = STATUS_META[j.status];
                 return (
                   <Card key={j._id} className="py-3">
-                    <CardContent className="flex flex-col gap-1 px-4 sm:flex-row sm:items-center sm:justify-between">
+                    <CardContent className="flex flex-col gap-1 px-4 wide:flex-row wide:items-center wide:justify-between">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="truncate text-sm font-medium">{j.name}</p>

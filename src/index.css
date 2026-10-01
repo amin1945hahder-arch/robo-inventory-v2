@@ -2,6 +2,10 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @custom-variant dark (&:is(.dark *));
+/* "wide": enough room for text + actions side-by-side. Fires when the
+   viewport is at least 1024px AND in landscape (width ≥ height) — portrait
+   windows and phones keep the stacked chip rows. */
+@custom-variant wide (@media (min-width: 1024px) and (orientation: landscape));
 
 /* DO NOT CHANGE */
 @theme inline {

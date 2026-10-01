@@ -748,7 +748,7 @@ export default function AdminRequests() {
     <li
       ref={row.rental._id === focusRentalId ? focusRef : undefined}
       className={cn(
-        "flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center",
+        "flex flex-col gap-3 px-4 py-3 wide:flex-row wide:items-center",
         row.rental._id === focusRentalId && "rounded-lg ring-2 ring-primary/60",
       )}
     >
@@ -757,7 +757,7 @@ export default function AdminRequests() {
           checked={selected.has(row.rental._id)}
           onCheckedChange={() => toggleSel(row.rental._id)}
           aria-label={`Select ${row.group?.name ?? "request"}`}
-          className="mt-0.5 shrink-0 self-start lg:self-center"
+          className="mt-0.5 shrink-0 self-start wide:self-center"
         />
       )}
       <Avatar className="size-8 shrink-0">
@@ -784,7 +784,7 @@ export default function AdminRequests() {
         )}
       </div>
       {/* Actions wrap below the text on phones, sit to the right on ≥sm. */}
-      <div className="flex flex-wrap items-center gap-1 lg:ml-auto lg:justify-end">
+      <div className="flex flex-wrap items-center gap-1 wide:ml-auto wide:justify-end">
         <Button
           size="sm"
           variant="ghost"
@@ -801,7 +801,7 @@ export default function AdminRequests() {
   return (
     <AppShell>
       <div className="flex flex-col gap-6">
-        <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+        <header className="flex flex-col justify-between gap-4 wide:flex-row wide:items-end">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Requests & rentals</h1>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -1003,7 +1003,7 @@ export default function AdminRequests() {
                 <ul className="flex flex-col gap-3">
                   {newUpdates.map((u) => (
                     <li key={u.key} className="glass-3d rounded-lg border border-primary/30 p-4">
-                      <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                      <div className="flex flex-col gap-3 wide:flex-row wide:items-center">
                         <div className="flex min-w-0 flex-1 items-start gap-3">
                         {u.kind === "package" ? (
                           <Boxes className="size-5 shrink-0 text-primary" />
@@ -1055,7 +1055,7 @@ export default function AdminRequests() {
                           </p>
                         </div>
                         </div>
-                        <div className="flex flex-wrap gap-2 lg:ml-auto">
+                        <div className="flex flex-wrap gap-2 wide:ml-auto">
                           {u.kind === "single" && (
                             <>
                               <Button size="sm" onClick={() => { setApproveFor(u.data as Row); setPickupLocal(""); }}>
@@ -1204,7 +1204,7 @@ export default function AdminRequests() {
                 {pendingPkgRows.map((row: any) => (
                   <li key={row.key} className="glass-3d rounded-lg border border-primary/30 p-4">
                     {/* Column on phones, row on ≥sm — like the People list. */}
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                    <div className="flex flex-col gap-3 wide:flex-row wide:items-center">
                       <div className="flex min-w-0 flex-1 items-center gap-3">
                         <Boxes className="size-5 shrink-0 text-primary" />
                         <Avatar className="size-8 shrink-0">
@@ -1226,7 +1226,7 @@ export default function AdminRequests() {
                           </p>
                         </div>
                       </div>
-                      <div className="flex flex-wrap gap-2 lg:ml-auto">
+                      <div className="flex flex-wrap gap-2 wide:ml-auto">
                         {packages?.some((p) => p.package._id === row.key) && (
                           <>
                             <Button
@@ -1321,13 +1321,13 @@ export default function AdminRequests() {
                   >
                     {/* Column on phones, row on ≥sm — text never squeezes
                         into the buttons/badge, chips wrap onto their own line. */}
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                    <div className="flex flex-col gap-3 wide:flex-row wide:items-center">
                       {/* Bundle-level multi-select (bulk pick-up/return/delete). */}
                       <Checkbox
                         checked={selected.has(pkg._id)}
                         onCheckedChange={() => toggleSel(pkg._id)}
                         aria-label="Select package"
-                        className="shrink-0 self-start lg:self-center"
+                        className="shrink-0 self-start wide:self-center"
                       />
                       <div className="flex min-w-0 flex-1 items-start gap-3">
                       <Boxes className="size-5 shrink-0 text-primary" />
@@ -1723,12 +1723,12 @@ export default function AdminRequests() {
             ) : (
               <ul className="divide-y glass-3d rounded-lg border">
                 {fRank.map(({ request, user }) => (
-                  <li key={request._id} className="flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center">
+                  <li key={request._id} className="flex flex-col gap-3 px-4 py-3 wide:flex-row wide:items-center">
                     <Checkbox
                       checked={selected.has(request._id)}
                       onCheckedChange={() => toggleSel(request._id)}
                       aria-label="Select rank request"
-                      className="shrink-0 self-start lg:self-center"
+                      className="shrink-0 self-start wide:self-center"
                     />
                     <div className="flex min-w-0 flex-1 items-center gap-3">
                       <Award className="size-4 shrink-0 text-violet-400" />
@@ -1742,7 +1742,7 @@ export default function AdminRequests() {
                         </p>
                       </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
+                    <div className="flex flex-wrap items-center gap-2 wide:ml-auto">
                       <Button
                         size="sm"
                         variant="ghost"
@@ -1803,12 +1803,12 @@ export default function AdminRequests() {
             ) : (
               <ul className="divide-y glass-3d rounded-lg border">
                 {fPrinter.map(({ request, user }) => (
-                  <li key={request._id} className="flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center">
+                  <li key={request._id} className="flex flex-col gap-3 px-4 py-3 wide:flex-row wide:items-center">
                     <Checkbox
                       checked={selected.has(request._id)}
                       onCheckedChange={() => toggleSel(request._id)}
                       aria-label="Select printer request"
-                      className="shrink-0 self-start lg:self-center"
+                      className="shrink-0 self-start wide:self-center"
                     />
                     <div className="flex min-w-0 flex-1 items-center gap-3">
                       <Printer className="size-4 shrink-0 text-cyan-400" />
@@ -1822,7 +1822,7 @@ export default function AdminRequests() {
                         </p>
                       </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
+                    <div className="flex flex-wrap items-center gap-2 wide:ml-auto">
                       <Button
                         size="sm"
                         variant="ghost"
@@ -1883,12 +1883,12 @@ export default function AdminRequests() {
             ) : (
               <ul className="divide-y glass-3d rounded-lg border">
                 {fProfile.map(({ request, user }) => (
-                  <li key={request._id} className="flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center">
+                  <li key={request._id} className="flex flex-col gap-3 px-4 py-3 wide:flex-row wide:items-center">
                     <Checkbox
                       checked={selected.has(request._id)}
                       onCheckedChange={() => toggleSel(request._id)}
                       aria-label="Select profile request"
-                      className="shrink-0 self-start lg:self-center"
+                      className="shrink-0 self-start wide:self-center"
                     />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{user?.name ?? user?.email}</p>
@@ -1898,7 +1898,7 @@ export default function AdminRequests() {
                         ))}
                       </p>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
+                    <div className="flex flex-wrap items-center gap-2 wide:ml-auto">
                       <Button
                         size="sm"
                         variant="ghost"
