@@ -23,7 +23,6 @@ import {
   Box,
   FileDown,
   FolderKanban,
-  GraduationCap,
   HardDrive,
   LayoutDashboard,
   LogOut,
@@ -56,7 +55,6 @@ const NAV = [
   { to: "/projects", label: "Projects", icon: FolderKanban, studentBlocked: true },
   { to: "/rentals", label: "My rentals", icon: PackageSearch, studentBlocked: true },
   { to: "/3d-printing", label: "3D printing", icon: Box, studentBlocked: true },
-  { to: "/courses", label: "Courses", icon: GraduationCap, studentBlocked: false },
 ];
 
 /** Admin nav rows (mobile menu) — each has an icon-override slot:

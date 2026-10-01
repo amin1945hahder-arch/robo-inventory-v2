@@ -103,6 +103,13 @@ export default function Inventory() {
     deleted: p.deleted as boolean | undefined,
   }));
   const [search, setSearch] = useState(qFilter);
+  // Keystrokes only update the field; the (heavier) filtering pass over all
+  // groups/units follows 200ms later — typing stays smooth on big inventories.
+  const [searchInput, setSearchInput] = useState(qFilter);
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput), 200);
+    return () => clearTimeout(t);
+  }, [searchInput]);
   const [closetFilter, setClosetFilter] = useState(closetParam || "all");
   const [availFilter, setAvailFilter] = useState(availParam || "all");
   const [sortKey, setSortKey] = useState<SortKey>("name");
@@ -151,6 +158,7 @@ export default function Inventory() {
   // Search dialog, which navigates with ?q=&closet=&avail=).
   useEffect(() => {
     setSearch(qFilter);
+    setSearchInput(qFilter);
     setClosetFilter(closetParam || "all");
     setAvailFilter(availParam || "all");
   }, [qFilter, closetParam, availParam]);
@@ -248,6 +256,7 @@ export default function Inventory() {
 
   const resetFilters = () => {
     setSearch("");
+    setSearchInput("");
     setClosetFilter("all");
     setAvailFilter("all");
     setSortKey("name");
@@ -341,8 +350,8 @@ export default function Inventory() {
             <div className="relative min-w-56 flex-1">
               <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
               <Input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
                 placeholder="Search parts, brands, models…"
                 className="pl-9"
               />

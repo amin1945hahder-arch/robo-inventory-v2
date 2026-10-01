@@ -37,7 +37,6 @@ const Labels = lazy(() => import("./pages/Labels.tsx"));
 const AdminReports = lazy(() => import("./pages/AdminReports.tsx"));
 const ExportStudio = lazy(() => import("./pages/ExportStudio.tsx"));
 const AdminSettings = lazy(() => import("./pages/AdminSettings.tsx"));
-const Courses = lazy(() => import("./pages/Courses.tsx"));
 const Profile = lazy(() => import("./pages/Profile.tsx"));
 const PersonCard = lazy(() => import("./pages/PersonCard.tsx"));
 const Printing3D = lazy(() => import("./pages/Printing3D.tsx"));
@@ -266,17 +265,6 @@ createRoot(document.getElementById("root")!).render(
                   <RequireAuth>
                     <RequireNonStudent>
                       <ClosetDetail />
-                    </RequireNonStudent>
-                  </RequireAuth>
-                }
-              />
-              {/* Courses: modular placeholder, gated like inventory modules. */}
-              <Route
-                path="/courses"
-                element={
-                  <RequireAuth>
-                    <RequireNonStudent>
-                      <Courses />
                     </RequireNonStudent>
                   </RequireAuth>
                 }

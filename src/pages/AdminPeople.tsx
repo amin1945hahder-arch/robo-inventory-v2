@@ -688,7 +688,7 @@ export default function AdminPeople() {
                 {editRole === "student" && (
                   <p className="text-xs text-muted-foreground">
                     Students are blocked from inventory, projects and admin settings —
-                    they keep Chat, Courses and Profile access.
+                    they keep their Profile access.
                   </p>
                 )}
               </div>
@@ -938,7 +938,7 @@ export default function AdminPeople() {
               {add.role === "student" && (
                 <p className="text-xs text-muted-foreground">
                   Students are blocked from inventory, projects and admin settings — they keep
-                  Chat, Courses and Profile access.
+                  their Profile access.
                 </p>
               )}
             </div>

@@ -187,6 +187,14 @@ export default function AdminRequests() {
 
   // ---- Search across EVERYTHING (all tabs) ----------------------------
   const [search, setSearch] = useState("");
+  // Keystrokes only touch this local state; `search` (which drives every
+  // filter memo in the console) follows 200ms later — typing stays smooth
+  // even with thousands of rows subscribed.
+  const [searchInput, setSearchInput] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput), 200);
+    return () => clearTimeout(t);
+  }, [searchInput]);
   // Active console tab (controlled so one-tap actions inside the Updates tab
   // can jump straight to the matching dedicated tab) — declared at the top of
   // the component so per-tab query gating can read it.
@@ -935,8 +943,8 @@ export default function AdminRequests() {
           <div className="relative min-w-56 flex-1">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Search requests — part, tag, student, ID, status, date…"
               className="pl-8"
             />
@@ -944,18 +952,28 @@ export default function AdminRequests() {
           {selected.size > 0 && (
             <>
               <span className="text-xs text-muted-foreground">{selected.size} selected</span>
-              <Button size="sm" disabled={bulkBusy} onClick={bulkApprove}>
-                {bulkBusy ? <LoadingGifInline size={16} className="size-4" /> : <Check className="size-4" />}
-                Approve selected
-              </Button>
-              <Button size="sm" variant="outline" disabled={bulkBusy} onClick={bulkMarkTaken} title="Hand over approved units/packages to their members">
-                {bulkBusy ? <LoadingGifInline size={16} className="size-4" /> : <PackageCheck className="size-4" />}
-                Mark picked up
-              </Button>
-              <Button size="sm" variant="outline" disabled={bulkBusy} onClick={bulkDeny}>
-                {bulkBusy ? <LoadingGifInline size={16} className="size-4" /> : <X className="size-4" />}
-                Deny selected
-              </Button>
+              {/* Contextual bulk actions: only the operations that are valid
+                  for the ACTIVE tab's records — no more error-toasting every
+                  row when pressing Approve on already-active records. */}
+              {(tab === "updates" || tab === "pending") && (
+                <Button size="sm" disabled={bulkBusy} onClick={bulkApprove}>
+                  {bulkBusy ? <LoadingGifInline size={16} className="size-4" /> : <Check className="size-4" />}
+                  Approve selected
+                </Button>
+              )}
+              {(tab === "updates" || tab === "pickup") && (
+                <Button size="sm" variant="outline" disabled={bulkBusy} onClick={bulkMarkTaken} title="Hand over approved units/packages to their members">
+                  {bulkBusy ? <LoadingGifInline size={16} className="size-4" /> : <PackageCheck className="size-4" />}
+                  Mark picked up
+                </Button>
+              )}
+              {(tab === "updates" || tab === "pending") && (
+                <Button size="sm" variant="outline" disabled={bulkBusy} onClick={bulkDeny}>
+                  {bulkBusy ? <LoadingGifInline size={16} className="size-4" /> : <X className="size-4" />}
+                  Deny selected
+                </Button>
+              )}
+              {tab === "history" && (
               <Button
                 size="sm"
                 variant="outline"
@@ -988,6 +1006,7 @@ export default function AdminRequests() {
                 {bulkBusy ? <LoadingGifInline size={16} className="size-4" /> : <Trash2 className="size-4" />}
                 Delete selected
               </Button>
+              )}
               <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
                 Clear
               </Button>
@@ -1535,6 +1554,12 @@ export default function AdminRequests() {
                                 setWholeProjectId("");
                                 setWholeCreatingProject(false);
                                 setWholeNewProjectName("");
+                                // Transfer fields too — a dialog opened for
+                                // another package must never inherit the
+                                // previous transfer's destination or doc.
+                                setWholeTransferName("");
+                                setWholeTransferDetails("");
+                                setWholeTransferDoc(null);
                               }}
                             >
                               <RotateCcw className="size-4" /> Return all units

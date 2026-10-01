@@ -38,8 +38,8 @@ export function RequireNonStudent({ children }: { children: ReactNode }) {
           </div>
           <h1 className="text-lg font-bold tracking-tight">Restricted area</h1>
           <p className="text-sm text-muted-foreground">
-            Student accounts don't have access to the inventory. You can still use Chat,
-            Courses and your profile.
+            Student accounts don't have access to the inventory. You can still use your
+            profile.
           </p>
           <Button asChild>
             <Link to="/dashboard">Back to dashboard</Link>
