@@ -59,7 +59,7 @@ export default function AdminRequests() {
   // can jump straight to the matching dedicated tab). Declared first: the
   // per-tab query gating below reads it during render.
   const [tab, setTab] = useState<
-    "updates" | "pending" | "packages" | "active" | "projects" | "history" | "ranks" | "printers" | "profiles"
+    "updates" | "pending" | "packages" | "pickup" | "active" | "projects" | "history" | "ranks" | "printers" | "profiles"
   >("updates");
   // ---- Clear history (History tab) ----
   // Independent categories — nothing is deleted unless it is ticked here, and
@@ -73,10 +73,9 @@ export default function AdminRequests() {
   const pendingSingles = (pendingRowsQ ?? []).filter((r: any) => r.kind === "single");
   const pendingPkgRows = (pendingRowsQ ?? []).filter((r: any) => r.kind === "package");
   const active = useQuery(api.parts.listAllRentals, { status: "active" });
-  // Approved but not yet handed over — the pick-up stage. Only the Active tab
-  // renders these and its badge doesn't need them — the read is skipped from
-  // every other tab, which cuts a full rentals-index scan on every update.
-  const awaiting = useQuery(api.parts.listAllRentals, tab === "active" ? { status: "approved" } : "skip");
+  // Approved but not yet handed over — the pick-up stage. Small by nature
+  // (a transient stage) and needed for the Pick-up tab badge on every tab.
+  const awaiting = useQuery(api.parts.listAllRentals, { status: "approved" });
   const onProject = useQuery(api.parts.listAllRentals, { status: "on_project" });
   // History is the largest read in this console (every processed rental) and
   // has no tab badge — subscribe only while the History tab is open.
@@ -317,6 +316,7 @@ export default function AdminRequests() {
           row.student?.studentCode,
           row.rental?.status,
           row.rental?.amount,
+          row.rental?.note,
           row.rental?.conditionReport,
           row.rental?.projectName,
           row.rental?.requestedAt && new Date(row.rental.requestedAt).toLocaleDateString(),
@@ -345,6 +345,13 @@ export default function AdminRequests() {
     );
   }, [packages, search]);
   const fAwaiting = useMemo(() => filterRentalRows(awaiting), [filterRentalRows, awaiting]);
+  // Pick-up tab: approved packages still waiting for the physical hand-over
+  // (search-aware, like every other list).
+  const pickupPkgs = useMemo(
+    () => (fPackages ?? []).filter((p) => p.package.status === "approved" && !p.package.pickedUpAt),
+    [fPackages],
+  );
+  const pickupPkgCount = pickupPkgs.length;
   const fActive = useMemo(() => filterRentalRows(active), [filterRentalRows, active]);
   const fOnProject = useMemo(() => filterRentalRows(onProject), [filterRentalRows, onProject]);
   const fHistory = useMemo(() => filterRentalRows(history), [filterRentalRows, history]);
@@ -415,6 +422,11 @@ export default function AdminRequests() {
         ];
       case "packages":
         return (packages ?? []).map((p) => p.package._id);
+      case "pickup":
+        return [
+          ...(fAwaiting ?? []).map((r: any) => r.rental._id),
+          ...pickupPkgs.map((p) => p.package._id),
+        ];
       case "active":
         return (fActive ?? []).map((r: any) => r.rental._id);
       case "projects":
@@ -430,7 +442,7 @@ export default function AdminRequests() {
       default:
         return [];
     }
-  }, [tab, fPending, pendingPkgRows, packages, fActive, fOnProject, fHistory, rankReqs, printerReqs, profileReqs, unapproved, newUpdates]);
+  }, [tab, fPending, pendingPkgRows, packages, fAwaiting, pickupPkgs, fActive, fOnProject, fHistory, rankReqs, printerReqs, profileReqs, unapproved, newUpdates]);
   const allSelected = currentTabIds.length > 0 && currentTabIds.every((id) => selected.has(id));
   const toggleSelectAll = () => {
     setSelected((prev) => {
@@ -549,6 +561,9 @@ export default function AdminRequests() {
   const [wholeNewProjectName, setWholeNewProjectName] = useState("");
   const [wholeTransferName, setWholeTransferName] = useState("");
   const [wholeTransferDetails, setWholeTransferDetails] = useState("");
+  // Official transfer documentation (photo/PDF) — optional but important.
+  // Attached to EVERY unit record of the bundle when processed.
+  const [wholeTransferDoc, setWholeTransferDoc] = useState<AttachedDoc | null>(null);
   const createProject = useMutation(api.projects.upsertProject);
 
   const wholeValid =
@@ -578,6 +593,7 @@ export default function AdminRequests() {
           ? {
               transferToName: wholeTransferName.trim(),
               transferDetails: wholeTransferDetails.trim() || undefined,
+              transferDoc: wholeTransferDoc ?? undefined,
             }
           : {}),
       });
@@ -591,6 +607,7 @@ export default function AdminRequests() {
       setWholeNewProjectName("");
       setWholeTransferName("");
       setWholeTransferDetails("");
+      setWholeTransferDoc(null);
     } catch (e) {
       toast.error(asMessage(e));
     } finally {
@@ -803,6 +820,11 @@ export default function AdminRequests() {
           {row.student?.studentId ? <span className="whitespace-nowrap">· {row.student.studentId}</span> : null}
           <span className="whitespace-nowrap">· {new Date(row.rental.requestedAt).toLocaleDateString()}</span>
         </p>
+        {/* Details/notes mirrored from the package (or request) ride on the
+            part's own record so every unit shows the full context. */}
+        {row.rental.note ? (
+          <p className="mt-1 break-words text-xs text-muted-foreground">📝 {row.rental.note}</p>
+        ) : null}
         {row.rental.status === "active" && row.rental.returnRequestedAt !== undefined && (
           <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs font-medium text-amber-500">
             <RotateCcw className="size-3.5 shrink-0" />
@@ -955,6 +977,14 @@ export default function AdminRequests() {
               {pendingPkgCount > 0 && (
                 <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums">
                   {pendingPkgCount}
+                </span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="pickup" className="flex-none gap-1.5">
+              Pick up
+              {(awaiting?.length ?? 0) + pickupPkgCount > 0 && (
+                <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-amber-500">
+                  {(awaiting?.length ?? 0) + pickupPkgCount}
                 </span>
               )}
             </TabsTrigger>
@@ -1581,60 +1611,171 @@ export default function AdminRequests() {
             )}
           </TabsContent>
 
-          <TabsContent value="active" className="mt-4">
-            {/* Awaiting pick-up: approved, not yet handed over. */}
-            {(fAwaiting ?? []).length > 0 && (
-              <section className="mb-5">
-                <h2 className="mb-2 text-xs font-semibold uppercase tracking-widest text-amber-400">
-                  Awaiting pick-up · {(fAwaiting ?? []).length}
-                </h2>
-                <ul className="divide-y glass-3d rounded-lg border border-amber-500/30">
-                  {(fAwaiting ?? []).map((row) => (
-                    <RowCard
-                      key={row.rental._id}
-                      row={row as Row}
-                      actions={
-                        <div className="flex flex-col items-end gap-1">
-                          {row.rental.pickupAt && (
-                            <span className="text-[11px] text-amber-400">
-                              📅 {new Date(row.rental.pickupAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}
-                            </span>
+          {/* Pick-up — everything approved and waiting for the physical
+              hand-over, in one place: single records and whole packages
+              (packages stay collapsed as one row for easy navigation). */}
+          <TabsContent value="pickup" className="mt-4">
+            {fAwaiting === undefined || packages === undefined ? (
+              <LoadingGif size={48} label={null} />
+            ) : fAwaiting.length === 0 && pickupPkgs.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed px-6 py-12 text-center">
+                <PackageCheck className="size-8 text-muted-foreground/60" />
+                <p className="text-sm text-muted-foreground">Nothing is waiting for pick-up — all clear ✨</p>
+              </div>
+            ) : (
+              <>
+                {fAwaiting.length > 0 && (
+                  <section className="mb-5">
+                    <h2 className="mb-2 text-xs font-semibold uppercase tracking-widest text-amber-400">
+                      Single units · {fAwaiting.length}
+                    </h2>
+                    <ul className="divide-y glass-3d rounded-lg border border-amber-500/30">
+                      {fAwaiting.map((row) => (
+                        <RowCard
+                          key={row.rental._id}
+                          row={row as Row}
+                          selectable
+                          actions={
+                            <div className="flex flex-col items-end gap-1">
+                              {row.rental.pickupAt && (
+                                <span className="text-[11px] text-amber-400">
+                                  📅 {new Date(row.rental.pickupAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}
+                                </span>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setEditRentalFor(row.rental)}
+                                title="Edit or delete this record"
+                              >
+                                <SquarePen className="size-4" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                disabled={busyId === row.rental._id}
+                                onClick={async () => {
+                                  setBusyId(row.rental._id);
+                                  try {
+                                    await act({ rentalId: row.rental._id, action: "mark_taken" });
+                                    toast.success("Marked as picked up — unit is now rented");
+                                  } catch (e) {
+                                    toast.error(asMessage(e));
+                                  } finally {
+                                    setBusyId(null);
+                                  }
+                                }}
+                              >
+                                <Check className="size-4" /> Mark picked up
+                              </Button>
+                            </div>
+                          }
+                        />
+                      ))}
+                    </ul>
+                  </section>
+                )}
+                {pickupPkgs.length > 0 && (
+                  <section>
+                    <h2 className="mb-2 text-xs font-semibold uppercase tracking-widest text-amber-400">
+                      Packages · {pickupPkgs.length}
+                    </h2>
+                    <ul className="flex flex-col gap-3">
+                      {pickupPkgs.map(({ package: pkg, lines, requester, totalUnits }) => (
+                        <li
+                          key={pkg._id}
+                          ref={pkg._id === focusPackageId ? focusRef : undefined}
+                          className={cn(
+                            "glass-3d rounded-lg border border-amber-500/30 p-4",
+                            pkg._id === focusPackageId && "ring-2 ring-primary/60",
                           )}
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setEditRentalFor(row.rental)}
-                            title="Edit or delete this record"
-                          >
-                            <SquarePen className="size-4" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            disabled={busyId === row.rental._id}
-                            onClick={async () => {
-                              setBusyId(row.rental._id);
-                              try {
-                                await act({ rentalId: row.rental._id, action: "mark_taken" });
-                                toast.success("Marked as picked up — unit is now rented");
-                              } catch (e) {
-                                toast.error(asMessage(e));
-                              } finally {
-                                setBusyId(null);
-                              }
-                            }}
-                          >
-                            <Check className="size-4" /> Mark picked up
-                          </Button>
-                        </div>
-                      }
-                    />
-                  ))}
-                </ul>
-              </section>
+                        >
+                          <div className="flex flex-col gap-3 wide:flex-row wide:items-center">
+                            <Checkbox
+                              checked={selected.has(pkg._id)}
+                              onCheckedChange={() => toggleSel(pkg._id)}
+                              aria-label="Select package"
+                              className="shrink-0 self-start wide:self-center"
+                            />
+                            <div className="flex min-w-0 flex-1 items-start gap-3">
+                              <Boxes className="size-5 shrink-0 text-primary" />
+                              <Avatar className="size-8 shrink-0">
+                                <AvatarImage src={requester?.image} />
+                                <AvatarFallback className="text-xs font-semibold">
+                                  {(requester?.name ?? requester?.email ?? "?").slice(0, 1).toUpperCase()}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div className="min-w-0 flex-1">
+                                <p className="flex flex-wrap gap-x-1.5 gap-y-0.5 text-sm font-medium">
+                                  {lines.map((l: any) => (
+                                    <span key={l.groupId} className="break-words">
+                                      {formatLineAmount(l, groupsIndex?.find((g: any) => g._id === l.groupId))} {l.groupName}
+                                    </span>
+                                  ))}
+                                </p>
+                                <p className="flex flex-wrap gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
+                                  <span className="break-words">{requester?.name ?? requester?.email ?? "Member"}</span>
+                                  {requester?.studentId ? <span className="whitespace-nowrap">· {requester.studentId}</span> : null}
+                                  <span className="whitespace-nowrap">· {totalUnits} unit(s)</span>
+                                  {pkg.pickupAt ? (
+                                    <span className="whitespace-nowrap">
+                                      · 📅 {new Date(pkg.pickupAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}
+                                    </span>
+                                  ) : null}
+                                  {pkg.note ? <span className="break-words">· “{pkg.note}”</span> : null}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap gap-2 wide:ml-auto">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                title="Print the whole-package card — every unit listed on one receipt"
+                                onClick={() => setPkgCard(pkgCardFor({ package: pkg, lines, requester }))}
+                              >
+                                <Printer className="size-4" /> Card
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                title="Edit this package record"
+                                onClick={() => setEditPkgFor({ package: pkg, lines, requester })}
+                              >
+                                <SquarePen className="size-4" /> Edit
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="gap-1 border-emerald-500/40 text-emerald-500 hover:bg-emerald-500/10"
+                                disabled={busyId === pkg._id}
+                                onClick={async () => {
+                                  setBusyId(pkg._id);
+                                  try {
+                                    const res = await markPkgTaken({ packageId: pkg._id });
+                                    toast.success(`Package picked up — ${res.taken} unit(s) handed over`);
+                                  } catch (e) {
+                                    toast.error(asMessage(e));
+                                  } finally {
+                                    setBusyId(null);
+                                  }
+                                }}
+                              >
+                                <Check className="size-4" /> Mark picked up
+                              </Button>
+                            </div>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+              </>
             )}
+          </TabsContent>
+
+          <TabsContent value="active" className="mt-4">
             {fActive === undefined ? (
               <LoadingGif size={48} label={null} />
-            ) : fActive.length === 0 && (fAwaiting?.length ?? 0) === 0 ? (
+            ) : fActive.length === 0 ? (
               <p className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
                 Nothing is out on rental right now.
               </p>
@@ -2336,6 +2477,15 @@ export default function AdminRequests() {
                   placeholder="Who received everything, why, reference number…"
                   rows={2}
                 />
+                {/* Official documentation (image or PDF) — optional, but the
+                    reference is attached to every unit record individually. */}
+                <div className="mt-1">
+                  <Label>Documentation (image or PDF)</Label>
+                  <p className="mb-1 text-[11px] text-muted-foreground">
+                    Optional but important — a photo of the signed form or the official PDF. Attached to every unit of the package.
+                  </p>
+                  <DocAttachmentField doc={wholeTransferDoc} onChange={setWholeTransferDoc} />
+                </div>
               </div>
             )}
 

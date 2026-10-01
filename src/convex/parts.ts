@@ -621,6 +621,9 @@ export const requestRental = mutation({
       status: "pending",
       requestedAt: Date.now(),
       updatedAt: Date.now(),
+      // The request note rides on the record itself (not just the admin
+      // notification), so the part's history keeps the full context.
+      note: note?.trim() || undefined,
     });
     await touchPatch(ctx, partId, { status: "pending" });
     const studentLabel = user.name ?? user.email ?? "A member";
@@ -709,6 +712,7 @@ export const requestRentalQuantity = mutation({
         status: "pending",
         requestedAt: Date.now(),
         updatedAt: Date.now(),
+        note: note?.trim() || undefined,
       });
       await touchPatch(ctx, part._id, { status: "pending" });
     }
@@ -756,6 +760,7 @@ export const rentBrokenPart = mutation({
       status: "pending",
       requestedAt: Date.now(),
       updatedAt: Date.now(),
+      note: note?.trim() || undefined,
       rentBroken: true,
     });
     await touchPatch(ctx, partId, { status: "pending" });
@@ -1421,11 +1426,21 @@ export const returnWholePackage = mutation({
     conditionReport: v.optional(v.string()),
     transferToName: v.optional(v.string()),
     transferDetails: v.optional(v.string()),
+    // Official transfer documentation (photo of the signed form, PDF…), kept
+    // as a small data URL — attached to EVERY unit record of the bundle.
+    transferDoc: v.optional(
+      v.object({
+        name: v.string(),
+        mime: v.string(),
+        size: v.number(),
+        dataUrl: v.string(),
+      }),
+    ),
     recoveredAmount: v.optional(v.number()),
   },
   handler: async (
     ctx,
-    { packageId, destination, projectId, functional, conditionReport, transferToName, transferDetails, recoveredAmount },
+    { packageId, destination, projectId, functional, conditionReport, transferToName, transferDetails, transferDoc, recoveredAmount },
   ) => {
     const admin = await requireAdmin(ctx);
     const pkg = await ctx.db.get(packageId);
@@ -1463,6 +1478,7 @@ export const returnWholePackage = mutation({
           returnDestination: "transferred",
           transferToName: transferToName!.trim(),
           transferDetails: transferDetails?.trim() || undefined,
+          transferDoc,
           functional,
           conditionReport: conditionReport?.trim(),
           returnRequestedAt: undefined,
@@ -2055,6 +2071,14 @@ export const createPackage = mutation({
       count: Math.ceil(l.count),
       note: l.note?.trim() || undefined,
     }));
+    // Per-line notes, used as the fallback detail for a part when the
+    // package has no note of its own (the package note always wins).
+    const lineNoteByGroup = new Map<Id<"groups">, string>();
+    for (const l of storeLines) {
+      if (l.note && !lineNoteByGroup.has(l.groupId)) lineNoteByGroup.set(l.groupId, l.note);
+    }
+    const noteForUnit = (groupId: Id<"groups">) =>
+      note?.trim() || lineNoteByGroup.get(groupId) || undefined;
     for (const [idx, line] of lines.entries()) {
       if (line.count < 1) throw new ConvexError("Each line needs at least 1 unit");
       if (line.count > MAX_UNITS_PER_LINE) throw new ConvexError(`Max ${MAX_UNITS_PER_LINE} units per item`);
@@ -2111,7 +2135,7 @@ export const createPackage = mutation({
       updatedAt: Date.now(),
     });
 
-    for (const { partId } of chosen) {
+    for (const { partId, groupId } of chosen) {
       const part = await ctx.db.get(partId);
       if (!part) continue;
       await ctx.db.insert("rentals", {
@@ -2121,6 +2145,7 @@ export const createPackage = mutation({
         status: "pending",
         requestedAt: Date.now(),
         updatedAt: Date.now(),
+        note: noteForUnit(groupId),
         rentBroken: part.status === "broken" ? true : undefined,
       });
       await touchPatch(ctx, partId, { status: "pending" });
@@ -2137,6 +2162,7 @@ export const createPackage = mutation({
         requestedAt: Date.now(),
         amount,
         updatedAt: Date.now(),
+        note: noteForUnit(groupId),
       });
     }
 
@@ -2209,6 +2235,14 @@ export const editPackage = mutation({
 
     const chosen: { partId: Id<"parts">; groupId: Id<"groups"> }[] = [];
     const bulkAmountByGroup = new Map<Id<"groups">, number>();
+    // Package note wins over the per-line note on every part record.
+    const lineNoteByGroup = new Map<Id<"groups">, string>();
+    for (const line of lines) {
+      const ln = line.note?.trim();
+      if (ln && !lineNoteByGroup.has(line.groupId)) lineNoteByGroup.set(line.groupId, ln);
+    }
+    const noteForUnit = (groupId: Id<"groups">) =>
+      note?.trim() || lineNoteByGroup.get(groupId) || undefined;
     for (const line of lines) {
       if (line.count < 1) throw new ConvexError("Each line needs at least 1 unit");
       if (line.count > MAX_UNITS_PER_LINE) throw new ConvexError(`Max ${MAX_UNITS_PER_LINE} units per item`);
@@ -2259,7 +2293,7 @@ export const editPackage = mutation({
         note: l.note?.trim() || undefined,
       })),
     });
-    for (const { partId } of chosen) {
+    for (const { partId, groupId } of chosen) {
       const part = await ctx.db.get(partId);
       if (!part) continue;
       await ctx.db.insert("rentals", {
@@ -2269,6 +2303,7 @@ export const editPackage = mutation({
         status: "pending",
         requestedAt: Date.now(),
         updatedAt: Date.now(),
+        note: noteForUnit(groupId),
         rentBroken: part.status === "broken" ? true : undefined,
       });
       await touchPatch(ctx, partId, { status: "pending" });
@@ -2281,7 +2316,7 @@ export const editPackage = mutation({
         (r) => r.packageId === packageId && r.partId === holder._id && r.status === "pending",
       );
       if (existing) {
-        await touchPatch(ctx, existing._id, { amount });
+        await touchPatch(ctx, existing._id, { amount, note: noteForUnit(groupId) });
       } else {
         await ctx.db.insert("rentals", {
           partId: holder._id,
@@ -2291,6 +2326,7 @@ export const editPackage = mutation({
           requestedAt: Date.now(),
           amount,
           updatedAt: Date.now(),
+          note: noteForUnit(groupId),
         });
       }
     }
@@ -2370,6 +2406,15 @@ export const adminEditPackage = mutation({
         cleanLines[idx].count = roundBulk(l.count);
       }
     }
+    // The package's details/notes apply to EVERY part in the bundle: the
+    // package note wins, the per-line note is the fallback. Mirrored onto
+    // each unit record below (and kept in sync on every edit).
+    const lineNoteByGroup = new Map<Id<"groups">, string>();
+    for (const l of cleanLines) {
+      if (l.note && !lineNoteByGroup.has(l.groupId)) lineNoteByGroup.set(l.groupId, l.note);
+    }
+    const noteForUnit = (groupId: Id<"groups">) =>
+      note?.trim() || lineNoteByGroup.get(groupId) || undefined;
 
     // Date corrections — null clears a date, omit keeps the stored value
     // (same rules as the per-record editor). Applied per branch below.
@@ -2469,7 +2514,7 @@ export const adminEditPackage = mutation({
           (r) => r.status === "pending" && r.partId === holder._id,
         );
         if (existing) {
-          await touchPatch(ctx, existing._id, { amount });
+          await touchPatch(ctx, existing._id, { amount, note: noteForUnit(groupId) });
         } else {
           await ctx.db.insert("rentals", {
             partId: holder._id,
@@ -2479,6 +2524,7 @@ export const adminEditPackage = mutation({
             requestedAt: now,
             amount,
             updatedAt: now,
+            note: noteForUnit(groupId),
           });
         }
       }
@@ -2497,7 +2543,7 @@ export const adminEditPackage = mutation({
           if (r.status === "pending") await touchPatch(ctx, r._id, recPatch);
         }
       }
-      for (const { partId } of chosen) {
+      for (const { partId, groupId } of chosen) {
         const part = await ctx.db.get(partId);
         if (!part) continue;
       await ctx.db.insert("rentals", {
@@ -2506,6 +2552,7 @@ export const adminEditPackage = mutation({
         packageId,
         status: "pending",
         requestedAt: now,
+        note: noteForUnit(groupId),
         rentBroken: part.status === "broken" ? true : undefined,
         updatedAt: now,
       });
@@ -2671,7 +2718,7 @@ export const adminEditPackage = mutation({
           (r.status === "pending" || r.status === "approved"),
       );
       if (existing) {
-        await touchPatch(ctx, existing._id, { amount });
+        await touchPatch(ctx, existing._id, { amount, note: noteForUnit(groupId) });
       } else {
         await ctx.db.insert("rentals", {
           partId: holder._id,
@@ -2683,6 +2730,7 @@ export const adminEditPackage = mutation({
           amount,
           pickupAt: pickupAt === undefined ? pkg.pickupAt : (pickupAt ?? undefined),
           updatedAt: now,
+          note: noteForUnit(groupId),
         });
       }
     }
@@ -2704,6 +2752,18 @@ export const adminEditPackage = mutation({
           }
           if (Object.keys(unitPatch).length > 0) await touchPatch(ctx, part._id, unitPatch);
         }
+      }
+    }
+
+    // Notes/details sync — the package note lands on every live unit record
+    // (processed ones keep their historical note for the record).
+    if (note !== undefined) {
+      const pkgNote = note?.trim() || undefined;
+      const LIVE = new Set(["pending", "approved", "active", "on_project"]);
+      for (const r of pkgRentals) {
+        if (removedIds.has(r._id) || released.includes(r._id)) continue;
+        if (!LIVE.has(r.status)) continue;
+        await touchPatch(ctx, r._id, { note: pkgNote });
       }
     }
 

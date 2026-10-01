@@ -347,6 +347,10 @@ const schema = defineSchema(
       userId: v.id("users"),
       // Set when this unit was requested as part of a package rental.
       packageId: v.optional(v.id("rentalPackages")),
+      // Details/notes mirrored from the package (or the request) so every
+      // part's own record carries the full context. Kept in sync when the
+      // package note is edited.
+      note: v.optional(v.string()),
       status: v.union(
         v.literal("pending"),
         v.literal("approved"),

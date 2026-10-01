@@ -217,13 +217,17 @@ export default function PartDetail() {
                     variant="outline"
                     className="h-6 gap-1 px-2 text-[11px]"
                     title={`Open the ${holding.status} record${holding.packageId ? " (inside its package)" : ""} in Requests`}
-                    onClick={() =>
+                    onClick={() => {
+                      // Land on the tab that actually holds this record:
+                      // pending → Pending, approved → Pick-up, handed-out → Active.
+                      const rentalTab =
+                        holding.status === "approved" ? "pickup" : holding.status === "pending" ? "pending" : "active";
                       navigate(
                         holding.packageId
                           ? `/admin/requests?tab=packages&package=${holding.packageId}`
-                          : `/admin/requests?tab=pending&rental=${holding.rentalId}`,
-                      )
-                    }
+                          : `/admin/requests?tab=${rentalTab}&rental=${holding.rentalId}`,
+                      );
+                    }}
                   >
                     <ExternalLink className="size-3" />
                     Open request
