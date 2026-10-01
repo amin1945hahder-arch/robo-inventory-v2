@@ -57,7 +57,7 @@ const ROWS: Row[] = [
     why: "Keeps your offline cache, downloads and app data safe from automatic cleanup when device space runs low.",
     recover: {
       web: "If the grant doesn't stick, install the app (Add to Home Screen) and allow it there — browsers persist data for installed apps.",
-      apk: "Handled by the webview automatically once granted.",
+      apk: "The app's storage is built into the APK itself — if the app complains about storage, grant the wrapper's file permission: Android Settings → Apps → RoboShelf → Permissions → Storage/Files → Allow (on Android 11+ choose “All files access”), then fully close and reopen the app.",
       ios: "Managed by iOS — the app requests it on first launch.",
       desktop: "Granted automatically by the desktop runtime.",
     },
@@ -82,6 +82,12 @@ function statusChip(status: PermissionStatus) {
       return {
         cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-400",
         label: "Allowed",
+        Icon: Check,
+      };
+    case "unsupported":
+      return {
+        cls: "border-border bg-muted/60 text-muted-foreground",
+        label: "Managed by the app",
         Icon: Check,
       };
     case "denied":

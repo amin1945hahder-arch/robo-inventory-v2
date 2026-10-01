@@ -69,6 +69,51 @@ export function isStandalone(): boolean {
   );
 }
 
+/** True inside an Android WebView wrapper (webview-to-APK apps set \"; wv\" in the UA). */
+function isAndroidWebview(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /android/i.test(navigator.userAgent) && /\bwv\b|; wv\)/i.test(navigator.userAgent);
+}
+
+/**
+ * Can the page actually STORE data here? Feature-detect the real engines
+ * (localStorage + IndexedDB) instead of inferring from navigator.storage.
+ * Webview wrappers frequently hide navigator.storage while DOM storage is
+ * fully enabled — and that is what the app's offline data actually uses.
+ */
+async function storageWorks(): Promise<boolean> {
+  try {
+    const t = "__rs_probe__";
+    window.localStorage.setItem(t, "1");
+    window.localStorage.removeItem(t);
+    // IndexedDB open fails fast when the webview has storage disabled.
+    if (typeof indexedDB !== "undefined") {
+      await new Promise<void>((resolve, reject) => {
+        try {
+          const req = indexedDB.open(t, 1);
+          req.onsuccess = () => {
+            try {
+              req.result?.close();
+            } catch {
+              /* ignore */
+            }
+            indexedDB.deleteDatabase(t);
+            resolve();
+          };
+          req.onerror = () => reject(req.error ?? new Error("idb blocked"));
+          req.onblocked = () => resolve();
+          setTimeout(() => resolve(), 1500); // never hang the status
+        } catch (e) {
+          reject(e);
+        }
+      });
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Current OS/browser-level state for one capability (no side effects). */
 async function detect(kind: PermissionKind): Promise<PermissionStatus> {
   if (typeof window === "undefined") return "unsupported";
@@ -85,21 +130,35 @@ async function detect(kind: PermissionKind): Promise<PermissionStatus> {
         return normalize(st.state);
       }
       case "storage": {
+        // First truth: can we actually store anything right now? A working
+        // localStorage/IndexedDB means storage EXISTS and is usable — even
+        // when navigator.storage is missing (typical webview wrappers).
+        const works = await storageWorks();
+        if (!works) return "unsupported";
         const s = (navigator as Navigator & { storage?: { persisted?: () => Promise<boolean> } }).storage;
-        if (!s?.persisted) return "unsupported";
-        if (await s.persisted()) return "granted";
-        // Chromium exposes the real site permission ("persistent-storage"):
-        // a hard "denied" there means the user must lift the block in site
-        // settings — persist() alone would just keep returning false.
-        try {
-          const perms = (navigator as Navigator & { permissions?: Permissions }).permissions;
-          const st = await perms?.query({ name: "persistent-storage" as PermissionName });
-          if (st?.state === "granted") return "granted";
-          if (st?.state === "denied") return "denied";
-        } catch {
-          /* Safari/Firefox: no such permission name — stay "prompt" */
+        if (s?.persisted) {
+          if (await s.persisted()) return "granted";
+          // Chromium exposes the real site permission ("persistent-storage"):
+          // a hard "denied" there means the user must lift the block in site
+          // settings — persist() alone would just keep returning false.
+          try {
+            const perms = (navigator as Navigator & { permissions?: Permissions }).permissions;
+            const st = await perms?.query({ name: "persistent-storage" as PermissionName });
+            if (st?.state === "granted") return "granted";
+            if (st?.state === "denied") return "denied";
+          } catch {
+            /* Safari/Firefox/webviews: no such permission name — stay "prompt" */
+          }
+          // Wrappers that omit the permission API (freewebtoapk and similar
+          // webview-to-APK builders): storage works and nothing can report a
+          // denial — treat it as already granted instead of nagging forever.
+          if (isAndroidWebview()) return "granted";
+          return "prompt";
         }
-        return "prompt";
+        // No navigator.storage at all: storage WORKS (proven above), it just
+        // can't be pinned as persistent. In webview shells DOM storage is
+        // app-managed — report the working truth, never "unsupported".
+        return isAndroidWebview() ? "granted" : "prompt";
       }
       case "sound": {
         // The Web Audio context is created lazily by use-sound; here we only
@@ -183,11 +242,20 @@ export function usePermission(kind: PermissionKind) {
           break;
         }
         case "storage": {
+          // Truthful probing first: if data can actually be stored (webview
+          // wrappers with DOM storage enabled, hidden navigator.storage),
+          // storage is already working — never claim "unsupported" there.
+          if (!(await storageWorks())) {
+            next = "unsupported";
+            break;
+          }
           const s = (
             navigator as Navigator & { storage?: { persist?: () => Promise<boolean> } }
           ).storage;
           if (!s?.persist) {
-            next = "unsupported";
+            // No StorageManager: nothing further to ask for — storage is
+            // usable as-is (typical freewebtoapk / webview shells).
+            next = isAndroidWebview() ? "granted" : "prompt";
             break;
           }
           // persist() is silent in every browser (no OS dialog exists for it);
@@ -208,9 +276,19 @@ export function usePermission(kind: PermissionKind) {
             const st = await navigator.permissions?.query({
               name: "persistent-storage" as PermissionName,
             });
-            next = st?.state === "granted" ? "granted" : "denied";
+            if (st?.state === "granted") {
+              next = "granted";
+            } else if (isAndroidWebview() && st?.state !== "denied") {
+              // Webview wrappers: the engine declines the pin but nothing is
+              // actually blocked — data keeps working, so report granted.
+              next = "granted";
+            } else {
+              next = "denied";
+            }
           } catch {
-            next = "denied";
+            // No permissions API (Safari/Firefox/webviews): storage still
+            // works — the pin just isn't grantable here.
+            next = isAndroidWebview() ? "granted" : "denied";
           }
           break;
         }

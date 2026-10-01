@@ -330,6 +330,40 @@ export default function AdminRequests() {
     }
   };
 
+  // Bulk return: every selected ACTIVE unit goes back with the same one
+  // decision (shelf / project / transferred + condition) via the whole-package
+  // return dialog — its submit handler loops the target ids. Package ids in
+  // the selection route to returnWholePackage as usual; rentals to the
+  // per-record action. Rank/printer/profile rows can never be "active".
+  const [bulkReturnIds, setBulkReturnIds] = useState<{ rentals: string[]; bundles: string[] } | null>(null);
+  const bulkReturn = () => {
+    if (selected.size === 0) return;
+    const pkgIds = new Set<string>((packages ?? []).map((p) => p.package._id));
+    const rentals: string[] = [];
+    const bundles: string[] = [];
+    for (const id of selected) (pkgIds.has(id) ? bundles : rentals).push(id);
+    if (rentals.length + bundles.length === 0) return;
+    setBulkReturnIds({ rentals, bundles });
+    // Open the shared return dialog in bulk mode (a stub row satisfies the
+    // open gate; the description switches to the bulk wording).
+    setDestination("shelf");
+    setFunctional(true);
+    setReport("");
+    setProjectId("");
+    setCreatingProject(false);
+    setNewProjectName("");
+    setTransferName("");
+    setTransferDetails("");
+    setTransferDoc(null);
+    setRecovered("");
+    setReturnFor({
+      rental: { _id: "bulk" },
+      part: {},
+      group: {},
+      student: null,
+    } as unknown as Row);
+  };
+
   // Package units are decided as a bundle in the Packages tab (all-or-nothing).
   // The grouped pending query already collapses them into package rows.
   const pendingRows = pendingSingles;
@@ -495,6 +529,56 @@ export default function AdminRequests() {
   const seen = (key: string) => {
     markSeen({ keys: [key] }).catch(() => undefined);
   };
+
+  // ---- What KIND of thing is each selected id? ---------------------------
+  // The bulk bar shows only actions that make sense for what's actually
+  // selected (any tab): Delete is always offered; Approve/Deny appear when a
+  // pending request is selected; Mark picked up when an approved item is;
+  // Return when an active one is. Package ids are classified by bundle unit
+  // statuses; rank/printer/profile ids by their pending request lists.
+  const selStatus = useMemo(() => {
+    const pkgById = new Map<string, any>((packages ?? []).map((p) => [String(p.package._id), p]));
+    const rankIds = new Set<string>((rankReqs ?? []).map((e) => String(e.request._id)));
+    const printerIds = new Set<string>((printerReqs ?? []).map((e) => String(e.request._id)));
+    const profileIds = new Set<string>((profileReqs ?? []).map((e) => String(e.request._id)));
+    const rentalStatus = new Map<string, string>();
+    for (const r of [
+      ...(pendingRowsQ ?? []),
+      ...(awaiting ?? []),
+      ...(active ?? []),
+      ...(onProject ?? []),
+      ...(history ?? []),
+    ] as any[]) {
+      const id = r.rental?._id ?? r.key;
+      if (id) rentalStatus.set(String(id), r.rental?.status ?? "pending");
+    }
+    let pending = 0,
+      approved = 0,
+      activeSel = 0,
+      other = 0,
+      person = 0;
+    for (const id of selected) {
+      if (rankIds.has(id) || printerIds.has(id) || profileIds.has(id)) {
+        person++;
+        continue;
+      }
+      const pkg = pkgById.get(id);
+      if (pkg) {
+        const units = (pkg.lines ?? []).flatMap((l: any) => l.units ?? []);
+        if (units.some((u: any) => u.status === "pending")) pending++;
+        else if (units.some((u: any) => u.status === "approved")) approved++;
+        else if (units.some((u: any) => u.status === "active")) activeSel++;
+        else other++;
+        continue;
+      }
+      const st = rentalStatus.get(id);
+      if (st === "pending") pending++;
+      else if (st === "approved") approved++;
+      else if (st === "active" || st === "on_project") activeSel++;
+      else other++;
+    }
+    return { pending, approved, active: activeSel, other, person };
+  }, [selected, packages, rankReqs, printerReqs, profileReqs, pendingRowsQ, awaiting, active, onProject, history]);
 
   // Whole-package card (bundle-level receipt, like the per-unit rent card).
   const [pkgCard, setPkgCard] = useState<PackageCardData | null>(null);
@@ -723,14 +807,104 @@ export default function AdminRequests() {
         ? true
         : destination === "project"
           ? Boolean(projectId) || newProjectName.trim().length > 1
-          : false,
-    [destination, projectId, creatingProject, newProjectName],
+          : destination === "transferred"
+            ? transferName.trim().length > 1
+            : false,
+    [destination, projectId, creatingProject, newProjectName, transferName],
   );
 
   const submitReturn = async () => {
     if (!returnFor) return;
     setBusyId(returnFor.rental._id);
     try {
+      // Bulk mode: apply the SAME one decision to every selected record —
+      // packages route to returnWholePackage, individual records to their
+      // per-record action. One failing row never stops the rest.
+      if (bulkReturnIds) {
+        const { rentals, bundles } = bulkReturnIds;
+        let target = projectId;
+        if (destination === "project" && creatingProject) {
+          target = await createProject({ name: newProjectName.trim(), status: "active" });
+        }
+        const total = rentals.length + bundles.length;
+        let ok = 0;
+        for (const id of bundles) {
+          try {
+            await returnWholePkg({
+              packageId: id as never,
+              destination,
+              projectId: destination === "project" ? (target as any) : undefined,
+              functional,
+              conditionReport: report.trim() || undefined,
+              ...(destination === "transferred"
+                ? {
+                    transferToName: transferName.trim(),
+                    transferDetails: transferDetails.trim() || undefined,
+                    transferDoc: transferDoc ?? undefined,
+                  }
+                : {}),
+            });
+            ok++;
+          } catch {
+            /* one failing bundle doesn't stop the rest */
+          }
+        }
+        for (const id of rentals) {
+          try {
+            if (destination === "project") {
+              await act({
+                rentalId: id as never,
+                action: "assign_project",
+                projectId: target as any,
+                functional,
+                conditionReport: report.trim() || undefined,
+              });
+            } else if (destination === "transferred") {
+              await act({
+                rentalId: id as never,
+                action: "transfer",
+                transferToName: transferName.trim(),
+                transferDetails: transferDetails.trim() || undefined,
+                transferDoc: transferDoc ?? undefined,
+                functional,
+                conditionReport: report.trim() || undefined,
+              });
+            } else {
+              await act({
+                rentalId: id as never,
+                action: "mark_returned",
+                functional,
+                conditionReport: report.trim() || undefined,
+              });
+            }
+            ok++;
+          } catch {
+            /* one failing record doesn't stop the rest */
+          }
+        }
+        toast.success(
+          `${ok} of ${total} ${
+            destination === "project"
+              ? "assigned to the project"
+              : destination === "transferred"
+                ? `transferred to “${transferName.trim()}”`
+                : functional
+                  ? "returned to the shelf"
+                  : "marked broken"
+          }`,
+        );
+        setBulkReturnIds(null);
+        setReturnFor(null);
+        setReport("");
+        setProjectId("");
+        setCreatingProject(false);
+        setNewProjectName("");
+        setTransferName("");
+        setTransferDetails("");
+        setTransferDoc(null);
+        setRecovered("");
+        return;
+      }
       if (destination === "project") {
         let target = projectId;
         if (creatingProject) {
@@ -952,35 +1126,43 @@ export default function AdminRequests() {
           {selected.size > 0 && (
             <>
               <span className="text-xs text-muted-foreground">{selected.size} selected</span>
-              {/* Contextual bulk actions: only the operations that are valid
-                  for the ACTIVE tab's records — no more error-toasting every
-                  row when pressing Approve on already-active records. */}
-              {(tab === "updates" || tab === "pending") && (
+              {/* Contextual bulk actions driven by WHAT IS SELECTED (not the
+                  tab): Delete is always offered; Approve/Deny appear when a
+                  pending request is among the selection; Mark picked up when
+                  an approved item is; Return when an active one is. That way
+                  the bar works on every tab — Packages, Pick-up, Active,
+                  Projects, History and Updates alike. */}
+              {selStatus.pending > 0 && (
                 <Button size="sm" disabled={bulkBusy} onClick={bulkApprove}>
                   {bulkBusy ? <LoadingGifInline size={16} className="size-4" /> : <Check className="size-4" />}
                   Approve selected
                 </Button>
               )}
-              {(tab === "updates" || tab === "pickup") && (
+              {selStatus.approved > 0 && (
                 <Button size="sm" variant="outline" disabled={bulkBusy} onClick={bulkMarkTaken} title="Hand over approved units/packages to their members">
                   {bulkBusy ? <LoadingGifInline size={16} className="size-4" /> : <PackageCheck className="size-4" />}
                   Mark picked up
                 </Button>
               )}
-              {(tab === "updates" || tab === "pending") && (
+              {selStatus.active > 0 && (
+                <Button size="sm" variant="outline" disabled={bulkBusy} onClick={bulkReturn} title="Process the return of every selected active unit — same destination and condition for all">
+                  {bulkBusy ? <LoadingGifInline size={16} className="size-4" /> : <RotateCcw className="size-4" />}
+                  Return selected
+                </Button>
+              )}
+              {selStatus.pending > 0 && (
                 <Button size="sm" variant="outline" disabled={bulkBusy} onClick={bulkDeny}>
                   {bulkBusy ? <LoadingGifInline size={16} className="size-4" /> : <X className="size-4" />}
                   Deny selected
                 </Button>
               )}
-              {tab === "history" && (
               <Button
                 size="sm"
                 variant="outline"
                 className="text-destructive"
                 disabled={bulkBusy}
                 onClick={async () => {
-                  if (!confirm(`Delete ${selected.size} selected rental record(s)? Records holding a unit are kept unless you free their units.`))
+                  if (!confirm(`Delete ${selected.size} selected record(s)? Records still holding their unit are kept — use Edit → Delete on a record and choose “put everything back” to release units.`))
                     return;
                   setBulkBusy(true);
                   try {
@@ -988,7 +1170,7 @@ export default function AdminRequests() {
                     if (res.skipped.length > 0) {
                       const tags = res.skipped.map((s: any) => s.tag ?? "unit").slice(0, 4).join(", ");
                       toast.warning(
-                        `Deleted ${res.deleted}. Kept ${res.skipped.length} still holding a unit (${tags}${res.skipped.length > 4 ? "…" : ""}) — open each record and tick “Also release the unit”, or use Clear history with release.`,
+                        `Deleted ${res.deleted}. Kept ${res.skipped.length} still holding a unit (${tags}${res.skipped.length > 4 ? "…" : ""}) — open each record and choose “Also put everything back” when deleting.`,
                       );
                     } else {
                       toast.success(
@@ -1006,7 +1188,6 @@ export default function AdminRequests() {
                 {bulkBusy ? <LoadingGifInline size={16} className="size-4" /> : <Trash2 className="size-4" />}
                 Delete selected
               </Button>
-              )}
               <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
                 Clear
               </Button>
@@ -2343,13 +2524,23 @@ export default function AdminRequests() {
       </div>
 
       {/* Return / assign dialog */}
-      <Dialog open={Boolean(returnFor)} onOpenChange={(v) => !v && setReturnFor(null)}>
+      {/* Shared return dialog — also used by the bulk "Return selected"
+          flow (bulkReturnIds non-null switches it into bulk mode). */}
+      <Dialog
+        open={Boolean(returnFor)}
+        onOpenChange={(v) => {
+          if (v) return;
+          setReturnFor(null);
+          setBulkReturnIds(null);
+        }}
+      >
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Process return</DialogTitle>
+            <DialogTitle>{bulkReturnIds ? `Return ${bulkReturnIds.rentals.length + bulkReturnIds.bundles.length} selected item(s)` : "Process return"}</DialogTitle>
             <DialogDescription>
-              {returnFor?.group?.name} — unit {returnFor?.part?.tag}. Choose where it goes next and
-              record its condition.
+              {bulkReturnIds
+                ? "Every selected active unit gets the same destination and condition."
+                : `${returnFor?.group?.name} — unit ${returnFor?.part?.tag}. Choose where it goes next and record its condition.`}
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-4">
@@ -2401,6 +2592,7 @@ export default function AdminRequests() {
             )}
 
             {destination === "shelf" &&
+              !bulkReturnIds &&
               (returnFor?.group?.measure === "weight" || returnFor?.group?.measure === "length") &&
               returnFor?.rental?.amount !== undefined && (
                 <div className="flex flex-col gap-2 glass-3d rounded-lg border bg-muted/30 p-3">
@@ -2486,9 +2678,9 @@ export default function AdminRequests() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setReturnFor(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setReturnFor(null); setBulkReturnIds(null); }}>Cancel</Button>
             <Button onClick={submitReturn} disabled={!validReturn || busyId !== null}>
-              <PackagePlus className="size-4" /> Confirm
+              <PackagePlus className="size-4" /> {bulkReturnIds ? "Return all" : "Confirm"}
             </Button>
           </DialogFooter>
         </DialogContent>

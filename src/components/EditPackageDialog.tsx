@@ -31,7 +31,7 @@ import {
   type PackageDisplayStatus,
 } from "@/lib/package-status";
 import { toast } from "sonner";
-import { CalendarClock, Package, Plus, Trash2 } from "lucide-react";
+import { CalendarClock, Database, Package, Plus, Trash2 } from "lucide-react";
 
 /**
  * Admin editor for a whole package record — the bundle-level twin of the
@@ -91,6 +91,7 @@ export function EditPackageDialog({
   onDone?: () => void;
 }) {
   const adminEdit = useMutation(api.parts.adminEditPackage);
+  const deletePackageRec = useMutation(api.bulk.deletePackageRecord);
   // Live availability per group — additions can only claim free units.
   const availability = useQuery(api.parts.availabilityByGroup, open ? {} : "skip");
   const groups = useQuery(api.catalog.listGroups, open ? {} : "skip");
@@ -120,6 +121,12 @@ export function EditPackageDialog({
   const [dueLocal, setDueLocal] = useState("");
   const [dueTouched, setDueTouched] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Whole-record delete (two modes): "record only" erases the bundle from
+  // the ledger but leaves every unit's state untouched; "put everything
+  // back" also releases the units the bundle still holds. Hidden when the
+  // bundle is still pending — deny it from the request instead.
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteRelease, setDeleteRelease] = useState(false);
 
   // Hydrate the editor from the package row when it opens — keyed on the
   // package id (NOT the row object) so a live-query refetch never wipes the
@@ -151,6 +158,8 @@ export function EditPackageDialog({
     setDueLocal(toLocalInput(dueAt ?? null));
     setDueTouched(false);
     setRemovedExtra(new Set());
+    setConfirmDelete(false);
+    setDeleteRelease(false);
     const next: EditLine[] = (pkg.lines ?? []).map((l: any) => ({
       groupId: l.groupId as string,
       count: l.requested as number,
@@ -237,6 +246,9 @@ export function EditPackageDialog({
   };
 
   const isPending = status === "pending";
+  const pkgHoldsLive = unitRows.some(
+    (u) => u.status === "active" || u.status === "on_project" || u.status === "approved" || u.status === "pending",
+  );
   const removableCount = unitRows.filter((u) => REMOVABLE.has(u.status) && !removedExtra.has(u.rentalId)).length;
   const removedCount = removedExtra.size;
   const displayStatus: PackageDisplayStatus = packageDisplayStatus(status, {
@@ -334,6 +346,39 @@ export function EditPackageDialog({
           status === "approved" && removedExtra.size > 0 ? ([...removedExtra] as any) : undefined,
       });
       toast.success("Package updated");
+      onOpenChange(false);
+      onDone?.();
+    } catch (e) {
+      toast.error(asMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Two-mode delete of the whole package record (see the panel below for
+  // what each mode means). The backend reports records it had to skip —
+  // those still hold their unit and can only be cleared by the release mode.
+  const doDelete = async (mode: "record" | "release") => {
+    if (!pkgId) return;
+    setBusy(true);
+    try {
+      const res = await deletePackageRec({
+        packageId: pkgId as never,
+        releaseUnits: mode === "release" || undefined,
+      });
+      const skipped: any[] = res?.skipped ?? [];
+      if (mode === "record" && skipped.length > 0) {
+        const tags = skipped.map((s: any) => s.tag ?? "unit").slice(0, 4).join(", ");
+        toast.warning(
+          `Deleted ${res.deleted} record(s). Kept ${skipped.length} still holding a unit (${tags}${skipped.length > 4 ? "…" : ""}) — choose “Delete and put everything back” to release them.`,
+        );
+      } else {
+        toast.success(
+          mode === "release"
+            ? `Package record deleted — ${res?.deleted ?? 0} unit record(s) cleared and everything put back in its place`
+            : `Package record deleted from history — everything stays as it is`,
+        );
+      }
       onOpenChange(false);
       onDone?.();
     } catch (e) {
@@ -680,6 +725,84 @@ export function EditPackageDialog({
             <span className="font-medium text-rose-400">Some items exceed availability</span>
           )}
         </div>
+
+        {/* Whole-record delete with the same two-mode choice as individual
+            records: wipe the ledger row only, or wipe it AND release every
+            unit the bundle still holds back to its shelf slot. */}
+        {!isPending && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+            {!confirmDelete ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-destructive hover:text-destructive"
+                onClick={() => setConfirmDelete(true)}
+              >
+                <Trash2 className="size-4" /> Delete package record
+              </Button>
+            ) : (
+              <div className="flex flex-col gap-2 text-sm">
+                <p className="flex items-center gap-1.5 font-medium text-destructive">
+                  <Database className="size-4" /> Delete this package record?
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Removes the bundle and its unit records from the ledger permanently.
+                </p>
+                <div className="flex flex-col gap-1.5">
+                  <label
+                    className={`flex cursor-pointer items-start gap-2 rounded-md border p-2 text-xs ${deleteRelease ? "" : "border-foreground/60"}`}
+                  >
+                    <input
+                      type="radio"
+                      name="pkg-delete-mode"
+                      className="mt-0.5"
+                      checked={!deleteRelease}
+                      onChange={() => setDeleteRelease(false)}
+                    />
+                    <span>
+                      <span className="font-medium">Delete only the record</span>
+                      <span className="block text-muted-foreground">
+                        History forgets the bundle; every unit keeps its current state (shelf counts unchanged).
+                      </span>
+                    </span>
+                  </label>
+                  <label
+                    className={`flex cursor-pointer items-start gap-2 rounded-md border p-2 text-xs ${deleteRelease ? "border-foreground/60" : ""}`}
+                  >
+                    <input
+                      type="radio"
+                      name="pkg-delete-mode"
+                      className="mt-0.5"
+                      checked={deleteRelease}
+                      onChange={() => setDeleteRelease(true)}
+                    />
+                    <span>
+                      <span className="font-medium">Delete and put everything back</span>
+                      <span className="block text-muted-foreground">
+                        {pkgHoldsLive
+                          ? "Every unit still held by this package is released to its shelf slot and becomes available again."
+                          : "Nothing is currently held — both choices end the same for this package."}
+                      </span>
+                    </span>
+                  </label>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setConfirmDelete(false)}>
+                    Keep it
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    disabled={busy}
+                    onClick={() => doDelete(deleteRelease ? "release" : "record")}
+                  >
+                    <Trash2 className="size-3.5" /> {deleteRelease ? "Delete & put back" : "Delete record only"}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>

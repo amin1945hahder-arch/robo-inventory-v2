@@ -12,7 +12,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -181,24 +180,24 @@ export function EditRentalDialog({
     }
   };
 
-  const doDelete = async () => {
+  const doDelete = async (mode: "record" | "release") => {
     if (!rental) return;
     setBusy(true);
     try {
-      await remove({ rentalId: rental._id, alsoFreePart: alsoFree || undefined });
+      await remove({ rentalId: rental._id, alsoFreePart: mode === "release" || undefined });
       toast.success(
-        alsoFree
-          ? "Record deleted — unit released back to the shelf"
-          : "Rental record deleted",
+        mode === "release"
+          ? "Record deleted — everything put back in its place"
+          : "Record deleted from history — everything stays as it is",
       );
       onOpenChange(false);
     } catch (e) {
       if (releaseNeeded(e)) {
-        // The guard refused: the record still holds its unit. Pre-tick the
-        // release option so the retry is one click instead of a dead end.
+        // The guard refused: the record still holds its unit. Pre-select the
+        // release mode so the retry is one click instead of a dead end.
         setAlsoFree(true);
         setDeleteHint(
-          "The unit is still marked rented / on project / pending in inventory. “Also release the unit” is now ticked — press Delete again to free it.",
+          "The unit is still marked rented / on project / pending in inventory — it can't vanish silently. Pick “Delete and put everything back” to release it.",
         );
       } else {
         toast.error(asMessage(e));
@@ -294,10 +293,43 @@ export function EditRentalDialog({
                 This removes the record from the ledger permanently — for duplicates or mistakes.
               </p>
               {holdsUnit && (
-                <label className="mt-2 flex items-center gap-2 text-xs">
-                  <Checkbox checked={alsoFree} onCheckedChange={(v) => setAlsoFree(Boolean(v))} />
-                  Also release the unit (mark it available)
-                </label>
+                <div className="mt-2 flex flex-col gap-1.5">
+                  <span className="text-xs font-medium">What happens to the unit?</span>
+                  <label
+                    className={`flex cursor-pointer items-start gap-2 rounded-md border p-2 text-xs ${alsoFree ? "" : "border-foreground/60"}`}
+                  >
+                    <input
+                      type="radio"
+                      name="delete-mode"
+                      className="mt-0.5"
+                      checked={!alsoFree}
+                      onChange={() => setAlsoFree(false)}
+                    />
+                    <span>
+                      <span className="font-medium">Delete only the record</span>
+                      <span className="block text-muted-foreground">
+                        History forgets it, but everything stays as it is — the unit keeps its current state.
+                      </span>
+                    </span>
+                  </label>
+                  <label
+                    className={`flex cursor-pointer items-start gap-2 rounded-md border p-2 text-xs ${alsoFree ? "border-foreground/60" : ""}`}
+                  >
+                    <input
+                      type="radio"
+                      name="delete-mode"
+                      className="mt-0.5"
+                      checked={alsoFree}
+                      onChange={() => setAlsoFree(true)}
+                    />
+                    <span>
+                      <span className="font-medium">Delete and put everything back</span>
+                      <span className="block text-muted-foreground">
+                        The unit is released to its shelf slot and becomes available again.
+                      </span>
+                    </span>
+                  </label>
+                </div>
               )}
               {deleteHint && (
                 <p className="mt-2 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-500">
@@ -308,8 +340,8 @@ export function EditRentalDialog({
                 <Button size="sm" variant="outline" onClick={() => setConfirmDelete(false)}>
                   Keep it
                 </Button>
-                <Button size="sm" variant="destructive" onClick={doDelete} disabled={busy}>
-                  <Trash2 className="size-3.5" /> Delete record
+                <Button size="sm" variant="destructive" onClick={() => doDelete(alsoFree ? "release" : "record")} disabled={busy}>
+                  <Trash2 className="size-3.5" /> {alsoFree ? "Delete & put back" : "Delete record only"}
                 </Button>
               </div>
             </div>

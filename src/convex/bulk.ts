@@ -79,6 +79,69 @@ export const bulkDeleteRentalRecords = mutation({
   },
 });
 
+/**
+ * Delete a whole PACKAGE record with an explicit choice of what happens to
+ * its units — the bundle-level twin of the per-record delete choice:
+ *
+ * - releaseUnits: false (default) → "record only": unit records that are
+ *   merely history (returned / on project / transferred) are deleted, but
+ *   records still HOLDING a unit are kept and reported, and every part
+ *   status stays exactly as it is.
+ * - releaseUnits: true → "delete + put everything back": the records and the
+ *   package row are deleted AND every held unit is released back to the
+ *   shelf (available again, holder/project cleared).
+ */
+export const deletePackageRecord = mutation({
+  args: {
+    packageId: v.id("rentalPackages"),
+    releaseUnits: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { packageId, releaseUnits }) => {
+    await requireAdmin(ctx);
+    const pkg = await ctx.db.get(packageId);
+    if (!pkg) return { ok: true, deleted: 0, skipped: [] };
+    const mine = await ctx.db
+      .query("rentals")
+      .withIndex("by_user", (q) => q.eq("userId", pkg.userId))
+      .collect();
+    const unitRecords = mine.filter((r) => r.packageId === packageId);
+    let deleted = 0;
+    const skipped: { rentalId: string; tag?: string; partStatus?: string }[] = [];
+    for (const r of unitRecords) {
+      const part = r.partId ? await ctx.db.get(r.partId) : null;
+      const holdsUnit =
+        part &&
+        (part.status === "rented" ||
+          part.status === "on_project" ||
+          (part.status === "pending" && r.status === "pending"));
+      if (holdsUnit && !releaseUnits) {
+        skipped.push({ rentalId: r._id, tag: part?.tag, partStatus: part?.status });
+        continue;
+      }
+      if (holdsUnit && releaseUnits) {
+        await touchPatch(ctx, part._id, {
+          status: "available",
+          currentHolderId: undefined,
+          currentProjectId: undefined,
+          rentedAt: undefined,
+          dueAt: undefined,
+        });
+      }
+      await ctx.db.delete(r._id);
+      await recordTombstone(ctx, "rentals", r._id);
+      deleted++;
+    }
+    // The bundle row itself only survives when records were skipped — those
+    // units still belong to the package. Otherwise it would linger as an
+    // empty husk the Packages tab can never open meaningfully.
+    if (skipped.length === 0) {
+      await ctx.db.delete(packageId);
+      await recordTombstone(ctx, "rentalPackages", String(packageId));
+    }
+    return { ok: true, deleted, skipped };
+  },
+});
+
 /** What would clearRentalHistory remove, so the dialog can confirm precisely. */
 export const historyStats = query({
   args: { userId: v.optional(v.id("users")) },

@@ -560,6 +560,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </span>
               </button>
             )}
+            {/* The strip's whole job is the one visible "ask" for pinning data
+                as persistent — it only makes sense where the StorageManager
+                exists. Where it doesn't (webview APK wrappers), storage still
+                works and there is simply nothing to ask. */}
             {storagePerm.status === "prompt" && !askedStorage && typeof navigator.storage?.persisted === "function" && (
               <button
                 type="button"
