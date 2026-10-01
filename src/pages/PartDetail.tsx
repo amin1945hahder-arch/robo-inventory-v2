@@ -347,6 +347,7 @@ export default function PartDetail() {
                         decidedAt: currentRentRow?.rental.decidedAt,
                         pickedUpAt: currentRentRow?.rental.pickedUpAt,
                         returnedAt: currentRentRow?.rental.returnedAt,
+                        dueAt: currentRental.dueAt ?? currentRentRow?.rental.dueAt,
                         conditionReport:
                           currentRentRow?.rental.conditionReport ?? currentRental.note,
                         projectName: currentRental.projectName,

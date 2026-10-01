@@ -17,14 +17,13 @@ export function buildCardCaption(card: RentCardData, headline: string): string {
     lines.push(`⚖️ Amount: ${card.amount} ${card.amountUnit ?? ""}`.trimEnd());
   lines.push(`📌 Status: ${card.statusLabel}`);
   if (card.projectName) lines.push(`🤖 Project: ${card.projectName}`);
-  if (card.requestedAt)
-    lines.push(`📅 Requested: ${new Date(card.requestedAt).toLocaleString("en-GB")}`);
-  if (card.decidedAt)
-    lines.push(`✅ Decided: ${new Date(card.decidedAt).toLocaleString("en-GB")}`);
-  if (card.pickedUpAt)
-    lines.push(`📦 Picked up: ${new Date(card.pickedUpAt).toLocaleString("en-GB")}`);
-  if (card.returnedAt)
-    lines.push(`↩️ Returned: ${new Date(card.returnedAt).toLocaleString("en-GB")}`);
+  // Dates only (en-GB day/month/year) — the day matters on a receipt.
+  const d = (n: number) => new Date(n).toLocaleDateString("en-GB");
+  if (card.requestedAt) lines.push(`📅 Requested: ${d(card.requestedAt)}`);
+  if (card.decidedAt) lines.push(`✅ Decided: ${d(card.decidedAt)}`);
+  if (card.pickedUpAt) lines.push(`📦 Picked up: ${d(card.pickedUpAt)}`);
+  if (card.dueAt) lines.push(`⏳ Return by: ${d(card.dueAt)}`);
+  if (card.returnedAt) lines.push(`↩️ Returned: ${d(card.returnedAt)}`);
   if (card.conditionReport) lines.push(`📝 Condition: ${card.conditionReport}`);
   return lines.join("\n");
 }

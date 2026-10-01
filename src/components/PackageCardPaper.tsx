@@ -12,6 +12,9 @@ export type PackageCardData = {
   requestedAt?: number;
   decidedAt?: number;
   pickupAt?: number;
+  pickedUpAt?: number;
+  returnedAt?: number;
+  dueAt?: number;
   note?: string;
 };
 

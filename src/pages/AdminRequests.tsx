@@ -435,6 +435,15 @@ export default function AdminRequests() {
   // Whole-package card (bundle-level receipt, like the per-unit rent card).
   const [pkgCard, setPkgCard] = useState<PackageCardData | null>(null);
   const pkgCardFor = (p: any): PackageCardData => {
+    // Best available per-unit dates (unit records carry the lend window).
+    const unitDates = (p.lines ?? []).flatMap((l: any) => l.units ?? []).reduce(
+      (acc: { pickedUpAt?: number; returnedAt?: number; dueAt?: number }, u: any) => ({
+        pickedUpAt: acc.pickedUpAt ?? u.pickedUpAt,
+        returnedAt: acc.returnedAt ?? u.returnedAt,
+        dueAt: acc.dueAt ?? u.dueAt,
+      }),
+      {},
+    );
     const lines =
       p.lines && p.lines.length > 0
         ? p.lines.map((l: any) => ({
@@ -457,6 +466,10 @@ export default function AdminRequests() {
       requestedAt: p.package.requestedAt,
       decidedAt: p.package.decidedAt,
       pickupAt: p.package.pickupAt,
+      // Bundle-level dates written by pickup/return + admin date edits.
+      pickedUpAt: p.package.pickedUpAt ?? unitDates.pickedUpAt,
+      returnedAt: p.package.returnedAt ?? unitDates.returnedAt,
+      dueAt: p.package.dueAt ?? unitDates.dueAt,
       note: p.package.note,
     };
   };
@@ -730,6 +743,7 @@ export default function AdminRequests() {
     decidedAt: row.rental.decidedAt,
     pickedUpAt: row.rental.pickedUpAt,
     returnedAt: row.rental.returnedAt,
+    dueAt: row.rental.dueAt,
     conditionReport: row.rental.conditionReport,
     amount: row.rental.amount,
     amountUnit: row.group?.measureUnit,

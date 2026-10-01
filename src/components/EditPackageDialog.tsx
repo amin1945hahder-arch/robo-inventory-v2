@@ -138,11 +138,17 @@ export function EditPackageDialog({
     setRequestedTouched(false);
     setDecidedLocal(toLocalInput(pkg.package?.decidedAt ?? null));
     setDecidedTouched(false);
-    setPickedUpLocal(toLocalInput(pkg.package?.decidedAt ?? null));
+    // Seed from the real per-unit records (listPackages rentals) — the best
+    // available timestamps — instead of copying other fields or blanks.
+    const unitDates = (pkg.lines ?? []).flatMap((l: any) => l.units ?? []);
+    const pickedUpAt = unitDates.find((u: any) => u.pickedUpAt)?.pickedUpAt;
+    const returnedAt = unitDates.find((u: any) => u.returnedAt)?.returnedAt;
+    const dueAt = unitDates.find((u: any) => u.dueAt)?.dueAt;
+    setPickedUpLocal(toLocalInput(pickedUpAt ?? null));
     setPickedUpTouched(false);
-    setReturnedLocal("");
+    setReturnedLocal(toLocalInput(returnedAt ?? null));
     setReturnedTouched(false);
-    setDueLocal("");
+    setDueLocal(toLocalInput(dueAt ?? null));
     setDueTouched(false);
     setRemovedExtra(new Set());
     const next: EditLine[] = (pkg.lines ?? []).map((l: any) => ({

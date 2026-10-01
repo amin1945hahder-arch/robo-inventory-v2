@@ -26,7 +26,7 @@ describe("rent card caption", () => {
     expect(caption).toContain("🏷 Item: Arduino Uno (ARD-UNO-003)");
     expect(caption).toContain("👤 Student: Amin Haydar · STU-0002");
     expect(caption).toContain("📌 Status: active · return requested");
-    expect(caption).toContain("📅 Requested: 02/01/2026, 03:04");
+    expect(caption).toContain("📅 Requested: 02/01/2026"); // date only
     expect(caption).toContain("📝 Condition: Missing cable");
     // each data field is on its own line
     expect(lines.filter((l) => l.startsWith("🏷")).length).toBe(1);

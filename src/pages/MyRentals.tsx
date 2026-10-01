@@ -372,6 +372,7 @@ export default function MyRentals() {
             decidedAt: card.row.decidedAt,
             pickedUpAt: card.row.pickedUpAt,
             returnedAt: card.row.returnedAt,
+            dueAt: card.row.dueAt,
             conditionReport: card.row.conditionReport,
             projectName: card.row.projectName,
           } as CardRow}

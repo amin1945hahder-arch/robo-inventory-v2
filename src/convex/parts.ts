@@ -1896,6 +1896,12 @@ export const listPackages = query({
               status: r.status,
               rentBroken: Boolean(r.rentBroken),
               returnRequestedAt: r.returnRequestedAt,
+              // Lend-window dates for the package card + date editor.
+              requestedAt: r.requestedAt,
+              decidedAt: r.decidedAt,
+              pickedUpAt: r.pickedUpAt,
+              returnedAt: r.returnedAt,
+              dueAt: r.dueAt,
             });
           }
         }
@@ -2000,6 +2006,11 @@ export const getPackage = query({
             status: r.status,
             rentBroken: Boolean(r.rentBroken),
             returnRequestedAt: r.returnRequestedAt,
+            requestedAt: r.requestedAt,
+            decidedAt: r.decidedAt,
+            pickedUpAt: r.pickedUpAt,
+            returnedAt: r.returnedAt,
+            dueAt: r.dueAt,
           });
         }
       }
