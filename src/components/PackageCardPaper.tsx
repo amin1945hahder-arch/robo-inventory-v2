@@ -15,7 +15,10 @@ export type PackageCardData = {
   note?: string;
 };
 
-const fmt = (n?: number) => (n ? new Date(n).toLocaleString() : "—");
+// Dates only — the day matters, not the hour.
+const fmt = (n?: number) => (n ? new Date(n).toLocaleDateString() : "—");
+/** Show a date row only when the date was actually set. */
+const RowWhen = ({ k, v }: { k: string; v?: number }) => (v ? <Row k={k} v={fmt(v)} /> : null);
 
 function Row({ k, v }: { k: string; v: string }) {
   return (
@@ -77,9 +80,12 @@ export function PackageCardSheet({ card }: { card: PackageCardData }) {
             ))}
           </div>
         ))}
-        <Row k="Requested" v={fmt(card.requestedAt)} />
-        <Row k="Approved" v={fmt(card.decidedAt)} />
-        {card.pickupAt && <Row k="Pick-up" v={fmt(card.pickupAt)} />}
+        <RowWhen k="Requested" v={card.requestedAt} />
+        <RowWhen k="Approved" v={card.decidedAt} />
+        <RowWhen k="Scheduled pick-up" v={card.pickupAt} />
+        <RowWhen k="Picked up" v={card.pickedUpAt} />
+        <RowWhen k="Return by" v={card.dueAt} />
+        <RowWhen k="Returned" v={card.returnedAt} />
         {card.note && <Row k="Note" v={card.note} />}
       </dl>
     </div>

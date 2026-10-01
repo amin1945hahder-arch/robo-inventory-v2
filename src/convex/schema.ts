@@ -327,6 +327,11 @@ const schema = defineSchema(
       // Scheduled pick-up for approved packages — mirrors rentals.pickupAt so
       // package units follow the same approve → hand-over stage as singles.
       pickupAt: v.optional(v.number()),
+      // Bundle-level lend window, mirrored onto the unit records so package
+      // cards and the console can show every date in one place.
+      pickedUpAt: v.optional(v.number()),
+      returnedAt: v.optional(v.number()),
+      dueAt: v.optional(v.number()),
       // Timestamp of the member's most recent package-level return request.
       returnRequestedAt: v.optional(v.number()),
       // When the admin processes the package return (all-or-nothing).

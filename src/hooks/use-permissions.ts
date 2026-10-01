@@ -57,6 +57,18 @@ function normalize(raw: string): PermissionStatus {
   }
 }
 
+/** Is the app installed (PWA home-screen / wrapped webview shell)? */
+export function isStandalone(): boolean {
+  if (typeof window === "undefined") return false;
+  return (
+    window.matchMedia?.("(display-mode: standalone)").matches === true ||
+    (window.navigator as Navigator & { standalone?: boolean }).standalone === true ||
+    // Common Android WebView / Capacitor-style shells expose these markers.
+    (window as unknown as { RoboShelfNative?: unknown }).RoboShelfNative !== undefined ||
+    /\b(roboshelf|capacitor)\b/i.test(navigator.userAgent)
+  );
+}
+
 /** Current OS/browser-level state for one capability (no side effects). */
 async function detect(kind: PermissionKind): Promise<PermissionStatus> {
   if (typeof window === "undefined") return "unsupported";
@@ -125,12 +137,21 @@ export function usePermission(kind: PermissionKind) {
       let next: PermissionStatus;
       switch (kind) {
         case "notifications": {
+          // Safari/iOS only expose Notification.requestPermission() after a
+          // user gesture — this callback runs from a click, so the prompt
+          // must be called synchronously. Awaiting anything before it makes
+          // Safari silently resolve "denied" and Android WebViews never
+          // show the dialog. So: fire the native prompt FIRST (sync), then
+          // normalize whatever came back.
           if (typeof Notification === "undefined") {
             next = "unsupported";
             break;
           }
           try {
-            next = normalize(await Notification.requestPermission());
+            const p = Notification.requestPermission();
+            next = normalize(
+              typeof p === "string" ? p : await p,
+            );
           } catch {
             next = "denied";
           }

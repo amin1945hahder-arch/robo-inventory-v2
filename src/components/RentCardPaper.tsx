@@ -18,6 +18,8 @@ export type RentCardData = {
   /** Bulk (weight/length) rentals carry the amount + unit, e.g. 0.25 kg. */
   amount?: number;
   amountUnit?: string;
+  /** When the unit is due back. */
+  dueAt?: number;
   projectName?: string;
   /** Package rentals list every unit of the bundle on the card itself. */
   extraUnits?: { tag: string; groupName: string }[];
@@ -25,7 +27,10 @@ export type RentCardData = {
   containerChain?: string;
 };
 
-const fmt = (n?: number) => (n ? new Date(n).toLocaleString() : "—");
+// Dates only — the day matters on a paper receipt, not the hour.
+const fmt = (n?: number) => (n ? new Date(n).toLocaleDateString() : "—");
+/** Show a date row only when the date was actually set. */
+const RowWhen = ({ k, v }: { k: string; v?: number }) => (v ? <Row k={k} v={fmt(v)} /> : null);
 
 function Row({ k, v }: { k: string; v: string }) {
   return (
@@ -86,9 +91,11 @@ export function RentCardSheet({ card }: { card: RentCardData }) {
             ))}
           </div>
         )}
-        <Row k="Requested" v={fmt(card.requestedAt)} />
-        <Row k="Approved / picked up" v={fmt(card.decidedAt ?? card.pickedUpAt)} />
-        <Row k="Returned" v={fmt(card.returnedAt)} />
+        <RowWhen k="Requested" v={card.requestedAt} />
+        <RowWhen k="Approved" v={card.decidedAt} />
+        <RowWhen k="Picked up" v={card.pickedUpAt} />
+        <RowWhen k="Return by" v={card.dueAt} />
+        <RowWhen k="Returned" v={card.returnedAt} />
         {card.projectName && <Row k="Project" v={card.projectName} />}
         {card.conditionReport && <Row k="Condition" v={card.conditionReport} />}
       </dl>

@@ -1531,8 +1531,13 @@ export const returnWholePackage = mutation({
         });
       }
     }
-    // Package row: mark the return flag cleared and log the batch decision.
-    await touchPatch(ctx, packageId, { returnRequestedAt: undefined, returnDecidedAt: now });
+    // Package row: mark the return flag cleared and log the batch decision —
+    // with the return date so the card/console show when it came back.
+    await touchPatch(ctx, packageId, {
+      returnRequestedAt: undefined,
+      returnDecidedAt: now,
+      returnedAt: now,
+    });
 
     const summaryText = await summarize(ctx, pkg.lines);
     // ONE combined PDF card for the whole bundle (details in its caption —
@@ -2726,6 +2731,9 @@ export const adminEditPackage = mutation({
       lines: cleanLines,
       pickupAt: pickupAt === undefined ? pkg.pickupAt : (pickupAt ?? undefined),
       userId: renterId,
+      // Date corrections must land on the PACKAGE row itself too, or the
+      // card and Packages tab keep showing the old dates after an edit.
+      ...datePatch,
     });
 
     const summaryText = await summarize(ctx, cleanLines);
@@ -2967,6 +2975,8 @@ export const markPackageTaken = mutation({
 
     if (taken === 0)
       throw new ConvexError("Every unit was already picked up (or processed)");
+    // Bundle-level pick-up date for the package card / console rows.
+    await touchPatch(ctx, packageId, { pickedUpAt: now });
     if (member?.telegramChatId || member?.telegramUsername) {
       await telegramDM(
         ctx,

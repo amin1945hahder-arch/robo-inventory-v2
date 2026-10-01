@@ -18,6 +18,7 @@ import {
 import {
   BarChart3,
   Bell,
+  BellRing,
   Boxes,
   Box,
   FileDown,
@@ -41,6 +42,8 @@ import { AppIcon } from "@/components/AppIcon";
 import { useSound } from "@/hooks/use-sound";
 import { useAppearance } from "@/hooks/use-appearance";
 import { usePush } from "@/hooks/use-push";
+import { usePermission } from "@/hooks/use-permissions";
+import { toast } from "sonner";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -91,6 +94,39 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // OS-level push notifications (service worker) for the wrapped APK/EXE apps.
   usePush();
 
+  // Notification permission: offer the OS prompt the first time (one tap,
+  // never auto-fire — browsers require a user gesture and iOS requires it
+  // to be synchronous). Android WebViews without the Notification API fall
+  // back to in-page banners so the shell still notifies visibly.
+  const notifPerm = usePermission("notifications");
+  const [askedNotif, setAskedNotif] = useState(true);
+  useEffect(() => {
+    try {
+      setAskedNotif(window.localStorage.getItem("roboShelf.notifAsked") === "1");
+    } catch {
+      setAskedNotif(false);
+    }
+  }, []);
+  const askNotifications = async () => {
+    const res = await notifPerm.request();
+    try {
+      window.localStorage.setItem("roboShelf.notifAsked", "1");
+    } catch {
+      /* private mode */
+    }
+    setAskedNotif(true);
+    if (res === "granted") toast.success("Notifications enabled");
+    else if (res === "denied") toast.error("Blocked — enable notifications from your browser/app settings");
+  };
+  const showNotifBanner = async (title: string, body: string) => {
+    const sw = "serviceWorker" in navigator ? await navigator.serviceWorker.getRegistration() : undefined;
+    if (sw && typeof Notification !== "undefined" && Notification.permission === "granted") {
+      sw.active?.postMessage({ type: "SHOW_NOTIFICATION", title, body, tag: "roboshelf-activity", url: "/admin/requests" });
+      return;
+    }
+    toast(title, { description: body, duration: 8000 });
+  };
+
   // First-run bootstrap: (1) merge a pre-seeded club profile (name, ids,
   // phone, admin role) into this auth account if one exists, and (2) if no
   // admins exist yet, the first signed-in user becomes admin automatically.
@@ -107,9 +143,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (notifData === undefined) return;
     const prev = prevNotifs.current;
-    if (prev !== null && notifData > prev) playSound("notification");
+    if (prev !== null && notifData > prev) {
+      playSound("notification");
+      void showNotifBanner("RoboShelf", "New activity in the requests console");
+    }
     prevNotifs.current = notifData;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notifData, playSound]);
+
+  // One-tap permission banner in the shell until answered (prompt/denied
+  // both re-ask — the browser itself enforces the quiet-time after a deny).
 
   // Short beep on tab navigation (kept subtle).
   useEffect(() => {
@@ -437,7 +480,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         )}
 
         <main className="flex-1 px-4 py-8 md:px-8">
-          <div className="mx-auto w-full max-w-6xl">{children}</div>
+          <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
+            {/* First-run enable-notifications strip: one tap fires the native
+                prompt (Safari-safe: click handler → sync requestPermission). */}
+            {notifPerm.status === "prompt" && !askedNotif && (
+              <button
+                type="button"
+                onClick={askNotifications}
+                className="flex items-center justify-between gap-3 rounded-lg border border-primary/40 bg-primary/5 px-4 py-2.5 text-left transition-colors hover:bg-primary/10"
+              >
+                <span className="text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">Turn on notifications</span> — know the moment a
+                  request is approved or a return is due.
+                </span>
+                <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-primary">
+                  <BellRing className="size-3.5" /> Enable
+                </span>
+              </button>
+            )}
+            {children}
+          </div>
         </main>
       </div>
 
