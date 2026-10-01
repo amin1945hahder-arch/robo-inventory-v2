@@ -1930,6 +1930,42 @@ export const listPackages = query({
   },
 });
 
+/**
+ * Where is this unit held right now? Powers the "open the holding request"
+ * jump on the unit page: the live rental record (pending/approved/active/on
+ * project) plus its package, so admins can reach the exact request instead
+ * of hunting through the Requests console.
+ */
+export const holdingOfPart = query({
+  args: { partId: v.id("parts") },
+  handler: async (ctx, { partId }) => {
+    await requireUser(ctx);
+    const part = await ctx.db.get(partId);
+    if (!part) return null;
+
+    const rental = (
+      await ctx.db
+        .query("rentals")
+        .withIndex("by_part", (q) => q.eq("partId", partId))
+        .collect()
+    )
+      .filter((r) => r.status === "pending" || r.status === "approved" || r.status === "active" || r.status === "on_project")
+      .sort((a, b) => b.requestedAt - a.requestedAt)[0];
+    if (!rental) return null;
+
+    const holder = rental.userId ? await ctx.db.get(rental.userId) : null;
+    const pkg = rental.packageId ? await ctx.db.get(rental.packageId) : null;
+    return {
+      rentalId: rental._id,
+      status: rental.status,
+      requestedAt: rental.requestedAt,
+      holderName: holder?.name ?? holder?.email ?? "A member",
+      packageId: pkg && pkg.status !== "canceled" ? pkg._id : null,
+      packageStatus: pkg?.status,
+    };
+  },
+});
+
 export const getPackage = query({
   args: { id: v.id("rentalPackages") },
   handler: async (ctx, { id }) => {

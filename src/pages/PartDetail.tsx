@@ -28,7 +28,7 @@ import { unitQr } from "@/lib/qr";
 import { describePackSize, isPackGroup } from "@/lib/group-measure";
 import { toast } from "sonner";
 import { asMessage } from "@/components/EditRentalDialog";
-import { ArrowLeft, History, Pencil, Printer, Trash2 } from "lucide-react";
+import { ArrowLeft, ExternalLink, History, Pencil, Printer, Trash2 } from "lucide-react";
 import { SquarePen } from "lucide-react";
 
 const fmt = (n?: number) => (n ? new Date(n).toLocaleString() : "—");
@@ -55,6 +55,9 @@ export default function PartDetail() {
     part ? { groupId: part.groupId } : "skip",
   );
   const detail = useQuery(api.parts.getPartWithRental, id ? { id: id as any } : "skip");
+  // Where the unit is held right now (live rental + package) — powers the
+  // "open the request" jump for non-available units.
+  const holding = useQuery(api.parts.holdingOfPart, part ? { partId: part._id } : "skip");
   // This unit's rental history only — subscribing to the entire ledger here
   // made every rental anywhere re-render the unit page.
   const rentals = useQuery(
@@ -199,12 +202,32 @@ export default function PartDetail() {
             <div>
               <p className="font-mono text-xs text-muted-foreground">{part.tag}</p>
               <h1 className="text-2xl font-semibold tracking-tight">{group?.name ?? "Unit"}</h1>
-              <div className="mt-2 flex items-center gap-2">
+              <div className="mt-2 flex flex-wrap items-center gap-2">
                 <StatusBadge status={part.status} />
                 {part.currentProjectId && (
                   <Link to={`/projects/${part.currentProjectId}`} className="text-xs text-muted-foreground underline">
                     assigned project
                   </Link>
+                )}
+                {/* Non-available unit → jump straight to its live request
+                    (or the package it belongs to) in the Requests console. */}
+                {holding && isAdmin && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 gap-1 px-2 text-[11px]"
+                    title={`Open the ${holding.status} record${holding.packageId ? " (inside its package)" : ""} in Requests`}
+                    onClick={() =>
+                      navigate(
+                        holding.packageId
+                          ? `/admin/requests?tab=packages&package=${holding.packageId}`
+                          : `/admin/requests?tab=pending&rental=${holding.rentalId}`,
+                      )
+                    }
+                  >
+                    <ExternalLink className="size-3" />
+                    Open request
+                  </Button>
                 )}
               </div>
             </div>
