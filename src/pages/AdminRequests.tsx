@@ -55,6 +55,17 @@ type Row = {
 };
 
 export default function AdminRequests() {
+  // Active console tab (controlled so one-tap actions inside the Updates tab
+  // can jump straight to the matching dedicated tab). Declared first: the
+  // per-tab query gating below reads it during render.
+  const [tab, setTab] = useState<
+    "updates" | "pending" | "packages" | "active" | "projects" | "history" | "ranks" | "printers" | "profiles"
+  >("updates");
+  // ---- Clear history (History tab) ----
+  // Independent categories — nothing is deleted unless it is ticked here, and
+  // the confirm button stays disabled until at least one thing is selected.
+  const [clearOpen, setClearOpen] = useState(false);
+
   // Pending tab uses a grouped query: singles are one row each, pending
   // package units collapse into one row per package — badge and list always
   // match what is actually rendered.
@@ -62,10 +73,14 @@ export default function AdminRequests() {
   const pendingSingles = (pendingRowsQ ?? []).filter((r: any) => r.kind === "single");
   const pendingPkgRows = (pendingRowsQ ?? []).filter((r: any) => r.kind === "package");
   const active = useQuery(api.parts.listAllRentals, { status: "active" });
-  // Approved but not yet handed over — the pick-up stage.
-  const awaiting = useQuery(api.parts.listAllRentals, { status: "approved" });
+  // Approved but not yet handed over — the pick-up stage. Only the Active tab
+  // renders these and its badge doesn't need them — the read is skipped from
+  // every other tab, which cuts a full rentals-index scan on every update.
+  const awaiting = useQuery(api.parts.listAllRentals, tab === "active" ? { status: "approved" } : "skip");
   const onProject = useQuery(api.parts.listAllRentals, { status: "on_project" });
-  const history = useQuery(api.parts.listAllRentals, { status: "returned" });
+  // History is the largest read in this console (every processed rental) and
+  // has no tab badge — subscribe only while the History tab is open.
+  const history = useQuery(api.parts.listAllRentals, tab === "history" ? { status: "returned" } : "skip");
   const packages = useQuery(api.parts.listPackages, { scope: "all" });
   const returnWholePkg = useMutation(api.parts.returnWholePackage);
   const projects = useQuery(api.projects.listProjects, { status: "active" });
@@ -95,7 +110,8 @@ export default function AdminRequests() {
   const bulkDeleteRecords = useMutation(api.bulk.bulkDeleteRentalRecords);
   const markPkgTaken = useMutation(api.parts.markPackageTaken);
   const clearHistory = useMutation(api.bulk.clearRentalHistory);
-  const historyStatsQ = useQuery(api.bulk.historyStats, {});
+  // Scans the whole processed history — only needed while the dialog is open.
+  const historyStatsQ = useQuery(api.bulk.historyStats, clearOpen ? {} : "skip");
   const markSeen = useMutation(api.bulk.markRequestsSeen);
   const seenKeysQ = useQuery(api.bulk.allSeenKeys, {});
   const seenKeys = useMemo(() => new Set(seenKeysQ ?? []), [seenKeysQ]);
@@ -145,10 +161,8 @@ export default function AdminRequests() {
   // ---- Search across EVERYTHING (all tabs) ----------------------------
   const [search, setSearch] = useState("");
   // Active console tab (controlled so one-tap actions inside the Updates tab
-  // can jump straight to the matching dedicated tab).
-  const [tab, setTab] = useState<
-    "updates" | "pending" | "packages" | "active" | "projects" | "history" | "ranks" | "printers" | "profiles"
-  >("updates");
+  // can jump straight to the matching dedicated tab) — declared at the top of
+  // the component so per-tab query gating can read it.
   // Deep link from a unit page: /admin/requests?tab=…&rental=…&package=… —
   // opens the right tab, highlights the record and scrolls it into view.
   const [sp, setSp] = useSearchParams();
@@ -477,7 +491,6 @@ export default function AdminRequests() {
   // ---- Clear history (History tab) ----
   // Independent categories — nothing is deleted unless it is ticked here, and
   // the confirm button stays disabled until at least one thing is selected.
-  const [clearOpen, setClearOpen] = useState(false);
   const [delProcessed, setDelProcessed] = useState(false);
   const [delLive, setDelLive] = useState(false);
   const [clearRelease, setClearRelease] = useState(false);

@@ -14,6 +14,7 @@ import "./index.css";
 import { LoadingGif } from "@/components/LoadingGif";
 import { PreviousLocationTracker } from "@/hooks/use-previous-location";
 import { CoverBackground } from "@/components/CoverBackground";
+import { attachOfflineGuard } from "@/lib/offline";
 
 // Lazy load route components for better code splitting
 const Landing = lazy(() => import("./pages/Landing.tsx"));
@@ -108,6 +109,11 @@ class RootErrorBoundary extends React.Component<
 }
 
 const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string);
+
+// Offline mode: one app-wide write guard. While the device is offline every
+// mutation/action is refused with a clear message (nothing hangs or silently
+// fails); reactive reads and the IndexedDB delta cache keep working.
+attachOfflineGuard(convex);
 
 function RouteSyncer() {
   const location = useLocation();

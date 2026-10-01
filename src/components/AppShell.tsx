@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery, useConvexConnectionState } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -24,6 +24,7 @@ import {
   FileDown,
   FolderKanban,
   GraduationCap,
+  HardDrive,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -34,6 +35,7 @@ import {
   UserCircle2,
   Users,
   Warehouse,
+  WifiOff,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -43,6 +45,8 @@ import { useSound } from "@/hooks/use-sound";
 import { useAppearance } from "@/hooks/use-appearance";
 import { usePush } from "@/hooks/use-push";
 import { usePermission } from "@/hooks/use-permissions";
+import { useOnline } from "@/hooks/use-online";
+import { setBackendConnected } from "@/lib/offline";
 import { toast } from "sonner";
 
 const NAV = [
@@ -94,6 +98,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // OS-level push notifications (service worker) for the wrapped APK/EXE apps.
   usePush();
 
+  // Offline mode: the browser's network events PLUS the live Convex websocket
+  // state feed one central flag (src/lib/offline.ts). When it flips, the
+  // header shows an Offline chip + banner, and the client-wide write guard
+  // refuses every mutation/action until the backend is reachable again.
+  const online = useOnline();
+  const connState = useConvexConnectionState();
+  useEffect(() => {
+    // Only a websocket that HAS connected and then dropped marks the app
+    // offline — the pre-first-connect state would false-positive at startup.
+    setBackendConnected(!(connState.hasEverConnected && !connState.isWebSocketConnected));
+  }, [connState.hasEverConnected, connState.isWebSocketConnected]);
+
   // Notification permission: offer the OS prompt the first time (one tap,
   // never auto-fire — browsers require a user gesture and iOS requires it
   // to be synchronous). Android WebViews without the Notification API fall
@@ -137,6 +153,32 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       claimAdmin().catch(() => undefined);
     }
   }, [user?._id, user?.role, claimAdmin, reconcile]);
+
+  // Persistent storage ("storage permission"): pins the app's offline data
+  // (service-worker shell + IndexedDB delta cache) so it survives storage
+  // pressure. No OS dialog exists for this on the web — this one-tap strip is
+  // the visible ask, remembered per device like the notifications strip.
+  const storagePerm = usePermission("storage");
+  const [askedStorage, setAskedStorage] = useState(true);
+  useEffect(() => {
+    try {
+      setAskedStorage(window.localStorage.getItem("roboShelf.storageAsked") === "1");
+    } catch {
+      setAskedStorage(false);
+    }
+  }, []);
+  const askStorage = async () => {
+    const res = await storagePerm.request();
+    try {
+      window.localStorage.setItem("roboShelf.storageAsked", "1");
+    } catch {
+      /* private mode */
+    }
+    setAskedStorage(true);
+    if (res === "granted") toast.success("Offline storage enabled — your saved data stays on this device");
+    else if (res === "denied")
+      toast.error("Storage was declined — the app works, but the browser may clear offline data when space runs low");
+  };
 
   // Play the notification sound when new admin notifications arrive while
   // the shell is open (Convex pushes updates automatically — no reload).
@@ -358,6 +400,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
           <div className="hidden md:block" />
           <div className="flex items-center gap-2">
+            {!online && (
+              <span
+                className="flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-500"
+                title="Offline — browsing saved data; changes are disabled"
+              >
+                <WifiOff className="size-3" />
+                Offline
+              </span>
+            )}
             <Button variant="outline" size="sm" className="gap-2 md:hidden" onClick={() => setScanOpen(true)}>
               <ScanLine className="size-4" />
             </Button>
@@ -405,6 +456,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </DropdownMenu>
           </div>
         </header>
+
+        {/* Offline mode: cached data stays browsable (reactive queries keep
+            their last values, Inventory reads its IndexedDB delta cache);
+            every database write is refused until the backend is reachable. */}
+        {!online && (
+          <div className="sticky top-14 z-30 flex items-center gap-2.5 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-500 md:px-8">
+            <WifiOff className="size-3.5 shrink-0" />
+            <span className="min-w-0">
+              <span className="font-semibold text-foreground">Offline</span> — showing saved data.
+              Actions that change the database are disabled until you're back online.
+            </span>
+          </div>
+        )}
 
         {/* ===== Mobile menu dropdown (below md) ===== */}
         {mobileMenuOpen && (
@@ -495,6 +559,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </span>
                 <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-primary">
                   <BellRing className="size-3.5" /> Enable
+                </span>
+              </button>
+            )}
+            {storagePerm.status === "prompt" && !askedStorage && typeof navigator.storage?.persisted === "function" && (
+              <button
+                type="button"
+                onClick={askStorage}
+                className="flex items-center justify-between gap-3 rounded-lg border border-primary/40 bg-primary/5 px-4 py-2.5 text-left transition-colors hover:bg-primary/10"
+              >
+                <span className="text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">Turn on offline storage</span> — keeps your saved
+                  inventory on this device so the app keeps working without a connection.
+                </span>
+                <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-primary">
+                  <HardDrive className="size-3.5" /> Enable
                 </span>
               </button>
             )}

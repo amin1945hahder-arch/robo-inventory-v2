@@ -87,7 +87,19 @@ async function detect(kind: PermissionKind): Promise<PermissionStatus> {
       case "storage": {
         const s = (navigator as Navigator & { storage?: { persisted?: () => Promise<boolean> } }).storage;
         if (!s?.persisted) return "unsupported";
-        return (await s.persisted()) ? "granted" : "prompt";
+        if (await s.persisted()) return "granted";
+        // Chromium exposes the real site permission ("persistent-storage"):
+        // a hard "denied" there means the user must lift the block in site
+        // settings — persist() alone would just keep returning false.
+        try {
+          const perms = (navigator as Navigator & { permissions?: Permissions }).permissions;
+          const st = await perms?.query({ name: "persistent-storage" as PermissionName });
+          if (st?.state === "granted") return "granted";
+          if (st?.state === "denied") return "denied";
+        } catch {
+          /* Safari/Firefox: no such permission name — stay "prompt" */
+        }
+        return "prompt";
       }
       case "sound": {
         // The Web Audio context is created lazily by use-sound; here we only
@@ -178,7 +190,28 @@ export function usePermission(kind: PermissionKind) {
             next = "unsupported";
             break;
           }
-          next = (await s.persist()) ? "granted" : "denied";
+          // persist() is silent in every browser (no OS dialog exists for it);
+          // the app's own one-tap strip is the visible "ask". True = granted;
+          // false = the browser declined (or no engagement yet) — re-check the
+          // site permission before reporting a hard denial.
+          let persisted = false;
+          try {
+            persisted = await s.persist();
+          } catch {
+            persisted = false;
+          }
+          if (persisted) {
+            next = "granted";
+            break;
+          }
+          try {
+            const st = await navigator.permissions?.query({
+              name: "persistent-storage" as PermissionName,
+            });
+            next = st?.state === "granted" ? "granted" : "denied";
+          } catch {
+            next = "denied";
+          }
           break;
         }
         case "sound": {
