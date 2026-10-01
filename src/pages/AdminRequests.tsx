@@ -54,6 +54,34 @@ type Row = {
   student: any;
 };
 
+// Per-tab counter bubbles — each tab gets its OWN color with the app's glassy
+// 3D treatment (gradient fill + inner top highlight + hairline border).
+const TAB_COUNT: Record<string, string> = {
+  updates: "border-cyan-500/40 from-cyan-500/25 to-cyan-500/10 text-cyan-300",
+  pending: "border-sky-500/40 from-sky-500/25 to-sky-500/10 text-sky-300",
+  packages: "border-violet-500/40 from-violet-500/25 to-violet-500/10 text-violet-300",
+  pickup: "border-amber-500/40 from-amber-500/25 to-amber-500/10 text-amber-300",
+  active: "border-emerald-500/40 from-emerald-500/25 to-emerald-500/10 text-emerald-300",
+  projects: "border-teal-500/40 from-teal-500/25 to-teal-500/10 text-teal-300",
+  history: "border-slate-400/40 from-slate-400/25 to-slate-400/10 text-slate-300",
+  ranks: "border-rose-500/40 from-rose-500/25 to-rose-500/10 text-rose-300",
+  printers: "border-fuchsia-500/40 from-fuchsia-500/25 to-fuchsia-500/10 text-fuchsia-300",
+  profiles: "border-orange-500/40 from-orange-500/25 to-orange-500/10 text-orange-300",
+};
+
+function TabCount({ tab, n }: { tab: string; n: number }) {
+  return (
+    <span
+      className={cn(
+        "rounded-full border bg-gradient-to-b px-1.5 py-0.5 text-[11px] font-semibold tabular-nums shadow-[inset_0_1px_0_0_rgba(255,255,255,0.18),0_1px_2px_rgba(0,0,0,0.35)]",
+        TAB_COUNT[tab] ?? TAB_COUNT.history,
+      )}
+    >
+      {n}
+    </span>
+  );
+}
+
 export default function AdminRequests() {
   // Active console tab (controlled so one-tap actions inside the Updates tab
   // can jump straight to the matching dedicated tab). Declared first: the
@@ -346,9 +374,11 @@ export default function AdminRequests() {
   }, [packages, search]);
   const fAwaiting = useMemo(() => filterRentalRows(awaiting), [filterRentalRows, awaiting]);
   // Pick-up tab: approved packages still waiting for the physical hand-over
-  // (search-aware, like every other list).
+  // (search-aware, like every other list). The unit stages are the truth:
+  // a bundle whose units were handed over one by one must NOT linger here
+  // even if its row was never stamped — hence approvedUnits > 0.
   const pickupPkgs = useMemo(
-    () => (fPackages ?? []).filter((p) => p.package.status === "approved" && !p.package.pickedUpAt),
+    () => (fPackages ?? []).filter((p) => p.package.status === "approved" && p.approvedUnits > 0),
     [fPackages],
   );
   const pickupPkgCount = pickupPkgs.length;
@@ -815,6 +845,21 @@ export default function AdminRequests() {
           {row.group?.name ?? "Part"}
           <span className="font-mono text-xs text-muted-foreground">{row.part?.tag}</span>
         </p>
+        {/* Individual rental or part of a package? Bundle members link
+            straight to their package (highlighted there). */}
+        {row.rental.packageId ? (
+          <Link
+            to={`/admin/requests?tab=packages&package=${row.rental.packageId}`}
+            className="mt-1 inline-flex w-fit items-center gap-1 rounded-full border border-violet-500/40 bg-gradient-to-b from-violet-500/25 to-violet-500/10 px-2 py-0.5 text-[10px] font-semibold text-violet-300 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.15)] transition-colors hover:from-violet-500/35 hover:to-violet-500/15"
+            title="This unit belongs to a package — open it"
+          >
+            <Boxes className="size-3" /> Package
+          </Link>
+        ) : (
+          <span className="mt-1 inline-flex w-fit items-center gap-1 rounded-full border border-emerald-500/40 bg-gradient-to-b from-emerald-500/25 to-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-300 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.15)]">
+            Individual
+          </span>
+        )}
         <p className="flex flex-wrap gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
           <span className="break-words">{row.student?.name ?? row.student?.email ?? "Member"}</span>
           {row.student?.studentId ? <span className="whitespace-nowrap">· {row.student.studentId}</span> : null}
@@ -824,6 +869,19 @@ export default function AdminRequests() {
             part's own record so every unit shows the full context. */}
         {row.rental.note ? (
           <p className="mt-1 break-words text-xs text-muted-foreground">📝 {row.rental.note}</p>
+        ) : null}
+        {/* Broken-at-rent stays visible for the whole lifecycle: the unit was
+            knowingly rented broken, and the return decides if it was fixed. */}
+        {row.rental.rentBroken ? (
+          <p className="mt-1 flex flex-wrap gap-x-1.5 gap-y-0.5 text-[10px] font-semibold">
+            <span className="rounded bg-rose-500/15 px-1.5 py-0.5 text-rose-400">Rented while broken</span>
+            {row.rental.status === "returned" && row.rental.functional === false ? (
+              <span className="rounded bg-rose-500/15 px-1.5 py-0.5 text-rose-400">Returned still broken</span>
+            ) : null}
+            {row.rental.status === "returned" && row.rental.functional === true ? (
+              <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-emerald-400">Fixed on return</span>
+            ) : null}
+          </p>
         ) : null}
         {row.rental.status === "active" && row.rental.returnRequestedAt !== undefined && (
           <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs font-medium text-amber-500">
@@ -958,75 +1016,43 @@ export default function AdminRequests() {
             <TabsTrigger value="updates" className="flex-none gap-1.5">
               <BellRing className="size-3.5" />
               Updates
-              {newUpdates.length > 0 && (
-                <span className="rounded-full bg-primary px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-primary-foreground">
-                  {newUpdates.length}
-                </span>
-              )}
+              {newUpdates.length > 0 && <TabCount tab="updates" n={newUpdates.length} />}
             </TabsTrigger>
             <TabsTrigger value="pending" className="flex-none gap-1.5">
               Pending
-              {pendingCount > 0 && (
-                <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums">
-                  {pendingCount}
-                </span>
-              )}
+              {pendingCount > 0 && <TabCount tab="pending" n={pendingCount} />}
             </TabsTrigger>
             <TabsTrigger value="packages" className="flex-none gap-1.5">
               Packages
-              {pendingPkgCount > 0 && (
-                <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums">
-                  {pendingPkgCount}
-                </span>
-              )}
+              {pendingPkgCount > 0 && <TabCount tab="packages" n={pendingPkgCount} />}
             </TabsTrigger>
             <TabsTrigger value="pickup" className="flex-none gap-1.5">
               Pick up
               {(awaiting?.length ?? 0) + pickupPkgCount > 0 && (
-                <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-amber-500">
-                  {(awaiting?.length ?? 0) + pickupPkgCount}
-                </span>
+                <TabCount tab="pickup" n={(awaiting?.length ?? 0) + pickupPkgCount} />
               )}
             </TabsTrigger>
             <TabsTrigger value="active" className="flex-none gap-1.5">
               Active
-              {(active?.length ?? 0) > 0 && (
-                <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums">
-                  {active?.length ?? 0}
-                </span>
-              )}
+              {(active?.length ?? 0) > 0 && <TabCount tab="active" n={active?.length ?? 0} />}
             </TabsTrigger>
             <TabsTrigger value="projects" className="flex-none gap-1.5">
               On projects
-              {(onProject?.length ?? 0) > 0 && (
-                <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums">
-                  {onProject?.length ?? 0}
-                </span>
-              )}
+              {(onProject?.length ?? 0) > 0 && <TabCount tab="projects" n={onProject?.length ?? 0} />}
             </TabsTrigger>
             <TabsTrigger value="history" className="flex-none">History</TabsTrigger>
             <TabsTrigger value="ranks" className="flex-none gap-1.5">
               Ranks
-              {(rankReqs?.length ?? 0) > 0 && (
-                <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums">
-                  {rankReqs?.length ?? 0}
-                </span>
-              )}
+              {(rankReqs?.length ?? 0) > 0 && <TabCount tab="ranks" n={rankReqs?.length ?? 0} />}
             </TabsTrigger>
             <TabsTrigger value="printers" className="flex-none gap-1.5">
               Printer
-              {(printerReqs?.length ?? 0) > 0 && (
-                <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums">
-                  {printerReqs?.length ?? 0}
-                </span>
-              )}
+              {(printerReqs?.length ?? 0) > 0 && <TabCount tab="printers" n={printerReqs?.length ?? 0} />}
             </TabsTrigger>
             <TabsTrigger value="profiles" className="flex-none gap-1.5">
               Profiles
               {(profileReqs?.length ?? 0) + (unapproved?.length ?? 0) > 0 && (
-                <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums">
-                  {(profileReqs?.length ?? 0) + (unapproved?.length ?? 0)}
-                </span>
+                <TabCount tab="profiles" n={(profileReqs?.length ?? 0) + (unapproved?.length ?? 0)} />
               )}
             </TabsTrigger>
           </TabsList>
@@ -1527,7 +1553,28 @@ export default function AdminRequests() {
                         ) : (
                           l.units.map((u: any) => (
                             <li key={u.rentalId} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-                              <span className="whitespace-nowrap font-mono">{u.tag}</span>
+                              {/* The unit's tag IS the link: tap it to open the
+                                  part's own page. */}
+                              {u.partId ? (
+                                <Link
+                                  to={`/part/${u.partId}`}
+                                  className="whitespace-nowrap font-mono text-foreground underline-offset-2 hover:text-primary hover:underline"
+                                  title="Open this unit's page"
+                                >
+                                  {u.tag}
+                                </Link>
+                              ) : (
+                                <span className="whitespace-nowrap font-mono">{u.tag}</span>
+                              )}
+                              {/* What it is + where it lives, so the ID alone
+                                  never forces a lookup. */}
+                              <span className="min-w-0 break-words text-[11px] text-muted-foreground">
+                                {l.groupName}
+                                {u.brand ? ` · ${u.brand}` : ""}
+                                {u.model ? ` ${u.model}` : ""}
+                                {u.containerPath ? ` · 📦 ${u.containerPath}` : ""}
+                                {u.closetName ? ` · 🗄 ${u.closetName}` : ""}
+                              </span>
                               <StatusBadge status={u.status} />
                               {u.rentBroken && (
                                 <span className="rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-rose-400">
@@ -1579,13 +1626,16 @@ export default function AdminRequests() {
                                     // every unit of a package is decided
                                     // individually (shelf / project / broken).
                                     setReturnFor({
-                                      rental: { _id: u.rentalId },
+                                      rental: { _id: u.rentalId, rentBroken: u.rentBroken },
                                       part: { tag: u.tag },
                                       group: { name: l.groupName },
                                       student: requester,
                                     } as Row);
                                     setDestination("shelf");
-                                    setFunctional(true);
+                                    // A unit rented broken defaults to "needs
+                                    // repair" — it only leaves that state when
+                                    // the admin explicitly marks it fixed.
+                                    setFunctional(!u.rentBroken);
                                     setReport("");
                                     setProjectId("");
                                     setCreatingProject(false);
@@ -1794,7 +1844,9 @@ export default function AdminRequests() {
                         <Button size="sm" variant="outline" onClick={() => {
                         setReturnFor(row as Row);
                         setDestination("shelf");
-                        setFunctional(true);
+                        // A unit rented broken defaults to "needs repair" —
+                        // it only leaves that state when explicitly fixed.
+                        setFunctional(!(row.rental?.rentBroken ?? false));
                         setReport("");
                         setProjectId("");
                         setCreatingProject(false);
@@ -1803,12 +1855,6 @@ export default function AdminRequests() {
                         setTransferDetails("");
                         setTransferDoc(null);
                         setRecovered("");
-                        setDestination("shelf");
-                        setFunctional(true);
-                        setReport("");
-                        setProjectId("");
-                        setCreatingProject(false);
-                        setNewProjectName("");
                       }}>
                         <RotateCcw className="size-4" /> Process return
                       </Button>

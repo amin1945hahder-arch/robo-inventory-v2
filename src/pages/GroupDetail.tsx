@@ -263,9 +263,17 @@ export default function GroupDetail() {
     try {
       const res = await requestQty({ groupId: group._id, count: qty });
       playSound("rental_request");
-      toast.success(
-        `${res.created} ${isPackGroup(group) ? `pack${res.created > 1 ? "s" : ""}` : `unit${res.created > 1 ? "s" : ""}`} requested — the lab admin has been notified`,
-      );
+      if ("packageId" in res && res.packageId) {
+        // Multi-unit requests are bundled into ONE package automatically —
+        // the admin approves/hands over/returns it as a single bundle.
+        toast.success(
+          `${res.created} ${isPackGroup(group) ? `pack${res.created > 1 ? "s" : ""}` : `unit${res.created > 1 ? "s" : ""}`} requested as ONE package — the lab admin has been notified`,
+        );
+      } else {
+        toast.success(
+          `${res.created} ${isPackGroup(group) ? `pack${res.created > 1 ? "s" : ""}` : `unit${res.created > 1 ? "s" : ""}`} requested — the lab admin has been notified`,
+        );
+      }
     } catch (e) {
       toast.error(asMessage(e));
     } finally {

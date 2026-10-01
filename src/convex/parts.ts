@@ -35,6 +35,37 @@ export function docCache() {
   };
 }
 
+/**
+ * Where a group physically lives: "Box A › Box B" container chain
+ * (outermost first) plus the closet name. Powers the per-unit location
+ * details in the package request lists.
+ */
+export async function containerInfo(
+  ctx: any,
+  cache: ReturnType<typeof docCache>,
+  groupId: string,
+): Promise<{ containerPath?: string; closetName?: string }> {
+  const names: string[] = [];
+  let closetName: string | undefined;
+  let cur = await cache.get(ctx, groupId);
+  let depth = 0;
+  while (cur && depth < 10) {
+    if (!closetName && cur.closetId) {
+      const closet = await cache.get(ctx, cur.closetId);
+      if (closet?.name) closetName = closet.name;
+    }
+    if (cur.parentGroupId) {
+      const parent = await cache.get(ctx, cur.parentGroupId);
+      if (parent?.name) names.unshift(parent.name);
+      cur = parent;
+    } else {
+      cur = null;
+    }
+    depth += 1;
+  }
+  return { containerPath: names.length ? names.join(" › ") : undefined, closetName };
+}
+
 // Server-side read of the return-request cooldown (hours). Duplicated from
 // settings.ts as an inline helper because queries can't be awaited from a
 // mutation handler without scheduling; this reads the settings table directly.
@@ -699,6 +730,55 @@ export const requestRentalQuantity = mutation({
     }
     const pool = free.slice(0, wanted);
     const label = user.name ?? user.email ?? "A member";
+
+    // More than one unit of one group = a package, automatically. The member
+    // gets the same bundle experience as an explicit package request (one
+    // approve-all, one pick-up, one record) without building it by hand.
+    if (wanted > 1 && (group.measure === undefined || group.measure === "count" || group.measure === "pack")) {
+      const packageId = await ctx.db.insert("rentalPackages", {
+        userId: user._id,
+        note: note?.trim() || undefined,
+        status: "pending",
+        lines: [{ groupId, count: wanted, note: undefined }],
+        requestedAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      for (const part of pool) {
+        const existing = await ctx.db
+          .query("rentals")
+          .withIndex("by_part", (q) => q.eq("partId", part._id))
+          .filter((q) => q.eq(q.field("status"), "pending"))
+          .first();
+        if (existing) throw new ConvexError(`Unit ${part.tag} already has a pending request`);
+        await ctx.db.insert("rentals", {
+          partId: part._id,
+          userId: user._id,
+          packageId,
+          status: "pending",
+          requestedAt: Date.now(),
+          updatedAt: Date.now(),
+          note: note?.trim() || undefined,
+        });
+        await touchPatch(ctx, part._id, { status: "pending" });
+      }
+      const summary = `${wanted}× ${group.name}`;
+      await notifyAdmin(ctx, `${label} requested a package rental (${summary})`, `/admin/requests`);
+      await ctx.scheduler.runAfter(0, internal.push.pushToAdmins, {
+        title: "New package request",
+        body: `${label} requested a package rental (${summary})`,
+        tag: "roboshelf-request",
+        url: "/admin/requests",
+      });
+      const admins = await ctx.db.query("users").collect();
+      await telegramGroup(
+        ctx,
+        `📦 ${label} requested a package rental: ${summary}${note ? `\n📝 ${note}` : ""}\n→ approve in the Requests console`,
+        admins.filter((a) => a.role === "admin" && a.telegramUsername).map((a) => ({ name: a.name, telegramUsername: a.telegramUsername })),
+        "requests",
+      );
+      return { created: pool.length, packageId };
+    }
+
     for (const part of pool) {
       const existing = await ctx.db
         .query("rentals")
@@ -1167,6 +1247,21 @@ export const adminRentalAction = mutation({
           decidedAt: now,
         });
         await touchPatch(ctx, part._id, { status: "rented", currentHolderId: rental.userId });
+      }
+      // Package bookkeeping: when this hand-over was the LAST approved unit
+      // of a bundle, stamp the package row so the bundle leaves the Pick-up
+      // tab even though the units were handed over individually.
+      if (rental.packageId) {
+        const pkg = await ctx.db.get(rental.packageId);
+        if (pkg && pkg.status === "approved") {
+          const stillWaiting = (
+            await ctx.db
+              .query("rentals")
+              .withIndex("by_user", (q) => q.eq("userId", pkg.userId))
+              .collect()
+          ).some((x) => x.packageId === pkg._id && x.status === "approved" && x._id !== rentalId);
+          if (!stillWaiting) await touchPatch(ctx, pkg._id, { pickedUpAt: now });
+        }
       }
       if (student?.telegramChatId || student?.telegramUsername) {
         await telegramDM(
@@ -1817,7 +1912,17 @@ export const pendingRentalRows = query({
       for (const r of rows.filter((x) => x.packageId === packageId)) {
         const part = await cache.get(ctx, r.partId);
         const group = part ? await cache.get(ctx, part.groupId) : null;
-        units.push({ rentalId: r._id, partId: part?._id, tag: part?.tag, groupName: group?.name });
+        const info = group ? await containerInfo(ctx, cache, group._id) : {};
+        units.push({
+          rentalId: r._id,
+          partId: part?._id,
+          tag: part?.tag,
+          groupName: group?.name,
+          model: part?.model ?? group?.model ?? undefined,
+          brand: part?.brand ?? group?.brand ?? undefined,
+          containerPath: info.containerPath,
+          closetName: info.closetName,
+        });
       }
       const student = await cache.get(ctx, pkg.userId);
       out.push({
@@ -1901,6 +2006,7 @@ export const listPackages = query({
       const lines = [];
       for (const line of pkg.lines) {
         const group = await cache.get(ctx, line.groupId);
+        const info = await containerInfo(ctx, cache, line.groupId);
         const units = [];
         for (const r of pkgRentals) {
           const part = r.partId ? await cache.get(ctx, r.partId) : null;
@@ -1912,6 +2018,12 @@ export const listPackages = query({
               status: r.status,
               rentBroken: Boolean(r.rentBroken),
               returnRequestedAt: r.returnRequestedAt,
+              // Per-unit identification: brand/model (unit override, then
+              // the group's) and where the unit physically lives.
+              model: part.model ?? group?.model ?? undefined,
+              brand: part.brand ?? group?.brand ?? undefined,
+              containerPath: info.containerPath,
+              closetName: info.closetName,
               // Lend-window dates for the package card + date editor.
               requestedAt: r.requestedAt,
               decidedAt: r.decidedAt,
@@ -1929,6 +2041,8 @@ export const listPackages = query({
           // (formatLineAmount) work on server lines without reshaping.
           count: line.count,
           note: line.note,
+          containerPath: info.containerPath,
+          closetName: info.closetName,
           units,
         });
       }
