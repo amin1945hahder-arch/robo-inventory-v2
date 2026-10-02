@@ -148,6 +148,14 @@ const PROJECTIONS: Record<SyncTable, string[]> = {
 const PAGE = 1000;
 
 /**
+ * How long a tombstone survives. Clients whose cursor predates the oldest
+ * surviving tombstone (or this whole window) MUST full-resync instead of
+ * trusting a delta — see needsFullResync() in the client delta layer.
+ * Kept in lockstep with src/lib/sync/tables.ts TOMBSTONE_RETENTION_MS.
+ */
+export const TOMBSTONE_RETENTION_MS = 90 * 24 * 36e5;
+
+/**
  * Delta read. `since` = the newest `updatedAt` the client has already merged
  * (pass 0 for the initial full pull). Uses ONLY the by_updatedAt index.
  */
@@ -196,9 +204,12 @@ export const syncHead = query({
       .withIndex("by_updatedAt", (q: any) => q.gt("updatedAt", 0))
       .order("desc")
       .first();
+    // Tombstone head is scoped to THIS table. Previously it read the global
+    // newest tombstone, so a single delete in `rentals` flipped the head of
+    // every other synced table and forced a needless delta pull on each.
     const deleted = await ctx.db
       .query("syncTombstones")
-      .withIndex("by_deletedAt", (q: any) => q.gt("deletedAt", 0))
+      .withIndex("by_table_deletedAt", (q: any) => q.eq("table", table).gt("deletedAt", 0))
       .order("desc")
       .first();
     return {
@@ -214,13 +225,29 @@ export const syncHead = query({
  * Strict by_deletedAt index scan; capped like the delta page.
  */
 export const listTombstonesSince = query({
-  args: { since: v.number() },
-  handler: async (ctx, { since }) => {
+  args: { table: v.string(), since: v.number() },
+  handler: async (ctx, { table, since }) => {
+    await requireUser(ctx);
     const rows = await ctx.db
       .query("syncTombstones")
-      .withIndex("by_deletedAt", (q: any) => q.gt("deletedAt", since))
+      .withIndex("by_table_deletedAt", (q: any) => q.eq("table", table).gt("deletedAt", since))
       .take(500);
-    return rows.map((r: any) => ({ table: r.table, recordId: r.recordId, deletedAt: r.deletedAt }));
+    // Oldest SURVIVING tombstone for this table = the retention floor. A
+    // client whose cursor predates it may have missed pruned deletes and must
+    // rebuild from scratch (needsFullResync).
+    const oldest = await ctx.db
+      .query("syncTombstones")
+      .withIndex("by_table_deletedAt", (q: any) => q.eq("table", table))
+      .order("asc")
+      .first();
+    return {
+      tombstones: rows.map((r: any) => ({
+        table: r.table,
+        recordId: r.recordId,
+        deletedAt: r.deletedAt,
+      })),
+      oldestTombstoneAt: oldest ? oldest.deletedAt : null,
+    };
   },
 });
 
@@ -298,7 +325,7 @@ export const syncBackfillAll = mutation({
 export const pruneTombstones = internalMutation({
   args: {},
   handler: async (ctx) => {
-    const cutoff = Date.now() - 90 * 24 * 36e5;
+    const cutoff = Date.now() - TOMBSTONE_RETENTION_MS;
     const old = await ctx.db
       .query("syncTombstones")
       .withIndex("by_deletedAt", (q: any) => q.lt("deletedAt", cutoff))

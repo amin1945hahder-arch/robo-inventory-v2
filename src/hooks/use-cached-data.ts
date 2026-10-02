@@ -1,10 +1,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConvex } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { applyDelta, cacheRows, emptyTableCache, type SyncedRow, type TableCache } from "@/lib/sync/delta";
+import {
+  applyDelta,
+  cacheRows,
+  emptyTableCache,
+  needsFullResync,
+  type SyncedRow,
+  type TableCache,
+} from "@/lib/sync/delta";
 import { loadTable, saveTable } from "@/lib/sync/store";
-import { SYNC_TABLES } from "@/lib/sync/tables";
+import { SYNC_TABLES, TOMBSTONE_RETENTION_MS } from "@/lib/sync/tables";
 import { bumpDataSyncListen } from "@/lib/sync/bus";
+
+// Dev-only instrumentation: one line per sync cycle so the read pattern is
+// observable without dragging a profiler into production bundles.
+const DEV = import.meta.env?.DEV === true;
+
+function logSyncCycle(table: string, info: { docs: number; bytes: number; more: boolean }) {
+  if (!DEV) return;
+  // eslint-disable-next-line no-console
+  console.debug(
+    `[sync] ${table}: ${info.docs} doc(s), ~${info.bytes}B${info.more ? " (hasMore)" : ""}`,
+  );
+}
 
 type Status = "loading" | "hydrated" | "ready";
 
@@ -62,22 +81,56 @@ export function useCachedData(table: string) {
     try {
       // Loop until the server says we're caught up (paginated deltas).
       for (;;) {
+        // Deletes first: table-scoped (a delete in another table no longer
+        // costs this table a round-trip), and we need the surviving-tombstone
+        // floor to decide whether our cursor is still trustworthy.
+        let dels = await convex.query(api.sync.listTombstonesSince, {
+          table,
+          since: lastDeleteRef.current,
+        });
+
+        // Escape hatch: if our cursor predates the oldest surviving tombstone
+        // (or the whole retention window), deletes may have been pruned while
+        // we were offline. Drop the local copy and rebuild from scratch rather
+        // than silently keeping rows the server deleted.
+        if (
+          needsFullResync({
+            since: sinceRef.current,
+            oldestTombstoneAt: dels.oldestTombstoneAt,
+            now: Date.now(),
+            retentionMs: TOMBSTONE_RETENTION_MS,
+          })
+        ) {
+          if (DEV) {
+            // eslint-disable-next-line no-console
+            console.warn(`[sync] full resync (${table}) — cursor predates tombstone retention`);
+          }
+          sinceRef.current = 0;
+          lastDeleteRef.current = 0;
+          const cleared = emptyTableCache();
+          setCache(cleared);
+          await saveTable(table, cleared);
+          dels = await convex.query(api.sync.listTombstonesSince, { table, since: 0 });
+        }
+
         const res = await convex.query(api.sync.getUpdatedRecords, {
           table,
           since: sinceRef.current,
         });
-        const tombstones = await convex.query(api.sync.listTombstonesSince, {
-          since: lastDeleteRef.current,
-        });
-        const deletedIds = (tombstones as { recordId: string; deletedAt: number }[])
+        const deletedIds = dels.tombstones
           .filter((t) => t.deletedAt > lastDeleteRef.current)
           .map((t) => t.recordId);
-        if (tombstones.length > 0) {
+        if (dels.tombstones.length > 0) {
           lastDeleteRef.current = Math.max(
             lastDeleteRef.current,
-            ...tombstones.map((t) => t.deletedAt),
+            ...dels.tombstones.map((t) => t.deletedAt),
           );
         }
+        logSyncCycle(table, {
+          docs: res.rows.length,
+          bytes: DEV ? JSON.stringify(res.rows).length : 0,
+          more: res.hasMore,
+        });
         setCache((prev) => {
           const next = applyDelta(prev, res.rows as SyncedRow[], deletedIds);
           sinceRef.current = Math.max(sinceRef.current, next.latestUpdatedAt);

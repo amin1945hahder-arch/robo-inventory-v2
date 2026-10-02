@@ -27,4 +27,9 @@ crons.interval("print-overdue-sweep", { minutes: 15 }, internal.printing.sweepOv
 // day of the month and posts the .zip into the chosen APP-group topic.
 crons.interval("data-backup-sweep", { minutes: 60 }, internal.appBackup.sweep, {});
 
+// Delta-sync hygiene: drop tombstones older than the retention window so
+// per-table delta pulls and the tombstone index stay bounded (this was defined
+// but never scheduled, so tombstones grew unbounded).
+crons.interval("prune-sync-tombstones", { hours: 24 * 7 }, internal.sync.pruneTombstones, {});
+
 export default crons;

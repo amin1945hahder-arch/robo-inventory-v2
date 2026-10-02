@@ -9,8 +9,10 @@ export const listNotifications = query({
   args: {},
   handler: async (ctx) => {
     await requireAdmin(ctx);
-    const rows = await ctx.db.query("notifications").collect();
-    return rows.sort((a, b) => (b._creationTime ?? 0) - (a._creationTime ?? 0)).slice(0, 50);
+    // Only the newest 50 are ever rendered. The default scan is ordered by
+    // _creationTime, so read the tail without collecting the whole (growing)
+    // feed into memory first.
+    return ctx.db.query("notifications").order("desc").take(50);
   },
 });
 
@@ -190,7 +192,27 @@ export const listPeople = query({
   handler: async (ctx) => {
     await requireAdmin(ctx);
     const users = await ctx.db.query("users").collect();
-    const rentals = await ctx.db.query("rentals").collect();
+    // Count LIVE rentals per member via the status index instead of collecting
+    // the entire (unbounded, historical) rentals table. Only pending/active/
+    // on_project rows matter for these two badges.
+    const byUser = new Map<string, { active: number; pending: number }>();
+    const bump = (userId: string, key: "active" | "pending") => {
+      const e = byUser.get(userId) ?? { active: 0, pending: 0 };
+      e[key] += 1;
+      byUser.set(userId, e);
+    };
+    const pendingRows = await ctx.db
+      .query("rentals")
+      .withIndex("by_status", (q) => q.eq("status", "pending"))
+      .collect();
+    for (const r of pendingRows) bump(r.userId, "pending");
+    for (const status of ["active", "on_project"] as const) {
+      const rows = await ctx.db
+        .query("rentals")
+        .withIndex("by_status", (q) => q.eq("status", status))
+        .collect();
+      for (const r of rows) bump(r.userId, "active");
+    }
     return users
       .map((u) => ({
         user: {
@@ -213,8 +235,8 @@ export const listPeople = query({
           profileApproved: u.profileApproved,
           printerRole: u.printerRole,
         },
-        activeRentals: rentals.filter((r) => r.userId === u._id && (r.status === "active" || r.status === "on_project")).length,
-        pending: rentals.filter((r) => r.userId === u._id && r.status === "pending").length,
+        activeRentals: byUser.get(u._id)?.active ?? 0,
+        pending: byUser.get(u._id)?.pending ?? 0,
       }))
       .sort((a, b) => (a.user.name ?? "").localeCompare(b.user.name ?? ""));
   },

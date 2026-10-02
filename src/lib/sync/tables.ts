@@ -15,3 +15,11 @@ export const SYNC_TABLES = [
 ] as const;
 
 export type SyncTable = (typeof SYNC_TABLES)[number];
+
+/**
+ * Tombstone retention window, mirrored from convex/sync.ts
+ * TOMBSTONE_RETENTION_MS. A cursor older than the oldest surviving tombstone
+ * (or older than this window) must full-resync — deletes may have been pruned
+ * while the client was offline.
+ */
+export const TOMBSTONE_RETENTION_MS = 90 * 24 * 36e5;

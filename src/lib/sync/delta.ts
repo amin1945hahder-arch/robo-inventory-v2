@@ -46,6 +46,28 @@ export function applyDelta(
   return { rows, latestUpdatedAt: latest };
 }
 
+/**
+ * Should the client discard its cache and re-pull from scratch?
+ *
+ * Two independent triggers:
+ *  - the cursor predates the oldest surviving tombstone, so deletes between
+ *    the cursor and that floor may already have been pruned; or
+ *  - the cursor is older than the retention window itself (long offline).
+ * A cursor of 0 means nothing is cached — a normal pull is already a full
+ * resync, so no special handling is needed.
+ */
+export function needsFullResync(opts: {
+  since: number;
+  oldestTombstoneAt: number | null;
+  now: number;
+  retentionMs: number;
+}): boolean {
+  const { since, oldestTombstoneAt, now, retentionMs } = opts;
+  if (!(since > 0)) return false;
+  if (oldestTombstoneAt != null && since < oldestTombstoneAt) return true;
+  return since < now - retentionMs;
+}
+
 /** Hydrate from whatever IndexedDB returned (defensive against bad shapes). */
 export function reviveCache(raw: unknown): TableCache {
   if (!raw || typeof raw !== "object") return emptyTableCache();

@@ -776,7 +776,11 @@ const schema = defineSchema(
       table: v.string(),
       recordId: v.string(),
       deletedAt: v.number(),
-    }).index("by_deletedAt", ["deletedAt"]),
+    })
+      .index("by_deletedAt", ["deletedAt"])
+      // Table-scoped tombstone reads: syncHead/listTombstonesSince must never
+      // let a delete in one table wake every other table's delta pull.
+      .index("by_table_deletedAt", ["table", "deletedAt"]),
   },
   {
     schemaValidation: false,

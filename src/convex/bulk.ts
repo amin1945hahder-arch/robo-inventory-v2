@@ -147,8 +147,11 @@ export const historyStats = query({
   args: { userId: v.optional(v.id("users")) },
   handler: async (ctx, { userId }) => {
     await requireAdmin(ctx);
-    const all = await ctx.db.query("rentals").collect();
-    const rows = userId ? all.filter((r) => r.userId === userId) : all;
+    // Clearing one person's history only needs THAT person's rows — use the
+    // by_user index instead of scanning the whole rentals table.
+    const rows = userId
+      ? await ctx.db.query("rentals").withIndex("by_user", (q) => q.eq("userId", userId)).collect()
+      : await ctx.db.query("rentals").collect();
     return {
       processed: rows.filter((r) => PROCESSED.has(r.status)).length,
       live: rows.filter((r) => !PROCESSED.has(r.status)).length,

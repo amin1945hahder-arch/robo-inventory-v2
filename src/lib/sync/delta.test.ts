@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { applyDelta, cacheRows, emptyTableCache, persistCache, reviveCache } from "./delta";
+import {
+  applyDelta,
+  cacheRows,
+  emptyTableCache,
+  needsFullResync,
+  persistCache,
+  reviveCache,
+} from "./delta";
 
 describe("applyDelta", () => {
   it("inserts new rows and advances the cursor", () => {
@@ -74,5 +81,55 @@ describe("cacheRows", () => {
     let c = emptyTableCache();
     c = applyDelta(c, [{ _id: "b" }, { _id: "a" }], []);
     expect(cacheRows(c).map((r) => r._id)).toEqual(["a", "b"]);
+  });
+});
+
+const RETENTION = 90 * 24 * 36e5;
+
+describe("needsFullResync", () => {
+  const now = 1_000_000_000_000;
+  const base = { oldestTombstoneAt: null as number | null, now, retentionMs: RETENTION };
+
+  it("is false for a fresh client (nothing cached yet)", () => {
+    expect(needsFullResync({ ...base, since: 0 })).toBe(false);
+  });
+
+  it("is false for an up-to-date cursor", () => {
+    expect(
+      needsFullResync({ ...base, since: now - 60_000, oldestTombstoneAt: now - 120_000 }),
+    ).toBe(false);
+  });
+
+  it("triggers when the cursor predates the oldest surviving tombstone", () => {
+    // Cursor is older than the retention floor → pruned deletes may be missed.
+    expect(
+      needsFullResync({ ...base, since: now - RETENTION - 1, oldestTombstoneAt: now - RETENTION + 5 }),
+    ).toBe(true);
+  });
+
+  it("triggers when the cursor is older than the retention window", () => {
+    // No tombstone floor to compare against, but the client has been offline
+    // longer than tombstones survive — resync rather than risk a stale cache.
+    expect(needsFullResync({ ...base, since: now - RETENTION - 1 })).toBe(true);
+  });
+});
+
+describe("minimal reads for a no-change sync", () => {
+  it("an empty page is a byte-for-byte no-op", () => {
+    let c = emptyTableCache();
+    c = applyDelta(c, [{ _id: "p1", status: "rented", updatedAt: 500 }], []);
+    const next = applyDelta(c, [], []);
+    expect(next.latestUpdatedAt).toBe(c.latestUpdatedAt); // cursor did not move
+    expect(next.rows.size).toBe(c.rows.size);
+    expect(next.rows.get("p1")).toBe(c.rows.get("p1")); // same row reference
+  });
+
+  it("a tombstone-only page drops rows without moving the row cursor", () => {
+    let c = emptyTableCache();
+    c = applyDelta(c, [{ _id: "p1", updatedAt: 500 }, { _id: "p2", updatedAt: 600 }], []);
+    const next = applyDelta(c, [], ["p1"]);
+    expect(next.rows.has("p1")).toBe(false);
+    expect(next.rows.has("p2")).toBe(true);
+    expect(next.latestUpdatedAt).toBe(600); // deletes don't touch the row cursor
   });
 });
