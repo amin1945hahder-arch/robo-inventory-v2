@@ -1162,21 +1162,14 @@ export default function AdminRequests() {
                 className="text-destructive"
                 disabled={bulkBusy}
                 onClick={async () => {
-                  if (!confirm(`Delete ${selected.size} selected record(s)? Records still holding their unit are kept — use Edit → Delete on a record and choose “put everything back” to release units.`))
+                  if (!confirm(`Delete ${selected.size} selected record(s)? The ledger rows are removed; every unit keeps its current state. Use Edit → Delete with “put everything back” to release units instead.`))
                     return;
                   setBulkBusy(true);
                   try {
                     const res = await bulkDeleteRecords({ rentalIds: [...selected] as never, alsoFreePart: false });
-                    if (res.skipped.length > 0) {
-                      const tags = res.skipped.map((s: any) => s.tag ?? "unit").slice(0, 4).join(", ");
-                      toast.warning(
-                        `Deleted ${res.deleted}. Kept ${res.skipped.length} still holding a unit (${tags}${res.skipped.length > 4 ? "…" : ""}) — open each record and choose “Also put everything back” when deleting.`,
-                      );
-                    } else {
-                      toast.success(
-                        `Deleted ${res.deleted} record(s)${res.packagesDeleted ? ` · ${res.packagesDeleted} empty package row(s) swept` : ""}`,
-                      );
-                    }
+                    toast.success(
+                      `Deleted ${res.deleted} record(s)${res.packagesDeleted ? ` · ${res.packagesDeleted} empty package row(s) swept` : ""}`,
+                    );
                     setSelected(new Set());
                   } catch (e) {
                     toast.error(asMessage(e));

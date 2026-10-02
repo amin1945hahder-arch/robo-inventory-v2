@@ -355,9 +355,9 @@ export function EditPackageDialog({
     }
   };
 
-  // Two-mode delete of the whole package record (see the panel below for
-  // what each mode means). The backend reports records it had to skip —
-  // those still hold their unit and can only be cleared by the release mode.
+  // Two-mode delete of the whole package record (see the panel below for what
+  // each mode means). BOTH modes remove the record for real; "put everything
+  // back" additionally releases every unit the bundle still holds.
   const doDelete = async (mode: "record" | "release") => {
     if (!pkgId) return;
     setBusy(true);
@@ -366,19 +366,12 @@ export function EditPackageDialog({
         packageId: pkgId as never,
         releaseUnits: mode === "release" || undefined,
       });
-      const skipped: any[] = res?.skipped ?? [];
-      if (mode === "record" && skipped.length > 0) {
-        const tags = skipped.map((s: any) => s.tag ?? "unit").slice(0, 4).join(", ");
-        toast.warning(
-          `Deleted ${res.deleted} record(s). Kept ${skipped.length} still holding a unit (${tags}${skipped.length > 4 ? "…" : ""}) — choose “Delete and put everything back” to release them.`,
-        );
-      } else {
-        toast.success(
-          mode === "release"
-            ? `Package record deleted — ${res?.deleted ?? 0} unit record(s) cleared and everything put back in its place`
-            : `Package record deleted from history — everything stays as it is`,
-        );
-      }
+      const deleted = res?.deleted ?? 0;
+      toast.success(
+        mode === "release"
+          ? `Package record deleted — ${deleted} unit record(s) cleared and ${res?.released ?? 0} unit(s) put back`
+          : `Package record deleted from history — ${deleted} unit record(s) cleared; every unit keeps its current state`,
+      );
       onOpenChange(false);
       onDone?.();
     } catch (e) {

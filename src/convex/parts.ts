@@ -3487,8 +3487,13 @@ export const updateRentalRecord = mutation({
 
 /**
  * Admin delete of a rental RECORD — a hard ledger correction for duplicates
- * or mistakes. Never silently deletes a record that still holds a unit
- * (rented / on project / pending) unless `alsoFreePart` releases it.
+ * or mistakes.
+ *
+ * The record is ALWAYS removed: deleting the ledger row is precisely what was
+ * asked for. What is optional is the unit: a plain delete (default) leaves the
+ * unit's status and holder/project pointers exactly as they are, while
+ * `alsoFreePart` additionally releases a unit the record still holds
+ * (rented / on project / pending) back to the shelf.
  */
 export const deleteRentalRecord = mutation({
   args: {
@@ -3500,21 +3505,12 @@ export const deleteRentalRecord = mutation({
     const rental = await ctx.db.get(rentalId);
     if (!rental) return { ok: true };
     const part = rental.partId ? await ctx.db.get(rental.partId) : null;
-    if (part) {
+    if (part && alsoFreePart) {
       const holdsUnit =
         part.status === "rented" ||
         part.status === "on_project" ||
         (part.status === "pending" && rental.status === "pending");
-      if (holdsUnit && !alsoFreePart) {
-        // Typed data payload so the client can offer the release option
-        // instead of showing a dead-end server error.
-        throw new ConvexError({
-          code: "RENTAL_HOLDING_UNIT",
-          partStatus: part.status,
-          message: `This record still holds its unit \u2014 the unit is currently "${part.status}". Process a return first, or tick "Also release the unit".`,
-        });
-      }
-      if (holdsUnit && alsoFreePart) {
+      if (holdsUnit) {
         await touchPatch(ctx, part._id, {
           status: "available",
           currentHolderId: undefined,

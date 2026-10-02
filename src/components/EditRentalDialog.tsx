@@ -88,14 +88,6 @@ export const asMessage = (e: unknown): string => {
     .trim() || raw;
 };
 
-/** True when the delete guard refused because the record still holds a unit. */
-const releaseNeeded = (e: unknown): boolean => {
-  if (e instanceof ConvexError && (e.data as any)?.code === "RENTAL_HOLDING_UNIT") {
-    return true;
-  }
-  return asMessage(e).includes("holds the unit");
-};
-
 export function EditRentalDialog({
   open,
   onOpenChange,
@@ -119,7 +111,6 @@ export function EditRentalDialog({
   const [condition, setCondition] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [alsoFree, setAlsoFree] = useState(false);
-  const [deleteHint, setDeleteHint] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -141,7 +132,6 @@ export function EditRentalDialog({
       setCondition(rental.conditionReport ?? "");
       setConfirmDelete(false);
       setAlsoFree(false);
-      setDeleteHint(null);
     }
   }, [open, rental]);
 
@@ -185,23 +175,15 @@ export function EditRentalDialog({
     setBusy(true);
     try {
       await remove({ rentalId: rental._id, alsoFreePart: mode === "release" || undefined });
+      // Either mode really removes the record; only the unit's fate differs.
       toast.success(
         mode === "release"
           ? "Record deleted — everything put back in its place"
-          : "Record deleted from history — everything stays as it is",
+          : "Record deleted from history — every unit keeps its current state",
       );
       onOpenChange(false);
     } catch (e) {
-      if (releaseNeeded(e)) {
-        // The guard refused: the record still holds its unit. Pre-select the
-        // release mode so the retry is one click instead of a dead end.
-        setAlsoFree(true);
-        setDeleteHint(
-          "The unit is still marked rented / on project / pending in inventory — it can't vanish silently. Pick “Delete and put everything back” to release it.",
-        );
-      } else {
-        toast.error(asMessage(e));
-      }
+      toast.error(asMessage(e));
     } finally {
       setBusy(false);
     }
@@ -330,11 +312,6 @@ export function EditRentalDialog({
                     </span>
                   </label>
                 </div>
-              )}
-              {deleteHint && (
-                <p className="mt-2 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-500">
-                  {deleteHint}
-                </p>
               )}
               <div className="mt-2 flex gap-2">
                 <Button size="sm" variant="outline" onClick={() => setConfirmDelete(false)}>

@@ -1,5 +1,5 @@
 import { ConvexError, v } from "convex/values";
-import { internalMutation, mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query, type MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { requireAdmin } from "./lib";
 import { touchPatch, recordTombstone } from "./sync";
@@ -7,8 +7,9 @@ import { touchPatch, recordTombstone } from "./sync";
 /**
  * Bulk record operations + the "seen" ledger behind the Updates tab.
  *
- * - bulkDeleteRentalRecords: multi-select delete with the same RENTAL_HOLDING_UNIT
- *   guard as the single delete (rows still holding a unit are reported back).
+ * - bulkDeleteRentalRecords: multi-select delete. A plain delete removes the
+ *   ledger records and leaves every unit exactly as it is; passing
+ *   alsoFreePart releases any unit a record still holds.
  * - clearRentalHistory: wipe the processed tail (returned/on_project/denied/canceled)
  *   or everything, for one member or the whole club.
  * - seen keys: any admin action records a key so the Updates tab only shows
@@ -17,7 +18,34 @@ import { touchPatch, recordTombstone } from "./sync";
 
 const PROCESSED = new Set(["returned", "on_project", "denied", "canceled"]);
 
-/** Delete several rental records at once. Same guard as the single delete. */
+/** Does this unit still physically hold its loan for the given record? */
+const holdsUnit = (
+  part: { status: string } | null | undefined,
+  rentalStatus: string,
+): boolean =>
+  !!part &&
+  (part.status === "rented" ||
+    part.status === "on_project" ||
+    (part.status === "pending" && rentalStatus === "pending"));
+
+/** Release a held unit back to the shelf ("put everything back" mode only). */
+const releaseHeldUnit = (ctx: MutationCtx, partId: any): Promise<void> =>
+  touchPatch(ctx, partId, {
+    status: "available",
+    currentHolderId: undefined,
+    currentProjectId: undefined,
+    rentedAt: undefined,
+    dueAt: undefined,
+  });
+
+/**
+ * Delete several rental records at once — always.
+ *
+ * The ledger row is what the admin asked to remove, so it is never left
+ * behind. Nothing on the unit itself changes: a plain delete keeps every part
+ * status/pointer exactly as it is, while `alsoFreePart` additionally releases
+ * any unit a deleted record was still holding.
+ */
 export const bulkDeleteRentalRecords = mutation({
   args: {
     rentalIds: v.array(v.id("rentals")),
@@ -26,7 +54,6 @@ export const bulkDeleteRentalRecords = mutation({
   handler: async (ctx, { rentalIds, alsoFreePart }) => {
     await requireAdmin(ctx);
     let deleted = 0;
-    const skipped: { rentalId: string; tag?: string; partStatus?: string }[] = [];
     const packagesTouched = new Set<string>();
     for (const rentalId of rentalIds) {
       const rental = await ctx.db.get(rentalId);
@@ -34,24 +61,9 @@ export const bulkDeleteRentalRecords = mutation({
         deleted++;
         continue;
       }
-      const part = rental.partId ? await ctx.db.get(rental.partId) : null;
-      const holdsUnit =
-        part &&
-        (part.status === "rented" ||
-          part.status === "on_project" ||
-          (part.status === "pending" && rental.status === "pending"));
-      if (holdsUnit && !alsoFreePart) {
-        skipped.push({ rentalId, tag: part?.tag, partStatus: part?.status });
-        continue;
-      }
-      if (holdsUnit && alsoFreePart) {
-        await touchPatch(ctx, part._id, {
-          status: "available",
-          currentHolderId: undefined,
-          currentProjectId: undefined,
-          rentedAt: undefined,
-          dueAt: undefined,
-        });
+      if (alsoFreePart) {
+        const part = rental.partId ? await ctx.db.get(rental.partId) : null;
+        if (holdsUnit(part, rental.status)) await releaseHeldUnit(ctx, part!._id);
       }
       if (rental.packageId) packagesTouched.add(String(rental.packageId));
       await ctx.db.delete(rentalId);
@@ -75,7 +87,7 @@ export const bulkDeleteRentalRecords = mutation({
       await recordTombstone(ctx, "rentalPackages", packageId);
       packagesDeleted++;
     }
-    return { ok: true, deleted, skipped, packagesDeleted };
+    return { ok: true, deleted, skipped: [], packagesDeleted };
   },
 });
 
@@ -83,13 +95,16 @@ export const bulkDeleteRentalRecords = mutation({
  * Delete a whole PACKAGE record with an explicit choice of what happens to
  * its units — the bundle-level twin of the per-record delete choice:
  *
- * - releaseUnits: false (default) → "record only": unit records that are
- *   merely history (returned / on project / transferred) are deleted, but
- *   records still HOLDING a unit are kept and reported, and every part
- *   status stays exactly as it is.
- * - releaseUnits: true → "delete + put everything back": the records and the
- *   package row are deleted AND every held unit is released back to the
- *   shelf (available again, holder/project cleared).
+ * - releaseUnits: false (default) → "record only": the bundle row and ALL of
+ *   its unit records are removed from the ledger. Every unit keeps its current
+ *   status/pointers untouched (nothing is released, nothing is rewritten).
+ * - releaseUnits: true → "delete + put everything back": same deletions, plus
+ *   every unit the bundle still held is released back to the shelf
+ *   (available again, holder/project/lend-dates cleared).
+ *
+ * Either way the record is really gone — the previous version silently kept
+ * records that still held a unit, so "record only" reported 0 deleted and the
+ * package stayed visible.
  */
 export const deletePackageRecord = mutation({
   args: {
@@ -99,46 +114,31 @@ export const deletePackageRecord = mutation({
   handler: async (ctx, { packageId, releaseUnits }) => {
     await requireAdmin(ctx);
     const pkg = await ctx.db.get(packageId);
-    if (!pkg) return { ok: true, deleted: 0, skipped: [] };
+    if (!pkg) return { ok: true, deleted: 0, released: 0, skipped: [] };
     const mine = await ctx.db
       .query("rentals")
       .withIndex("by_user", (q) => q.eq("userId", pkg.userId))
       .collect();
     const unitRecords = mine.filter((r) => r.packageId === packageId);
     let deleted = 0;
-    const skipped: { rentalId: string; tag?: string; partStatus?: string }[] = [];
+    let released = 0;
     for (const r of unitRecords) {
-      const part = r.partId ? await ctx.db.get(r.partId) : null;
-      const holdsUnit =
-        part &&
-        (part.status === "rented" ||
-          part.status === "on_project" ||
-          (part.status === "pending" && r.status === "pending"));
-      if (holdsUnit && !releaseUnits) {
-        skipped.push({ rentalId: r._id, tag: part?.tag, partStatus: part?.status });
-        continue;
-      }
-      if (holdsUnit && releaseUnits) {
-        await touchPatch(ctx, part._id, {
-          status: "available",
-          currentHolderId: undefined,
-          currentProjectId: undefined,
-          rentedAt: undefined,
-          dueAt: undefined,
-        });
+      if (releaseUnits) {
+        const part = r.partId ? await ctx.db.get(r.partId) : null;
+        if (holdsUnit(part, r.status)) {
+          await releaseHeldUnit(ctx, part!._id);
+          released++;
+        }
       }
       await ctx.db.delete(r._id);
       await recordTombstone(ctx, "rentals", r._id);
       deleted++;
     }
-    // The bundle row itself only survives when records were skipped — those
-    // units still belong to the package. Otherwise it would linger as an
-    // empty husk the Packages tab can never open meaningfully.
-    if (skipped.length === 0) {
-      await ctx.db.delete(packageId);
-      await recordTombstone(ctx, "rentalPackages", String(packageId));
-    }
-    return { ok: true, deleted, skipped };
+    // The bundle row always goes: removing the record is exactly what was
+    // asked for, so it must not linger as an un-openable husk.
+    await ctx.db.delete(packageId);
+    await recordTombstone(ctx, "rentalPackages", String(packageId));
+    return { ok: true, deleted, released, skipped: [] };
   },
 });
 
