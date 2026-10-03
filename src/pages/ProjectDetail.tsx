@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { AppShell } from "@/components/AppShell";
+import { ProjectReadmeTab } from "@/components/ProjectReadmeTab";
 import { LoadingGif } from "@/components/LoadingGif";
 import { NavArrows } from "@/components/NavArrows";
 import { QrChip } from "@/components/QrChip";
@@ -273,7 +274,21 @@ export default function ProjectDetail() {
   const addNote = useMutation(api.projectWorkspace.addNote);
   const deleteNote = useMutation(api.projectWorkspace.deleteNote);
 
-  const [tab, setTab] = useState<string>("overview");
+  const [tab, setTab] = useState<string>("readme");
+  // Deep link: /projects/:id?tab=… — the Requests console jumps straight to
+  // the README (and its review dialog) with ?tab=readme&review=<id>.
+  const [sp] = useSearchParams();
+  useEffect(() => {
+    const t = sp.get("tab");
+    if (
+      t &&
+      t !== tab &&
+      (t === "readme" || t === "overview" || (CENTER_KEYS as readonly string[]).includes(t))
+    ) {
+      setTab(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sp]);
   const [dismantleOpen, setDismantleOpen] = useState(false);
   const [functional, setFunctional] = useState(true);
 
@@ -509,16 +524,28 @@ export default function ProjectDetail() {
           )}
         </header>
 
-        {/* Tabs */}
-        <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="w-full justify-start overflow-x-auto">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            {CENTER_KEYS.map((c) => (
-              <TabsTrigger key={c} value={c}>
-                {CENTER_META[c].icon} {CENTER_META[c].label}
+          {/* Tabs — wrap onto rows as the screen narrows; every trigger keeps
+              the width of its own text, and the active one depresses like a
+              key (3D style, .tabs-3d in index.css). */}
+          <Tabs value={tab} onValueChange={setTab}>
+            <TabsList className="tabs-3d flex h-auto max-w-full flex-wrap justify-start gap-1.5 p-1">
+              <TabsTrigger value="readme" className="flex-none gap-1.5">
+                <BookOpen className="size-3.5" /> README
               </TabsTrigger>
-            ))}
-          </TabsList>
+              <TabsTrigger value="overview" className="flex-none">
+                Overview
+              </TabsTrigger>
+              {CENTER_KEYS.map((c) => (
+                <TabsTrigger key={c} value={c} className="flex-none gap-1.5">
+                  {CENTER_META[c].icon} {CENTER_META[c].label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+
+            {/* ===== README (GitHub-style project front page) ===== */}
+            <div className={tab !== "readme" ? "hidden" : "mt-6"}>
+              <ProjectReadmeTab projectId={projectId} projectName={project.name} />
+            </div>
 
           {/* ===== Overview ===== */}
           <div className={tab !== "overview" ? "hidden" : "mt-6 grid gap-6 lg:grid-cols-3"}>

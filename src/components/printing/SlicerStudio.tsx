@@ -571,10 +571,13 @@ export function SlicerStudio({
     if (!gcode) return;
     const blob = new Blob([gcode], { type: "application/octet-stream" });
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
+    const url = URL.createObjectURL(blob);
+    a.href = url;
     a.download = `${(jobName || "club-print").replace(/[^\w.-]+/g, "_")}.gcode`;
     a.click();
-    URL.revokeObjectURL(a.href);
+    // Defer the revoke — revoking synchronously right after click() truncates
+    // the download on Android WebView (the same bug as the CSV exports).
+    setTimeout(() => URL.revokeObjectURL(url), 15_000);
   };
 
   const doClear = () => {

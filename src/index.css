@@ -379,6 +379,31 @@ html:not(.dark) .neon-glow {
       0 3px 8px -2px color-mix(in oklab, var(--foreground) 22%, transparent);
   }
 
+  /* ── 3D tab bar: the selected trigger reads as a pressed key ────────── */
+  .tabs-3d [role="tab"][data-state="active"] {
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklab, white 30%, transparent),
+      inset 0 -2px 0 color-mix(in oklab, black 22%, transparent),
+      0 3px 8px -2px color-mix(in oklab, black 45%, transparent);
+    transition:
+      transform 0.12s ease,
+      box-shadow 0.12s ease,
+      color 0.15s ease;
+  }
+  .tabs-3d [role="tab"][data-state="active"]:active {
+    transform: translateY(1.5px) scale(0.99);
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklab, white 12%, transparent),
+      inset 0 -1px 0 color-mix(in oklab, black 15%, transparent),
+      0 1px 3px -1px color-mix(in oklab, black 40%, transparent);
+  }
+  html:not(.dark) .tabs-3d [role="tab"][data-state="active"] {
+    box-shadow:
+      inset 0 1px 0 white,
+      inset 0 -2px 0 color-mix(in oklab, var(--foreground) 12%, transparent),
+      0 3px 8px -2px color-mix(in oklab, var(--foreground) 22%, transparent);
+  }
+
   /* ── Glass icon tile: the 3D glassy icon treatment ───────────────── */
   .icon-glass {
     background:

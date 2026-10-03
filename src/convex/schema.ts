@@ -302,6 +302,72 @@ const schema = defineSchema(
       createdAt: v.number(),
     }).index("by_project", ["projectId"]),
 
+    // ===== Project README (GitHub-style project front page) =====
+    // The rendered document itself — one row per project, versioned on save.
+    projectReadmes: defineTable({
+      projectId: v.id("projects"),
+      content: v.string(), // markdown
+      version: v.number(),
+      updatedBy: v.id("users"),
+      updatedAt: v.number(),
+    }).index("by_project", ["projectId"]),
+
+    // Edit requests from regular members: base/proposed snapshots power the
+    // split-view review; per-line decisions + rejection notes are stored on
+    // approve so the submitter and history can see exactly what happened.
+    readmeEditRequests: defineTable({
+      projectId: v.id("projects"),
+      // Snapshot of the README when the request was submitted (diff base).
+      baseVersion: v.number(),
+      baseContent: v.string(),
+      proposedContent: v.string(),
+      note: v.optional(v.string()), // submitter's summary of the change
+      submittedBy: v.id("users"),
+      requestedAt: v.number(),
+      status: v.union(v.literal("pending"), v.literal("approved"), v.literal("denied")),
+      decidedAt: v.optional(v.number()),
+      decidedBy: v.optional(v.id("users")),
+      // Reviewer's per-row decisions: approve + optional edited line + note.
+      decisions: v.optional(
+        v.array(
+          v.object({
+            row: v.number(),
+            approve: v.boolean(),
+            replacement: v.optional(v.string()),
+            note: v.optional(v.string()),
+          }),
+        ),
+      ),
+      // Content after the merge (approved requests only).
+      finalContent: v.optional(v.string()),
+    })
+      .index("by_project", ["projectId"])
+      .index("by_status", ["status"]),
+
+    // Every README change lands here so all project members can trace the
+    // document's full history (who, when, what changed, rejection reasons).
+    readmeHistory: defineTable({
+      projectId: v.id("projects"),
+      // Snapshot AFTER this change (denied reviews store the unchanged text).
+      content: v.string(),
+      source: v.union(v.literal("direct"), v.literal("reviewed")),
+      outcome: v.optional(v.union(v.literal("approved"), v.literal("partial"), v.literal("denied"))),
+      // Author of the text (direct editor, or the member who submitted).
+      editedBy: v.id("users"),
+      reviewerId: v.optional(v.id("users")),
+      at: v.number(),
+      requestId: v.optional(v.id("readmeEditRequests")),
+      added: v.optional(v.number()),
+      removed: v.optional(v.number()),
+      changed: v.optional(v.number()),
+      // Rejected lines with the reviewer's explanation.
+      rejectNotes: v.optional(
+        v.array(v.object({ line: v.number(), text: v.optional(v.string()), note: v.optional(v.string()) })),
+      ),
+    })
+      .index("by_project", ["projectId"])
+      .index("by_request", ["requestId"]),
+
     // A package bundles several units (possibly from different groups) into one
     // rental request — "lend me 3 Arduino Unos and 2 servo motors in one go".
     // Each concrete unit in the package is still a row in `rentals` (so per-part

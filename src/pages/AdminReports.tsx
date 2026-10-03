@@ -10,6 +10,7 @@ import {
   YAxis,
 } from "recharts";
 import { api } from "@/convex/_generated/api";
+import { downloadCsv } from "@/lib/csv";
 import { AppShell } from "@/components/AppShell";
 import { LoadingGif, LoadingGifInline } from "@/components/LoadingGif";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -109,13 +110,10 @@ export default function AdminReports() {
   );
 
   const download = () => {
-    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `rental-history-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    // Shared helper: guarantees the UTF-8 BOM and defers revoking the object
+    // URL — a synchronous revoke right after click() truncates the file on
+    // Android WebView, which shows up as garbage/Arabic mojibake on open.
+    downloadCsv(`rental-history-${new Date().toISOString().slice(0, 10)}.csv`, csv);
   };
 
   const statCards = [
