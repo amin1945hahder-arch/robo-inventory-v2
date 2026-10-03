@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { isThemeActive, setThemeAwareUserMode } from "@/lib/appTheme";
 
 /**
  * Per-user app mode (dark / light / follow system).
@@ -26,9 +27,6 @@ function resolve(mode: AppearanceValue): boolean {
 }
 
 function applyMode(mode: AppearanceValue, userId?: string) {
-  const dark = resolve(mode);
-  document.documentElement.classList.toggle("dark", dark);
-  document.documentElement.style.colorScheme = dark ? "dark" : "light";
   // Mirror for the index.html no-flash bootstrap (last member's choice).
   try {
     if (userId) {
@@ -37,6 +35,15 @@ function applyMode(mode: AppearanceValue, userId?: string) {
   } catch {
     /* storage unavailable */
   }
+  // Remember the member's own choice: it is re-applied if the admin ever
+  // switches the published app theme off (see src/lib/appTheme.ts).
+  setThemeAwareUserMode(mode);
+  // While a published app theme is live, IT owns the mode for everyone —
+  // the per-member choice takes over again as soon as the theme is off.
+  if (isThemeActive()) return;
+  const dark = resolve(mode);
+  document.documentElement.classList.toggle("dark", dark);
+  document.documentElement.style.colorScheme = dark ? "dark" : "light";
 }
 
 /** Apply a mode immediately (used by the inline bootstrap in index.html). */

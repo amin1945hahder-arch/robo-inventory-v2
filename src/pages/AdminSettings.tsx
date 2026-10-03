@@ -4,7 +4,9 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AppShell } from "@/components/AppShell";
+import { AppThemeSection } from "@/components/AppThemeSection";
 import { CardLayoutSection } from "@/components/CardLayoutSection";
+import { isThemeActive } from "@/lib/appTheme";
 import { PermissionsManager } from "@/components/PermissionsManager";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +27,7 @@ import {
   MessageSquare,
   MonitorSmartphone,
   Moon,
+  Palette,
   Pencil,
   Plus,
   Printer,
@@ -838,6 +841,14 @@ function AppearanceSection() {
 
   const choose = async (next: "dark" | "light" | "system") => {
     if (pending) return;
+    // While a published app theme is live it owns the mode for everyone —
+    // the per-member choice takes over again once the theme is switched off.
+    if (isThemeActive()) {
+      toast.info(
+        "A published App theme is setting the colors right now — turn it off in the App theme tab to use your own mode.",
+      );
+      return;
+    }
     setPending(true);
     const prev = value;
     setValue(next);
@@ -1130,6 +1141,7 @@ type SectionId =
   | "backup"
   | "sounds"
   | "appearance"
+  | "theme"
   | "returns"
   | "structure"
   | "lists"
@@ -1138,20 +1150,22 @@ type SectionId =
   | "permissions"
   | "danger";
 
-const SECTIONS: { id: SectionId; label: string; icon: typeof Hash; hint: string }[] = [
-  { id: "telegram", label: "Bots & groups", icon: MessageSquare, hint: "Two bots, two groups" },
-  { id: "topics-app", label: "APP topics", icon: Hash, hint: "Route notifications to topics" },
-  { id: "topics-printer", label: "Printer topics", icon: Printer, hint: "Print-farm topic routing" },
-  { id: "backup", label: "Data backup", icon: DatabaseBackup, hint: "Full .zip to the APP group" },
-  { id: "sounds", label: "My sounds", icon: Volume2, hint: "Your personal tones" },
-  { id: "appearance", label: "App mode", icon: MonitorSmartphone, hint: "Dark / light / system" },
-  { id: "returns", label: "Return rules", icon: Bell, hint: "Return-request cooldown" },
-  { id: "structure", label: "Inventory structure", icon: FolderTree, hint: "Categories & storages" },
-  { id: "card-layout", label: "Card print layout", icon: Printer, hint: "Page, card size & position" },
-  { id: "permissions", label: "Device permissions", icon: ShieldCheck, hint: "Notifications, camera, storage, sounds" },
-  { id: "lists", label: "Club lists", icon: Boxes, hint: "Positions & academic states" },
-  { id: "chat-backup", label: "Chat backups", icon: MessageSquare, hint: "Archive destinations" },
-  { id: "danger", label: "Danger zone", icon: TriangleAlert, hint: "Reset the database" },
+/** Each settings tab owns a distinct accent color in the tabs bar. */
+const SECTIONS: { id: SectionId; label: string; icon: typeof Hash; hint: string; color: string }[] = [
+  { id: "telegram", label: "Bots & groups", icon: MessageSquare, hint: "Two bots, two groups", color: "#22d3ee" },
+  { id: "topics-app", label: "APP topics", icon: Hash, hint: "Route notifications to topics", color: "#38bdf8" },
+  { id: "topics-printer", label: "Printer topics", icon: Printer, hint: "Print-farm topic routing", color: "#818cf8" },
+  { id: "backup", label: "Data backup", icon: DatabaseBackup, hint: "Full .zip to the APP group", color: "#34d399" },
+  { id: "sounds", label: "My sounds", icon: Volume2, hint: "Your personal tones", color: "#fbbf24" },
+  { id: "appearance", label: "App mode", icon: MonitorSmartphone, hint: "Dark / light / system", color: "#a78bfa" },
+  { id: "theme", label: "App theme", icon: Palette, hint: "Published colors for every member", color: "#f472b6" },
+  { id: "returns", label: "Return rules", icon: Bell, hint: "Return-request cooldown", color: "#fb923c" },
+  { id: "structure", label: "Inventory structure", icon: FolderTree, hint: "Categories & storages", color: "#4ade80" },
+  { id: "card-layout", label: "Card print layout", icon: Printer, hint: "Page, card size & position", color: "#2dd4bf" },
+  { id: "permissions", label: "Device permissions", icon: ShieldCheck, hint: "Notifications, camera, storage, sounds", color: "#60a5fa" },
+  { id: "lists", label: "Club lists", icon: Boxes, hint: "Positions & academic states", color: "#c084fc" },
+  { id: "chat-backup", label: "Chat backups", icon: MessageSquare, hint: "Archive destinations", color: "#facc15" },
+  { id: "danger", label: "Danger zone", icon: TriangleAlert, hint: "Reset the database", color: "#f87171" },
 ];
 
 export default function AdminSettings() {
@@ -1215,23 +1229,31 @@ export default function AdminSettings() {
           </p>
         </header>
 
-        {/* ===== button-bar navigation ===== */}
+        {/* ===== button-bar navigation — every tab in its own color ===== */}
         <nav className="glass flex flex-wrap gap-1.5 rounded-lg border p-2">
-          {SECTIONS.map(({ id, label, icon: Icon, hint }) => (
+          {SECTIONS.map(({ id, label, icon: Icon, hint, color }) => (
             <button
               key={id}
               type="button"
               title={hint}
               onClick={() => setSection(id)}
-              className={cn(
-                "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all",
+              style={
                 section === id
-                  ? "press-3d bg-primary text-primary-foreground"
-                  : "icon-glass text-muted-foreground hover:text-foreground",
+                  ? { background: color, borderColor: color, color: "#0b1220" }
+                  : undefined
+              }
+              className={cn(
+                "flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-all",
+                section === id
+                  ? "press-3d shadow-sm"
+                  : "icon-glass border-transparent text-muted-foreground hover:text-foreground",
                 id === "danger" && section !== id && "hover:text-destructive",
               )}
             >
-              <Icon className="size-3.5" />
+              <Icon
+                className="size-3.5"
+                style={section === id ? undefined : { color }}
+              />
               {label}
             </button>
           ))}
@@ -1463,6 +1485,7 @@ export default function AdminSettings() {
         {/* ===== Per-user sounds ===== */}
         {section === "sounds" && <MySoundsSection />}
         {section === "appearance" && <AppearanceSection />}
+        {section === "theme" && <AppThemeSection />}
 
         {/* ===== Return-request cooldown ===== */}
         {section === "returns" && (

@@ -15,6 +15,13 @@ import { LoadingGif } from "@/components/LoadingGif";
 import { PreviousLocationTracker } from "@/hooks/use-previous-location";
 import { CoverBackground } from "@/components/CoverBackground";
 import { attachOfflineGuard } from "@/lib/offline";
+import { initThemeFromCache } from "@/lib/appTheme";
+import { AppThemeProvider } from "@/hooks/use-app-theme";
+
+// Published app theme: re-apply the cached theme synchronously BEFORE the
+// first paint so every visit opens with the admin's colors — no flash, no
+// network wait (the AppThemeProvider below keeps it live from Convex).
+initThemeFromCache();
 
 // Lazy load route components for better code splitting
 const Landing = lazy(() => import("./pages/Landing.tsx"));
@@ -153,6 +160,10 @@ createRoot(document.getElementById("root")!).render(
         <VlyToolbar />
       </ToolbarErrorBoundary>
       <ConvexAuthProvider client={convex}>
+        {/* Global published app theme (admin Settings → App theme): applies
+            to every member, keeps the localStorage cache fresh, and repaints
+            live whenever the admin publishes a change. */}
+        <AppThemeProvider />
         {/* Global cover background: sits behind EVERY page (landing, auth,
             app shell). Replace src/assets/cover.png or cover.svg to change
             the artwork — height fits the window, width follows the A4 ratio. */}
