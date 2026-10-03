@@ -34,9 +34,10 @@ import {
   Printer,
   Table2,
 } from "lucide-react";
-import { downloadCsv } from "@/lib/csv";
+import { downloadCsv, toCsv } from "@/lib/csv";
 import { ageFromIso } from "@/lib/utils";
-import { closetQr, groupQr, projectQr, qrUrl, unitQr } from "@/lib/qr";
+import { closetQr, groupQr, personQr, projectQr, qrUrl, unitQr } from "@/lib/qr";
+import { orientedSize, sheetPrintCss, type Orientation } from "@/lib/print";
 import { PaperPreview, mm, usePaperScale } from "@/components/PaperPreview";
 
 /**
@@ -67,6 +68,16 @@ type Col = { key: string; label: string; get: (r: any) => string };
 
 const date = (n?: number) => (n ? new Date(n).toLocaleDateString() : "");
 
+/** The scannable QR column: full app URL per row (works in every spreadsheet). */
+const qrCol = (payloadOf: (r: any) => string): Col => ({
+  key: "qr",
+  label: "QR link",
+  get: (r) => {
+    const p = payloadOf(r);
+    return p ? qrUrl(p) : "";
+  },
+});
+
 function useColumns(dataset: Dataset): Col[] {
   return useMemo(() => {
     if (dataset === "inventory")
@@ -77,6 +88,7 @@ function useColumns(dataset: Dataset): Col[] {
           // Merged rows carry every member group's ID, one per line.
           get: (r) => (r.mergedIds ? (r.mergedIds as string[]).join("\n") : (r.group?._id ?? "")),
         },
+        qrCol((r) => (r.group?._id ? groupQr(r.group._id) : "")),
         { key: "group", label: "Component", get: (r) => r.group?.name ?? "" },
         { key: "category", label: "Category", get: (r) => r.category?.name ?? "" },
         {
@@ -104,6 +116,7 @@ function useColumns(dataset: Dataset): Col[] {
     if (dataset === "rentals")
       return [
         { key: "id", label: "ID", get: (r) => r.rental?._id ?? "" },
+        qrCol((r) => (r.part?.tag ? unitQr(r.part.tag) : "")),
         { key: "partId", label: "Unit ID", get: (r) => r.part?._id ?? "" },
         { key: "student", label: "Student", get: (r) => r.student?.name ?? "(removed)" },
         { key: "email", label: "Email", get: (r) => r.student?.email ?? "" },
@@ -137,6 +150,7 @@ function useColumns(dataset: Dataset): Col[] {
     if (dataset === "people")
       return [
         { key: "id", label: "ID", get: (r) => r.user?._id ?? "" },
+        qrCol((r) => (r.user?._id ? personQr(r.user._id) : "")),
         { key: "code", label: "Club code", get: (r) => r.user.studentCode ?? "" },
         { key: "name", label: "Name", get: (r) => r.user.name ?? "" },
         { key: "email", label: "Email", get: (r) => r.user.email ?? "" },
@@ -155,6 +169,7 @@ function useColumns(dataset: Dataset): Col[] {
     if (dataset === "storages")
       return [
         { key: "id", label: "ID", get: (r) => r.closet?._id ?? "" },
+        qrCol((r) => (r.closet?._id ? closetQr(r.closet._id) : "")),
         { key: "name", label: "Storage", get: (r) => r.closet?.name ?? "" },
         { key: "location", label: "Location", get: (r) => r.closet?.location ?? "" },
         { key: "note", label: "Note", get: (r) => r.closet?.note ?? "" },
@@ -162,6 +177,7 @@ function useColumns(dataset: Dataset): Col[] {
     if (dataset === "units")
       return [
         { key: "id", label: "ID", get: (r) => r.part?._id ?? "" },
+        qrCol((r) => (r.part?.tag ? unitQr(r.part.tag) : "")),
         { key: "tag", label: "Tag", get: (r) => r.part?.tag ?? "" },
         { key: "group", label: "Component", get: (r) => r.group?.name ?? "" },
         { key: "container", label: "Container", get: (r) => r.parent?.name ?? "" },
@@ -170,6 +186,7 @@ function useColumns(dataset: Dataset): Col[] {
       ];
     return [
       { key: "id", label: "ID", get: (r) => r.project?._id ?? "" },
+      qrCol((r) => (r.project?._id ? projectQr(r.project._id) : "")),
       { key: "name", label: "Project", get: (r) => r.project?.name ?? "" },
       { key: "status", label: "Status", get: (r) => r.project?.status ?? "" },
       { key: "description", label: "Description", get: (r) => r.project?.description ?? "" },
@@ -179,13 +196,10 @@ function useColumns(dataset: Dataset): Col[] {
   }, [dataset]);
 }
 
-function toCsv(cols: Col[], rows: any[]) {
-  const head = cols.map((c) => `"${c.label.replace(/"/g, '""')}"`).join(",");
-  const body = rows
-    .map((r) => cols.map((c) => `"${c.get(r).replace(/"/g, '""')}"`).join(","))
-    .join("\n");
-  return `\uFEFF${head}\n${body}`; // BOM so Excel opens Arabic correctly
-}
+// CSV is built through the shared serializer (UTF-8 BOM + RFC-4180 quoting)
+// so Arabic and every other script round-trips cleanly into Excel/Sheets.
+// In "Printed cards" mode the QR link column is force-included so the CSV
+// always carries the codes the sheet prints.
 
 // CSS px per mm at 96dpi — card/QR boxes sized in mm print at real size.
 const MM = 96 / 25.4;
@@ -452,21 +466,29 @@ export default function ExportStudio() {
     return list;
   }, [raw, search, cols, dataset, closetId, categoryId, statusFilter, mergeSameName]);
 
-  const csv = useMemo(() => (rows ? toCsv(cols, rows) : ""), [rows, cols]);
+  const csv = useMemo(() => {
+    if (!rows) return "";
+    const cardsMode = CARD_DATASETS.includes(dataset) && mode === "cards";
+    const qr = allCols.find((c) => c.key === "qr");
+    const csvCols = cardsMode && qr && !cols.some((c) => c.key === "qr") ? [qr, ...cols] : cols;
+    return toCsv([
+      csvCols.map((c) => c.label),
+      ...rows.map((r) => csvCols.map((c) => String(c.get(r) ?? ""))),
+    ]);
+  }, [rows, cols, allCols, dataset, mode]);
 
   useEffect(() => {
-    // Keep the printed sheet in sync with the chosen paper/margin. The scale
-    // itself is applied inline on the preview's content wrapper (zoom), so the
-    // on-screen preview and the printed sheet always match — no separate
-    // print-only zoom (that used to double-apply and left the preview stale).
+    // Shared sheet print CSS: oriented @page (single margin), the app shell
+    // is dropped from the print flow (no blank pages) and the sheet renders
+    // at true mm scale. The zoom slider stays inline on the content wrapper.
     const p = PAPERS[paper];
     const style = document.createElement("style");
     style.id = "export-print-style";
-    style.textContent = `
-      @media print {
-        @page { size: ${p.w}mm ${p.h}mm ${orientation === "portrait" ? "" : orientation === "landscape" ? "landscape" : orientation}; margin: ${margin}mm; }
-      }
-    `;
+    style.textContent = sheetPrintCss({
+      paper: p,
+      orientation: orientation as Orientation,
+      marginMm: margin,
+    });
     const old = document.getElementById("export-print-style");
     if (old) old.remove();
     document.head.appendChild(style);
@@ -1048,7 +1070,7 @@ function CardsPreview({
 }) {
   const [page, setPage] = useState(0);
   // Recompute per-page capacity from the paper + card size (mm).
-  const dims = orientation === "landscape" ? { w: PAPERS[paper].h, h: PAPERS[paper].w } : PAPERS[paper];
+  const dims = orientedSize(PAPERS[paper], orientation);
   const printableW = dims.w - margin * 2;
   const printableH = dims.h - margin * 2;
   const cols = Math.max(1, Math.floor((printableW + 2) / (cardW + 2)));
@@ -1082,6 +1104,7 @@ function CardsPreview({
       }
     >
       <div
+        id="print-area"
         className="absolute flex flex-wrap content-start"
         style={{
           top: mm(margin),

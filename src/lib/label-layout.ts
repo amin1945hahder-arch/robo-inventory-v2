@@ -71,18 +71,39 @@ export type LayoutOptions = {
 
 /**
  * Grid description for one sheet:
- *  - `basisMm`: the widest label width among the shown sections (+ padding),
- *    so a column can always hold its label — no overlap when sizes change.
- *  - `columns`: how many such columns fit the printable width (≥ 1).
+ *  - `basisMm`: the EXACT label width for the section — the grid column is
+ *    exactly this wide, so a sheet packs the maximum number of columns with
+ *    only the cut gap between them (the old +4mm padding wasted 1–2 columns
+ *    per row and pushed labels onto extra pages).
+ *  - `columns`: how many of those columns fit the printable width (≥ 1).
  */
 export function computeColumns(
   section: Exclude<SectionKey, "all">,
   sizes: SectionSizes,
   { paperWidthMm = PAPERS.a4.w, marginMm = 8 }: LayoutOptions = {},
 ): { basisMm: number; columns: number } {
-  const widest = sizes[section];
-  const basis = labelWidthMm(widest) + LABEL_PAD_MM;
+  const basis = labelWidthMm(sizes[section]);
   const printable = Math.max(paperWidthMm - marginMm * 2, 0);
   const columns = Math.max(1, Math.floor((printable + LABEL_GAP_MM) / (basis + LABEL_GAP_MM)));
   return { basisMm: Math.round(basis * 100) / 100, columns };
+}
+
+/** How many labels of `sizeMm` fill one sheet (columns × rows), plus the
+ *  individual counts — drives the live “N per sheet” hint and the tests
+ *  that guard paper usage. */
+export function fitOnSheet(
+  sizeMm: number,
+  {
+    paperWidthMm = PAPERS.a4.w,
+    paperHeightMm = PAPERS.a4.h,
+    marginMm = 8,
+  }: LayoutOptions & { paperHeightMm?: number } = {},
+): { columns: number; rows: number; perSheet: number } {
+  const w = labelWidthMm(sizeMm);
+  const h = labelHeightMm(sizeMm);
+  const printableW = Math.max(paperWidthMm - marginMm * 2, 0);
+  const printableH = Math.max(paperHeightMm - marginMm * 2, 0);
+  const columns = Math.max(1, Math.floor((printableW + LABEL_GAP_MM) / (w + LABEL_GAP_MM)));
+  const rows = Math.max(1, Math.floor((printableH + LABEL_GAP_MM) / (h + LABEL_GAP_MM)));
+  return { columns, rows, perSheet: columns * rows };
 }

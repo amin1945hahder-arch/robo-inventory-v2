@@ -5,7 +5,7 @@ import { api } from "@/convex/_generated/api";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { downloadCsv } from "@/lib/csv";
+import { downloadCsv, toCsv } from "@/lib/csv";
 import { toast } from "sonner";
 import { asMessage } from "@/components/EditRentalDialog";
 import { FileDown, FileUp, Loader2 } from "lucide-react";
@@ -71,7 +71,9 @@ export default function ImportCSV() {
               onClick={() =>
                 downloadCsv(
                   `inventory-import-template-${new Date().toISOString().slice(0, 10)}.csv`,
-                  TEMPLATE_ROWS.map((r) => r.join(",")).join("\n"),
+                  // Shared serializer: RFC-4180 quoting + UTF-8 BOM so
+                  // Arabic descriptions typed in Excel survive the round trip.
+                  toCsv(TEMPLATE_ROWS),
                 )
               }
             >
