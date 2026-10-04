@@ -12,6 +12,18 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { tabColor } from "@/lib/utils";
+
+// Each subtab fills with its OWN color when active (Settings-bar treatment).
+const TAB_COLORS: Record<string, string> = {
+  dashboard: "#38bdf8",
+  jobs: "#fbbf24",
+  slicer: "#a78bfa",
+  filament: "#34d399",
+  stream: "#f87171",
+  printers: "#22d3ee",
+};
+const tStyle = (tab: string) => tabColor(TAB_COLORS[tab] ?? "#38bdf8");
 import {
   Card,
   CardContent,
@@ -249,9 +261,9 @@ export default function Printing3D() {
         )}
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)}>
-          <TabsList className="w-full justify-start overflow-x-auto">
-            <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
-            <TabsTrigger value="jobs">
+          <TabsList className="colored-tabs flex h-auto max-w-full flex-wrap justify-start gap-1.5 p-1">
+            <TabsTrigger value="dashboard" className="flex-none" style={tStyle("dashboard")}>Dashboard</TabsTrigger>
+            <TabsTrigger value="jobs" className="flex-none gap-1.5" style={tStyle("jobs")}>
               Jobs{" "}
               {(pendingJobs.length + approvedJobs.length + queueJobs.length) > 0 && (
                 <Badge variant="secondary" className="ml-1.5 px-1.5">
@@ -259,16 +271,20 @@ export default function Printing3D() {
                 </Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="slicer">
+            <TabsTrigger value="slicer" className="flex-none gap-1.5" style={tStyle("slicer")}>
               Slicer <Layers className="ml-1.5 size-3.5" />
             </TabsTrigger>
-            <TabsTrigger value="filament">
+            <TabsTrigger value="filament" className="flex-none gap-1.5" style={tStyle("filament")}>
               Filament {stats && stats.lowFilaments > 0 && <span className="ml-1.5 text-amber-400">⚠</span>}
             </TabsTrigger>
-            <TabsTrigger value="stream">
+            <TabsTrigger value="stream" className="flex-none gap-1.5" style={tStyle("stream")}>
               Live stream <Video className="ml-1.5 size-3.5" />
             </TabsTrigger>
-            {isReviewer && <TabsTrigger value="printers">Printers</TabsTrigger>}
+            {isReviewer && (
+              <TabsTrigger value="printers" className="flex-none" style={tStyle("printers")}>
+                Printers
+              </TabsTrigger>
+            )}
           </TabsList>
 
           {/* ===== Dashboard tab ===== */}

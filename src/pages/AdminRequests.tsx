@@ -4,7 +4,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { formatLineAmount } from "@/lib/group-measure";
 import { contains, matchesSearch as deepMatch } from "@/lib/searchText";
-import { cn } from "@/lib/utils";
+import { cn, tabColor } from "@/lib/utils";
 import { AppShell } from "@/components/AppShell";
 import { LoadingGif, LoadingGifInline } from "@/components/LoadingGif";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -69,6 +69,23 @@ const TAB_COUNT: Record<string, string> = {
   profiles: "border-orange-500/40 from-orange-500/25 to-orange-500/10 text-orange-300",
   readme: "border-indigo-500/40 from-indigo-500/25 to-indigo-500/10 text-indigo-300",
 };
+
+// The SAME per-tab hues as solid fills — the active trigger takes its own
+// color (Settings-bar treatment via .colored-tabs + tabColor).
+const TAB_COLORS: Record<string, string> = {
+  updates: "#22d3ee",
+  pending: "#38bdf8",
+  packages: "#a78bfa",
+  pickup: "#fbbf24",
+  active: "#34d399",
+  projects: "#2dd4bf",
+  history: "#94a3b8",
+  ranks: "#fb7185",
+  printers: "#e879f9",
+  profiles: "#fb923c",
+  readme: "#818cf8",
+};
+const tStyle = (tab: string) => tabColor(TAB_COLORS[tab] ?? TAB_COLORS.readme);
 
 function TabCount({ tab, n }: { tab: string; n: number }) {
   return (
@@ -1217,50 +1234,50 @@ export default function AdminRequests() {
               row would overflow, every trigger keeps its natural text width
               (flex-none beats the shared component's flex-1) and counts render
               as a separate chip so they never squeeze into the label. */}
-          <TabsList className="flex h-auto max-w-full flex-wrap justify-start gap-1.5 p-1">
-            <TabsTrigger value="updates" className="flex-none gap-1.5">
+          <TabsList className="colored-tabs flex h-auto max-w-full flex-wrap justify-start gap-1.5 p-1">
+            <TabsTrigger value="updates" className="flex-none gap-1.5" style={tStyle("updates")}>
               <BellRing className="size-3.5" />
               Updates
               {newUpdates.length > 0 && <TabCount tab="updates" n={newUpdates.length} />}
             </TabsTrigger>
-            <TabsTrigger value="pending" className="flex-none gap-1.5">
+            <TabsTrigger value="pending" className="flex-none gap-1.5" style={tStyle("pending")}>
               Pending
               {pendingCount > 0 && <TabCount tab="pending" n={pendingCount} />}
             </TabsTrigger>
-            <TabsTrigger value="packages" className="flex-none gap-1.5">
+            <TabsTrigger value="packages" className="flex-none gap-1.5" style={tStyle("packages")}>
               Packages
               {pendingPkgCount > 0 && <TabCount tab="packages" n={pendingPkgCount} />}
             </TabsTrigger>
-            <TabsTrigger value="pickup" className="flex-none gap-1.5">
+            <TabsTrigger value="pickup" className="flex-none gap-1.5" style={tStyle("pickup")}>
               Pick up
               {(awaiting?.length ?? 0) + pickupPkgCount > 0 && (
                 <TabCount tab="pickup" n={(awaiting?.length ?? 0) + pickupPkgCount} />
               )}
             </TabsTrigger>
-            <TabsTrigger value="active" className="flex-none gap-1.5">
+            <TabsTrigger value="active" className="flex-none gap-1.5" style={tStyle("active")}>
               Active
               {(active?.length ?? 0) > 0 && <TabCount tab="active" n={active?.length ?? 0} />}
             </TabsTrigger>
-            <TabsTrigger value="projects" className="flex-none gap-1.5">
+            <TabsTrigger value="projects" className="flex-none gap-1.5" style={tStyle("projects")}>
               On projects
               {(onProject?.length ?? 0) > 0 && <TabCount tab="projects" n={onProject?.length ?? 0} />}
             </TabsTrigger>
-            <TabsTrigger value="history" className="flex-none">History</TabsTrigger>
-            <TabsTrigger value="ranks" className="flex-none gap-1.5">
+            <TabsTrigger value="history" className="flex-none" style={tStyle("history")}>History</TabsTrigger>
+            <TabsTrigger value="ranks" className="flex-none gap-1.5" style={tStyle("ranks")}>
               Ranks
               {(rankReqs?.length ?? 0) > 0 && <TabCount tab="ranks" n={rankReqs?.length ?? 0} />}
             </TabsTrigger>
-            <TabsTrigger value="printers" className="flex-none gap-1.5">
+            <TabsTrigger value="printers" className="flex-none gap-1.5" style={tStyle("printers")}>
               Printer
               {(printerReqs?.length ?? 0) > 0 && <TabCount tab="printers" n={printerReqs?.length ?? 0} />}
             </TabsTrigger>
-            <TabsTrigger value="profiles" className="flex-none gap-1.5">
+            <TabsTrigger value="profiles" className="flex-none gap-1.5" style={tStyle("profiles")}>
               Profiles
               {(profileReqs?.length ?? 0) + (unapproved?.length ?? 0) > 0 && (
                 <TabCount tab="profiles" n={(profileReqs?.length ?? 0) + (unapproved?.length ?? 0)} />
               )}
             </TabsTrigger>
-            <TabsTrigger value="readme" className="flex-none gap-1.5">
+            <TabsTrigger value="readme" className="flex-none gap-1.5" style={tStyle("readme")}>
               README
               {(readmeReqs?.length ?? 0) > 0 && <TabCount tab="readme" n={readmeReqs?.length ?? 0} />}
             </TabsTrigger>

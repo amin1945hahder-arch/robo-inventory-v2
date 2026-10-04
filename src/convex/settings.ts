@@ -52,6 +52,8 @@ export type CardPrintLayout = {
    * "thermal" prints it on a continuous label roll (@page size = card size).
    */
   printMode: "page" | "thermal";
+  /** Printed QR size in millimetres (rent / package / badge cards). */
+  qrMm: number;
 };
 
 export const DEFAULT_CARD_LAYOUT: CardPrintLayout = {
@@ -63,6 +65,7 @@ export const DEFAULT_CARD_LAYOUT: CardPrintLayout = {
   offsetXmm: 15,
   offsetYmm: 15,
   printMode: "page",
+  qrMm: 10,
 };
 
 function normalizeCardLayout(raw: unknown): CardPrintLayout {
@@ -89,6 +92,7 @@ function normalizeCardLayout(raw: unknown): CardPrintLayout {
     offsetXmm: num(r.offsetXmm, d.offsetXmm, 0, Math.max(0, pw - Math.min(cw, pw))),
     offsetYmm: num(r.offsetYmm, d.offsetYmm, 0, Math.max(0, ph - Math.min(ch, ph))),
     printMode: mode,
+    qrMm: num(r.qrMm, d.qrMm, 6, 40),
   };
 }
 
@@ -122,6 +126,9 @@ export const setCardLayout = mutation({
     offsetXmm: v.number(),
     offsetYmm: v.number(),
     printMode: v.union(v.literal("page"), v.literal("thermal")),
+    // Optional so older clients (and stored layouts) without the field keep
+    // working — normalizeCardLayout fills the default (10mm).
+    qrMm: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     await requireAdmin(ctx);

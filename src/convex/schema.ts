@@ -224,6 +224,9 @@ const schema = defineSchema(
         v.literal("dismantled"),
       ),
       ownerId: v.optional(v.id("users")),
+      // Current team epoch — a "new team" sweep bumps this so older epochs
+      // render as the previous team with their own badge (history stays).
+      teamNo: v.optional(v.number()),
       deleted: v.optional(v.boolean()),
       updatedAt: v.optional(v.number()),
     })
@@ -249,6 +252,13 @@ const schema = defineSchema(
       ),
       addedAt: v.number(),
       addedBy: v.optional(v.id("users")),
+      // Membership lifecycle (kept for the record): `leftAt` marks an
+      // ex-member — or every member when a "new team" starts — without
+      // erasing the row, so past work, notes and README history keep
+      // attributing to them. `team` is the project team epoch this
+      // membership belongs to (project.teamNo at join time).
+      leftAt: v.optional(v.number()),
+      team: v.optional(v.number()),
     })
       .index("by_project", ["projectId"])
       .index("by_user", ["userId"]),

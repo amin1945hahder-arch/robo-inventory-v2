@@ -88,11 +88,18 @@ export function PersonBadgeDialog({
               )}
             </div>
             <div className="flex shrink-0 flex-col items-center gap-1">
-              <QRCodeReact
-                value={qrUrl(`person:${p.userId}`)}
-                size={72}
-                style={{ height: "auto", maxWidth: "100%" }}
-              />
+              {/* Exact print size — the PDF pipeline fits this box to qrMm. */}
+              <div
+                data-card-qr
+                className="shrink-0"
+                style={{ width: `${layout?.qrMm ?? 10}mm`, height: `${layout?.qrMm ?? 10}mm` }}
+              >
+                <QRCodeReact
+                  value={qrUrl(`person:${p.userId}`)}
+                  size={128}
+                  style={{ width: "100%", height: "100%" }}
+                />
+              </div>
               <span className="font-mono text-[8px] text-neutral-400">scan profile</span>
             </div>
           </div>

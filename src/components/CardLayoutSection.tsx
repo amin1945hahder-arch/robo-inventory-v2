@@ -226,6 +226,14 @@ export function CardLayoutSection() {
                 <MmInput id="cl-oy" value={draft.offsetYmm} onChange={(n) => set({ offsetYmm: n })} min={0} max={400} />
               </div>
             </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="cl-qr" className="text-xs">QR size (mm)</Label>
+              <MmInput id="cl-qr" value={draft.qrMm} onChange={(n) => set({ qrMm: n })} min={6} max={40} />
+              <p className="text-[11px] text-muted-foreground">
+                Printed width &amp; height of the QR on rent, package and badge cards —
+                10 mm fits every card and scans from arm's length.
+              </p>
+            </div>
             <p className="text-[11px] text-muted-foreground">
               Position is measured from the page's top-left corner to the card's top-left.
               If the card's shape doesn't match the box, it is centred inside it — never stretched.
@@ -246,7 +254,7 @@ export function CardLayoutSection() {
               </p>
             }
           >
-            <PreviewCard placed={placed} />
+            <PreviewCard placed={placed} qrMm={draft.qrMm} />
           </PaperPreview>
         </div>
       </div>
@@ -269,8 +277,10 @@ export function CardLayoutSection() {
 /** The sample card drawn on the preview paper at true relative scale. */
 function PreviewCard({
   placed,
+  qrMm,
 }: {
   placed: { x: number; y: number; w: number; h: number };
+  qrMm: number;
 }) {
   return (
     <div
@@ -296,7 +306,7 @@ function PreviewCard({
         </div>
         <div
           className="flex shrink-0 items-center justify-center rounded-sm bg-neutral-900"
-          style={{ width: mm(8), height: mm(8) }}
+          style={{ width: mm(qrMm), height: mm(qrMm) }}
         >
           <span className="font-mono text-white" style={{ fontSize: mm(2.2) }}>
             QR

@@ -37,7 +37,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { projectQr, unitQr } from "@/lib/qr";
-import { compressImageFile } from "@/lib/utils";
+import { compressImageFile, tabColor } from "@/lib/utils";
 import {
   CENTER_META,
   PRIORITIES,
@@ -59,12 +59,29 @@ import {
   Pencil,
   Plus,
   RotateCcw,
+  RefreshCw,
   Trash2,
   UserCog,
+  UserMinus,
   UserPlus,
   Users,
 } from "lucide-react";
 const CENTER_KEYS = Object.keys(CENTER_META) as CenterKey[];
+
+// Each subtab fills with its OWN color when active (Settings-bar treatment
+// via .colored-tabs + tabColor in index.css/lib/utils).
+const TAB_COLORS: Record<string, string> = {
+  readme: "#818cf8",
+  overview: "#38bdf8",
+  mechanical: "#fbbf24",
+  electrical: "#facc15",
+  inventory: "#22d3ee",
+  programming: "#a78bfa",
+  references: "#34d399",
+  students: "#f472b6",
+};
+const tStyle = (tab: string) =>
+  tabColor(TAB_COLORS[tab] ?? "#38bdf8");
 
 type Workspace = {
   project: any;
@@ -74,6 +91,10 @@ type Workspace = {
     role: "leader" | "member";
     center?: string;
     addedAt: number;
+    /** Set when the person left (ex-member) or a new team started. */
+    leftAt?: number;
+    /** Team epoch this membership belongs to. */
+    team?: number;
     user: { name?: string; email?: string; image?: string; appRole?: string };
   }[];
   tasks: {
@@ -267,6 +288,8 @@ export default function ProjectDetail() {
   const addMember = useMutation(api.projectWorkspace.addMember);
   const removeMember = useMutation(api.projectWorkspace.removeMember);
   const setMemberRole = useMutation(api.projectWorkspace.setMemberRole);
+  const markMemberEx = useMutation(api.projectWorkspace.markMemberEx);
+  const startNewTeam = useMutation(api.projectWorkspace.startNewTeam);
   const setMemberCenter = useMutation(api.projectWorkspace.setMemberCenter);
   const createTask = useMutation(api.projectWorkspace.createTask);
   const updateTask = useMutation(api.projectWorkspace.updateTask);
@@ -294,6 +317,7 @@ export default function ProjectDetail() {
 
   // team dialog
   const [teamOpen, setTeamOpen] = useState(false);
+  const [newTeamOpen, setNewTeamOpen] = useState(false);
   const [pickUser, setPickUser] = useState("");
   const [pickCenter, setPickCenter] = useState("");
 
@@ -355,6 +379,11 @@ export default function ProjectDetail() {
   const isLeader = me.myRole === "leader";
   const canManage = me.canManage;
   const canContribute = canManage || me.isMember;
+  // Team epochs: the CURRENT team is every active row; everyone else stays
+  // visible in the record with an “ex-member” / “previous team” badge.
+  const teamNo = (project.teamNo as number | undefined) ?? 1;
+  const currentMembers = members.filter((m) => !m.leftAt);
+  const historyMembers = members.filter((m) => m.leftAt);
 
   const resetMission = () => {
     setMTitle("");
@@ -430,7 +459,7 @@ export default function ProjectDetail() {
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="none">Unassigned</SelectItem>
-        {members.map((m) => (
+        {currentMembers.map((m) => (
           <SelectItem key={m.userId} value={m.userId}>
             {m.user.name ?? m.user.email}
           </SelectItem>
@@ -528,15 +557,15 @@ export default function ProjectDetail() {
               the width of its own text, and the active one depresses like a
               key (3D style, .tabs-3d in index.css). */}
           <Tabs value={tab} onValueChange={setTab}>
-            <TabsList className="tabs-3d flex h-auto max-w-full flex-wrap justify-start gap-1.5 p-1">
-              <TabsTrigger value="readme" className="flex-none gap-1.5">
+            <TabsList className="tabs-3d colored-tabs flex h-auto max-w-full flex-wrap justify-start gap-1.5 p-1">
+              <TabsTrigger value="readme" className="flex-none gap-1.5" style={tStyle("readme")}>
                 <BookOpen className="size-3.5" /> README
               </TabsTrigger>
-              <TabsTrigger value="overview" className="flex-none">
+              <TabsTrigger value="overview" className="flex-none" style={tStyle("overview")}>
                 Overview
               </TabsTrigger>
               {CENTER_KEYS.map((c) => (
-                <TabsTrigger key={c} value={c} className="flex-none gap-1.5">
+                <TabsTrigger key={c} value={c} className="flex-none gap-1.5" style={tStyle(c)}>
                   {CENTER_META[c].icon} {CENTER_META[c].label}
                 </TabsTrigger>
               ))}
@@ -583,14 +612,24 @@ export default function ProjectDetail() {
 
               {/* team */}
               <section className="glass-3d rounded-lg border">
-                <div className="flex items-center justify-between border-b px-5 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-3">
                   <h2 className="flex items-center gap-2 text-sm font-semibold">
-                    <Users className="size-4" /> Team · {members.length}
+                    <Users className="size-4" /> Team · {currentMembers.length}
+                    {historyMembers.length > 0 && (
+                      <span className="text-xs font-normal text-muted-foreground">
+                        ({historyMembers.length} in history)
+                      </span>
+                    )}
                   </h2>
                   {canManage && project.status === "active" && (
-                    <Button size="sm" variant="outline" onClick={() => setTeamOpen(true)}>
-                      <UserPlus className="size-3.5" /> Add people
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" variant="outline" onClick={() => setNewTeamOpen(true)}>
+                        <RefreshCw className="size-3.5" /> New team
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setTeamOpen(true)}>
+                        <UserPlus className="size-3.5" /> Add people
+                      </Button>
+                    </div>
                   )}
                 </div>
                 {members.length === 0 ? (
@@ -598,8 +637,9 @@ export default function ProjectDetail() {
                     No one assigned yet. Add the team leader and contributors.
                   </p>
                 ) : (
-                  <ul className="divide-y">
-                    {members.map((m) => {
+                  <>
+                    <ul className="divide-y">
+                    {currentMembers.map((m) => {
                       const leader = m.role === "leader";
                       const openTasks = data.tasks.filter(
                         (t) => t.assigneeId === m.userId && t.status !== "done",

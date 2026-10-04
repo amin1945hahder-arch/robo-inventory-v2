@@ -507,7 +507,7 @@ export default function AdminPeople() {
             </p>
           </div>
           <div className="flex flex-col items-start gap-2 sm:items-end">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <ArrowDownWideNarrow className="size-4 text-muted-foreground" />
               <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
                 <SelectTrigger className="w-48">

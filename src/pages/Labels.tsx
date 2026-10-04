@@ -15,6 +15,18 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { categoryQr, closetQr, groupQr, personQr, projectQr, qrUrl, unitQr } from "@/lib/qr";
+import { activeTabStyle } from "@/lib/utils";
+
+// Each subtab fills with its OWN color when active (Settings-bar treatment).
+const SECTION_COLORS: Record<string, string> = {
+  all: "#a78bfa",
+  closets: "#22d3ee",
+  categories: "#38bdf8",
+  projects: "#f472b6",
+  groups: "#fbbf24",
+  units: "#34d399",
+  people: "#fb923c",
+};
 import { PaperPreview, mm, ScaledCell } from "@/components/PaperPreview";
 import { downloadCsv, toCsv } from "@/lib/csv";
 import {
@@ -561,6 +573,7 @@ export default function Labels() {
                 key={key}
                 size="sm"
                 variant={section === key ? "default" : "outline"}
+                style={section === key ? activeTabStyle(SECTION_COLORS[key]) : undefined}
                 onClick={() => startTransition(() => setSection(key))}
               >
                 {label}

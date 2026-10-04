@@ -22,6 +22,8 @@ export type CardPrintLayout = {
   offsetXmm: number;
   offsetYmm: number;
   printMode: "page" | "thermal";
+  /** Printed QR size in millimetres (rent / package / badge cards). */
+  qrMm: number;
 };
 
 /** CSS @page size keyword per preset (custom uses explicit mm). */
@@ -135,6 +137,12 @@ export function prepareCardForPrint(l: CardPrintLayout, el: HTMLElement): void {
   const x = mmToPx(placed.x);
   const y = mmToPx(placed.y);
   const scale = placed.w / Math.max(1, el.offsetWidth);
+  // Exact QR size on paper (the on-screen size is only an approximation).
+  (el as HTMLElement & { __cardQrRestore?: () => void }).__cardQrRestore = fitCardQr(
+    el,
+    l.qrMm ?? 0,
+    scale,
+  );
   // Pin the on-screen geometry so print styles can't shrink/re-wrap it.
   (el as HTMLElement & { __cardPrintPrev?: string }).__cardPrintPrev = el.getAttribute("style") ?? "";
   el.style.width = `${el.offsetWidth}px`;
@@ -145,10 +153,39 @@ export function prepareCardForPrint(l: CardPrintLayout, el: HTMLElement): void {
   injectCardPrintCss(l);
 }
 
+/**
+ * Resize the card's [data-card-qr] block so it prints at EXACTLY `qrMm`
+ * millimetres. `mmPerPx` is the card's print scale (millimetres per CSS
+ * pixel). Returns a restore function for the element's original style.
+ */
+export function fitCardQr(el: HTMLElement, qrMm: number, mmPerPx: number): () => void {
+  const qr = el.querySelector<HTMLElement>("[data-card-qr]");
+  if (!qr || !(qrMm > 0) || !(mmPerPx > 0)) return () => {};
+  const prev = qr.getAttribute("style") ?? "";
+  const px = qrMm / mmPerPx;
+  qr.style.width = `${px}px`;
+  qr.style.height = `${px}px`;
+  return () => {
+    if (prev === "") qr.removeAttribute("style");
+    else qr.setAttribute("style", prev);
+  };
+}
+
+/** fitCardQr pre-bound to a layout, measured from the live card element. */
+export function fitCardQrForLayout(el: HTMLElement, l: CardPrintLayout): () => void {
+  const placed = placedCardMm(l, el.offsetWidth, el.offsetHeight);
+  return fitCardQr(el, l.qrMm ?? 0, placed.w / Math.max(1, el.offsetWidth));
+}
+
 /** Remove the injected print CSS + inline vars (after printing). */
 export function cleanupCardPrint(el?: HTMLElement | null): void {
   document.getElementById("card-print-layout")?.remove();
   if (el) {
+    const restoreQr = (el as HTMLElement & { __cardQrRestore?: () => void }).__cardQrRestore;
+    if (restoreQr) {
+      restoreQr();
+      delete (el as HTMLElement & { __cardQrRestore?: () => void }).__cardQrRestore;
+    }
     const holder = el as HTMLElement & { __cardPrintPrev?: string };
     el.style.removeProperty("width");
     el.style.removeProperty("height");

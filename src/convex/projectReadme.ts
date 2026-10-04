@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-import { requireNonStudent } from "./lib";
+import { requireNonStudent, safeImage } from "./lib";
 import { diffLines, diffStat, mergeLines, type RowDecision } from "../lib/lineDiff";
 
 /**
@@ -44,7 +44,9 @@ async function projectAccess(
     .query("projectMembers")
     .withIndex("by_user", (q) => q.eq("userId", user._id))
     .collect();
-  const mine = rows.find((m) => m.projectId === projectId) ?? null;
+  // ACTIVE membership only: ex-members / previous teams keep read history
+  // (the history query is not gated by isMember) but cannot edit or review.
+  const mine = rows.find((m) => m.projectId === projectId && !m.leftAt) ?? null;
   const isAdmin = user.role === "admin";
   const isLeader = mine?.role === "leader";
   return {
@@ -74,6 +76,12 @@ async function userName(ctx: QueryCtx | MutationCtx, id: Id<"users">) {
   return u?.name ?? u?.email ?? "Member";
 }
 
+/** Avatar for the editor/submitter chip shown next to the name. */
+async function userAvatar(ctx: QueryCtx | MutationCtx, id: Id<"users">) {
+  const u = await ctx.db.get(id);
+  return safeImage(u?.image);
+}
+
 const decisionValidator = v.array(
   v.object({
     row: v.number(),
@@ -99,6 +107,7 @@ export const get = query({
       _id: Id<"readmeEditRequests">;
       submittedBy: Id<"users">;
       submitterName: string;
+      submitterImage?: string;
       requestedAt: number;
       note?: string;
       baseVersion: number;
@@ -110,6 +119,7 @@ export const get = query({
         _id: r._id,
         submittedBy: r.submittedBy,
         submitterName: await userName(ctx, r.submittedBy),
+        submitterImage: await userAvatar(ctx, r.submittedBy),
         requestedAt: r.requestedAt,
         note: r.note,
         baseVersion: r.baseVersion,
@@ -122,6 +132,7 @@ export const get = query({
       version: doc?.version ?? 0,
       updatedAt: doc?.updatedAt ?? 0,
       updatedByName: doc ? await userName(ctx, doc.updatedBy) : null,
+      updatedByImage: doc ? await userAvatar(ctx, doc.updatedBy) : null,
       canEdit: access.isMember,
       canDirectSave: access.canDirectSave,
       canReview: access.canReview,
@@ -149,6 +160,7 @@ export const getRequest = query({
       requestedAt: req.requestedAt,
       submittedBy: req.submittedBy,
       submitterName: await userName(ctx, req.submittedBy),
+      submitterImage: await userAvatar(ctx, req.submittedBy),
       canReview: access.canReview && req.submittedBy !== access.user._id,
     };
   },
@@ -170,10 +182,12 @@ export const history = query({
       if (e.reviewerId) ids.add(e.reviewerId);
     }
     const names = new Map<string, string>();
+    const images = new Map<string, string | undefined>();
     await Promise.all(
       [...ids].map(async (id) => {
         const u = await ctx.db.get(id as Id<"users">);
         names.set(id, u?.name ?? u?.email ?? "Member");
+        images.set(id, safeImage(u?.image));
       }),
     );
     return entries.map((e) => ({
@@ -183,7 +197,9 @@ export const history = query({
       outcome: e.outcome ?? null,
       content: e.content,
       editedByName: names.get(e.editedBy) ?? "Member",
+      editedByImage: images.get(e.editedBy) ?? null,
       reviewerName: e.reviewerId ? (names.get(e.reviewerId) ?? "Member") : null,
+      reviewerImage: e.reviewerId ? (images.get(e.reviewerId) ?? null) : null,
       requestId: e.requestId ?? null,
       added: e.added ?? 0,
       removed: e.removed ?? 0,
@@ -211,7 +227,9 @@ export const pendingAll = query({
         .withIndex("by_user", (q) => q.eq("userId", user._id))
         .collect();
       const led = new Set(
-        memberships.filter((m) => m.role === "leader").map((m) => String(m.projectId)),
+        memberships
+          .filter((m) => m.role === "leader" && !m.leftAt)
+          .map((m) => String(m.projectId)),
       );
       pending = pending.filter((r) => led.has(String(r.projectId)));
     }
@@ -225,6 +243,7 @@ export const pendingAll = query({
           projectId: r.projectId,
           projectName: project.name,
           submittedByName: submitter?.name ?? submitter?.email ?? "Member",
+          submittedByImage: safeImage(submitter?.image),
           submittedByEmail: submitter?.email ?? "",
           requestedAt: r.requestedAt,
           note: r.note,

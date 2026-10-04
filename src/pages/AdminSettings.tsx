@@ -42,7 +42,7 @@ import {
   Volume2,
   X,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { activeTabStyle, cn } from "@/lib/utils";
 
 /* ========================================================================= */
 /* Shared small components                                                    */
@@ -1109,10 +1109,11 @@ function InventoryStructureSection() {
           keep working because they point at ids, not names.
         </p>
       </div>
-      <div className="flex gap-1.5">
+      <div className="flex flex-wrap gap-1.5">
         <Button
           size="sm"
           variant={tab === "categories" ? "default" : "outline"}
+          style={tab === "categories" ? activeTabStyle("#4ade80") : undefined}
           onClick={() => setTab("categories")}
         >
           Categories
@@ -1120,6 +1121,7 @@ function InventoryStructureSection() {
         <Button
           size="sm"
           variant={tab === "storages" ? "default" : "outline"}
+          style={tab === "storages" ? activeTabStyle("#2dd4bf") : undefined}
           onClick={() => setTab("storages")}
         >
           Storages

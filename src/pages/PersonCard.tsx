@@ -5,6 +5,15 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { AppShell } from "@/components/AppShell";
 import { StatusBadge } from "@/components/StatusBadge";
+import { tabColor } from "@/lib/utils";
+
+// Each subtab fills with its OWN color when active (Settings-bar treatment).
+const TAB_COLORS: Record<string, string> = {
+  info: "#38bdf8",
+  records: "#fbbf24",
+  projects: "#34d399",
+  positions: "#a78bfa",
+};
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -173,11 +182,23 @@ export default function PersonCard() {
 
         {/* Structured profile — everything of this person, per tab. */}
         <Tabs defaultValue="info">
-          <TabsList className="flex w-full flex-wrap">
-            <TabsTrigger value="info">Info</TabsTrigger>
-            {fullView && <TabsTrigger value="records">Lend records</TabsTrigger>}
-            {fullView && <TabsTrigger value="projects">Projects</TabsTrigger>}
-            {fullView && <TabsTrigger value="positions">Positions</TabsTrigger>}
+          <TabsList className="colored-tabs flex w-full flex-wrap">
+            <TabsTrigger value="info" style={tabColor(TAB_COLORS.info)}>Info</TabsTrigger>
+            {fullView && (
+              <TabsTrigger value="records" style={tabColor(TAB_COLORS.records)}>
+                Lend records
+              </TabsTrigger>
+            )}
+            {fullView && (
+              <TabsTrigger value="projects" style={tabColor(TAB_COLORS.projects)}>
+                Projects
+              </TabsTrigger>
+            )}
+            {fullView && (
+              <TabsTrigger value="positions" style={tabColor(TAB_COLORS.positions)}>
+                Positions
+              </TabsTrigger>
+            )}
           </TabsList>
 
           {/* ---- Info ---- */}

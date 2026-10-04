@@ -57,7 +57,7 @@ export function RentCardDialog({ r, onClose }: { r: CardRow; onClose: () => void
           <DialogTitle>Rent card</DialogTitle>
         </DialogHeader>
         <div id="rent-card-sheet" className="flex justify-center overflow-hidden rounded-lg">
-          <RentCardSheet card={r} />
+          <RentCardSheet card={r} qrMm={layout?.qrMm} />
         </div>
         <DialogFooter className="grid grid-cols-2 gap-2 sm:grid-cols-2 [&>button]:w-full [&>span]:w-full">
           <Button variant="outline" onClick={onClose}>Close</Button>

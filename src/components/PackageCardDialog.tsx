@@ -70,7 +70,7 @@ export function PackageCardDialog({
           <DialogTitle>Package card</DialogTitle>
         </DialogHeader>
         <div id="package-card-sheet" className="flex justify-center overflow-hidden rounded-lg">
-          <PackageCardSheet card={card} />
+          <PackageCardSheet card={card} qrMm={layout?.qrMm} />
         </div>
         <DialogFooter className="grid grid-cols-2 gap-2 sm:grid-cols-2 [&>button]:w-full [&>span]:w-full">
           <Button variant="outline" onClick={onClose}>

@@ -72,7 +72,7 @@ export function RentCardRelay() {
         overflow: "visible",
       }}
     >
-      {card && jobId && <RentCardSheet card={card} />}
+      {card && jobId && <RentCardSheet card={card} qrMm={layout?.qrMm} />}
     </div>,
     document.body,
   );

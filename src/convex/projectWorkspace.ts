@@ -74,6 +74,10 @@ type MemberRow = {
   center?: "mechanical" | "electrical" | "programming" | "inventory";
   addedAt: number;
   addedBy?: Id<"users">;
+  /** Set when the person left (ex-member) or a new team started. */
+  leftAt?: number;
+  /** Team epoch this membership belongs to. */
+  team?: number;
 };
 
 async function myMembership(
@@ -85,7 +89,9 @@ async function myMembership(
     .query("projectMembers")
     .withIndex("by_project", (q) => q.eq("projectId", projectId))
     .collect();
-  return rows.find((r) => r.userId === userId) ?? null;
+  // ACTIVE membership only: an ex-member (or a member of a previous team)
+  // keeps their row for the record but carries no permissions.
+  return rows.find((r) => r.userId === userId && !r.leftAt) ?? null;
 }
 
 type UserDoc = {
@@ -133,14 +139,16 @@ export const listSummaries = query({
     const out = [];
     for (const p of projects.sort((a, b) => a.name.localeCompare(b.name))) {
       const members = allMembers.filter((m) => m.projectId === p._id);
+      // The ACTIVE team only — previous teams are history, not headcount.
+      const active = members.filter((m) => !m.leftAt);
       const tasks = allTasks.filter((t) => t.projectId === p._id);
-      const leaderRow = members.find((m) => m.role === "leader");
-      const ownerIdRow = members.find((m) => m.userId === p.ownerId);
+      const leaderRow = active.find((m) => m.role === "leader");
+      const ownerIdRow = active.find((m) => m.userId === p.ownerId);
       const ownerRow = leaderRow ?? ownerIdRow ?? null;
       const owner = ownerRow ? await ctx.db.get(ownerRow.userId) : null;
       out.push({
         project: p,
-        teamSize: members.length,
+        teamSize: active.length,
         leaderName: (owner?.name ?? owner?.email) as string | undefined,
         taskTotal: tasks.length,
         taskDone: tasks.filter((t) => t.status === "done").length,
@@ -174,6 +182,8 @@ export const workspace = query({
         role: m.role,
         center: m.center,
         addedAt: m.addedAt,
+        leftAt: m.leftAt,
+        team: m.team,
         user: {
           name: u.name,
           email: u.email,
@@ -265,7 +275,7 @@ export const workspace = query({
       }),
     };
 
-    const mine = members.find((m) => m.userId === me._id) ?? null;
+    const mine = members.find((m) => m.userId === me._id && !m.leftAt) ?? null;
     const myRole =
       me.role === "admin" ? ("admin" as const) : mine ? (mine.role as "leader" | "member") : null;
     const canManage = me.role === "admin" || mine?.role === "leader";
@@ -321,6 +331,9 @@ export const addMember = mutation({
       center,
       addedAt: Date.now(),
       addedBy: me._id,
+      // Joining (or re-joining after leaving) always lands on the CURRENT
+      // team — the old membership row stays behind as previous-team history.
+      team: project.teamNo ?? 1,
     });
 
     const actor = { name: me.name ?? me.email ?? undefined };
@@ -379,6 +392,7 @@ export const setMemberRole = mutation({
   },
   handler: async (ctx, { projectId, userId, role }) => {
     await requireAdmin(ctx);
+    const project = await ctx.db.get(projectId);
     const existing = await myMembership(ctx, projectId, userId);
     if (existing) {
       await ctx.db.patch(existing._id, { role });
@@ -388,12 +402,81 @@ export const setMemberRole = mutation({
         userId,
         role,
         addedAt: Date.now(),
+        team: project?.teamNo ?? 1,
       });
     }
     if (role === "leader") {
       // The leader becomes the project owner (single canonical leader field).
       await ctx.db.patch(projectId, { ownerId: userId });
+    } else if (project?.ownerId === userId) {
+      // Demoting a leader also clears them as the canonical owner so every
+      // "leader" surface (cards, summaries) reflects the change.
+      await ctx.db.patch(projectId, { ownerId: undefined });
     }
+  },
+});
+
+/**
+ * Mark a person as an EX-MEMBER — for the record: the row stays with their
+ * name, work and history fully attributed, but they carry no permissions and
+ * stop counting as part of the active team.
+ */
+export const markMemberEx = mutation({
+  args: { projectId: v.id("projects"), userId: v.id("users") },
+  handler: async (ctx, { projectId, userId }) => {
+    const me = await requireNonStudent(ctx);
+    const mine = await myMembership(ctx, projectId, me._id);
+    if (me.role !== "admin" && mine?.role !== "leader") {
+      throw new Error("Only the team leader or an admin can update the team");
+    }
+    const target = await myMembership(ctx, projectId, userId);
+    if (!target || target.leftAt) return;
+    if (target.role === "leader" && me.role !== "admin") {
+      throw new Error("Only an admin can change a team leader");
+    }
+    // Keep every mission/note as-is — the record must show who did the work.
+    await ctx.db.patch(target._id, { leftAt: Date.now() });
+    await ctx.db.insert("notifications", {
+      forRole: "admin",
+      type: "project",
+      text: `${me.name ?? me.email} marked a member as ex-member in the project record`,
+      link: `/projects/${projectId}`,
+    });
+  },
+});
+
+/**
+ * Start a NEW TEAM: every current member becomes the previous team (kept
+ * with a “previous team” badge, missions/notes/README history untouched),
+ * and later joins land on the fresh epoch.
+ */
+export const startNewTeam = mutation({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }) => {
+    const me = await requireNonStudent(ctx);
+    const project = await ctx.db.get(projectId);
+    if (!project || project.deleted) throw new Error("Project not found");
+    if (project.status === "dismantled") throw new Error("This project is dismantled");
+    const mine = await myMembership(ctx, projectId, me._id);
+    if (me.role !== "admin" && mine?.role !== "leader") {
+      throw new Error("Only the team leader or an admin can start a new team");
+    }
+    const now = Date.now();
+    const teamNo = (project.teamNo ?? 1) + 1;
+    await ctx.db.patch(projectId, { teamNo, updatedAt: now });
+    const rows = await ctx.db
+      .query("projectMembers")
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
+      .collect();
+    for (const m of rows) {
+      if (!m.leftAt) await ctx.db.patch(m._id, { leftAt: now });
+    }
+    await ctx.db.insert("notifications", {
+      forRole: "admin",
+      type: "project",
+      text: `${me.name ?? me.email} started a new team for ${project.name} — the previous team is now history`,
+      link: `/projects/${projectId}`,
+    });
   },
 });
 

@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import type { CSSProperties } from "react";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -107,4 +108,23 @@ export async function compressImageFile(file: File, maxSize = 256): Promise<stri
     out = jcanvas.toDataURL("image/jpeg", quality);
   }
   return out;
+}
+
+/**
+ * Colored subtab bars (the Settings-bar treatment).
+ *
+ * `tabColor` parks the tab's own color in the `--tab` custom property — the
+ * `.colored-tabs` rule in index.css fills the ACTIVE `role=tab` trigger with
+ * it (dark text on the tint). Use on TabsTrigger children inside a TabsList
+ * marked `colored-tabs`.
+ *
+ * `activeTabStyle` is the direct equivalent for button-based tab bars (the
+ * active state is known at render time there), producing the exact same fill.
+ */
+export function tabColor(color: string): CSSProperties {
+  return { "--tab": color } as CSSProperties;
+}
+
+export function activeTabStyle(color: string): CSSProperties {
+  return { background: color, borderColor: color, color: "#0b1220" };
 }

@@ -38,7 +38,14 @@ function Row({ k, v }: { k: string; v: string }) {
  * physical checklist travels with the bundle) and the QR opens the package
  * in the app. Same white-card aesthetic as the unit card.
  */
-export function PackageCardSheet({ card }: { card: PackageCardData }) {
+export function PackageCardSheet({
+  card,
+  qrMm = 10,
+}: {
+  card: PackageCardData;
+  /** Printed QR size in mm (Admin Settings → Card print layout). */
+  qrMm?: number;
+}) {
   const unitCount = card.lines.reduce((n, l) => n + l.units.length, 0);
   return (
     <div
@@ -58,11 +65,18 @@ export function PackageCardSheet({ card }: { card: PackageCardData }) {
           </p>
         </div>
         <div className="flex shrink-0 flex-col items-center gap-1">
-          <QRCodeReact
-            value={qrUrl(`package:${card.packageId}`)}
-            size={80}
-            style={{ height: "auto", maxWidth: "100%" }}
-          />
+          {/* Exact print size — see RentCardSheet. */}
+          <div
+            data-card-qr
+            className="shrink-0"
+            style={{ width: `${qrMm}mm`, height: `${qrMm}mm` }}
+          >
+            <QRCodeReact
+              value={qrUrl(`package:${card.packageId}`)}
+              size={128}
+              style={{ width: "100%", height: "100%" }}
+            />
+          </div>
           <span className="font-mono text-[8px] text-neutral-400">scan to open</span>
         </div>
       </div>

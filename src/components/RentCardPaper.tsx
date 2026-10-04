@@ -50,7 +50,14 @@ function Row({ k, v }: { k: string; v: string }) {
  *  The card keeps its 360px print layout on paper/desktop, but scales down
  *  to fit narrow phone screens (width 100% of its container) so nothing is
  *  ever trimmed from the right in the mobile dialog. */
-export function RentCardSheet({ card }: { card: RentCardData }) {
+export function RentCardSheet({
+  card,
+  qrMm = 10,
+}: {
+  card: RentCardData;
+  /** Printed QR size in mm (Admin Settings → Card print layout). */
+  qrMm?: number;
+}) {
   return (
     <div
       data-qr-label
@@ -66,11 +73,19 @@ export function RentCardSheet({ card }: { card: RentCardData }) {
         </div>
         {card.rentalId && (
           <div className="flex shrink-0 flex-col items-center gap-1">
-            <QRCodeReact
-              value={qrUrl(`rental:${card.rentalId}`)}
-              size={80}
-              style={{ height: "auto", maxWidth: "100%" }}
-            />
+            {/* Exact print size: the wrapper carries the mm box (matches the
+                paper scale on screen) and print/PDF fit it to qrMm precisely. */}
+            <div
+              data-card-qr
+              className="shrink-0"
+              style={{ width: `${qrMm}mm`, height: `${qrMm}mm` }}
+            >
+              <QRCodeReact
+                value={qrUrl(`rental:${card.rentalId}`)}
+                size={128}
+                style={{ width: "100%", height: "100%" }}
+              />
+            </div>
             <span className="font-mono text-[8px] text-neutral-400">scan to open</span>
           </div>
         )}

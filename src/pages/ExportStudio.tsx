@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { LoadingGifInline } from "@/components/LoadingGif";
 import { useQuery } from "convex/react";
 import QRCode from "react-qr-code";
@@ -35,7 +35,7 @@ import {
   Table2,
 } from "lucide-react";
 import { downloadCsv, toCsv } from "@/lib/csv";
-import { ageFromIso } from "@/lib/utils";
+import { ageFromIso, activeTabStyle } from "@/lib/utils";
 import { closetQr, groupQr, personQr, projectQr, qrUrl, unitQr } from "@/lib/qr";
 import { orientedSize, sheetPrintCss, type Orientation } from "@/lib/print";
 import { PaperPreview, mm, usePaperScale } from "@/components/PaperPreview";
@@ -62,6 +62,20 @@ const PAPERS: Record<string, { label: string; w: number; h: number }> = {
   a3: { label: "A3 (297 × 420 mm)", w: 297, h: 420 },
   letter: { label: "US Letter (216 × 279 mm)", w: 216, h: 279 },
   legal: { label: "US Legal (216 × 356 mm)", w: 216, h: 356 },
+};
+
+// Each subtab fills with its OWN color when active (Settings-bar treatment).
+const DATASET_COLORS: Record<string, string> = {
+  inventory: "#22d3ee",
+  rentals: "#fbbf24",
+  people: "#f472b6",
+  projects: "#a78bfa",
+  storages: "#34d399",
+  units: "#38bdf8",
+};
+const MODE_COLORS: Record<string, string> = {
+  table: "#60a5fa",
+  cards: "#fb923c",
 };
 
 type Col = { key: string; label: string; get: (r: any) => string };
@@ -221,6 +235,7 @@ function PrintCard({
   container,
   widthMm,
   heightMm,
+  qrMm: qrFixedMm,
 }: {
   image?: string;
   qrPayload: string;
@@ -230,6 +245,8 @@ function PrintCard({
   container?: string;
   widthMm: number;
   heightMm: number;
+  /** Fixed QR size in mm (0/undefined = auto-fit). */
+  qrMm?: number;
 }) {
   const pad = 2; // mm
   const gap = 2; // mm between the image and the QR column
@@ -239,7 +256,12 @@ function PrintCard({
   const innerW = Math.max(20, widthMm - pad * 2);
   // The QR never takes more than 45% of the card width so the photo keeps
   // room, and never more than ~70% of the inner height (info needs the rest).
-  const qrMm = Math.min(innerH * 0.7, innerW * 0.45);
+  // A fixed size (e.g. 10mm) is honoured exactly, clamped so it can never
+  // push the photo/info out of the card.
+  const autoMm = Math.min(innerH * 0.7, innerW * 0.45);
+  const qrMm = qrFixedMm
+    ? Math.min(qrFixedMm, innerH * 0.75, innerW * 0.6)
+    : autoMm;
   const qrPx = Math.max(12, Math.round(qrMm * MM));
   const imgW = Math.max(8, Math.round((innerW - qrMm - gap) * MM));
   const imgH = Math.round(innerH * MM);
@@ -312,6 +334,13 @@ export default function ExportStudio() {
   // Printed-card controls (mm)
   const [cardW, setCardW] = useState(60);
   const [cardH, setCardH] = useState(40);
+  /** Fixed QR size in mm for printed cards (0 = auto-fit the card). */
+  const [cardQr, setCardQr] = useState(0);
+  /** Preview pager: which sheet is on screen (print renders ALL sheets). */
+  const [page, setPage] = useState(0);
+  /** Progressive sheet preparation — never block the UI with hundreds of QRs. */
+  const [mounted, setMounted] = useState(1);
+  const [, startTransition] = useTransition();
   // Which table columns the admin wants printed/exported, in which order
   // (per dataset): hidden = excluded, order = first-to-last column order.
   const [hiddenCols, setHiddenCols] = useState<Record<string, Set<string>>>({});
@@ -557,6 +586,58 @@ export default function ExportStudio() {
     };
   };
 
+  // ---------------------------------------------------------------------
+  // Explicit page model — ONE .print-page div = ONE physical sheet.
+  // Cards pack by integer rows/columns (never a trimmed half card); the
+  // table chunks rows per an estimated per-page budget (rows stay whole
+  // via break-inside: avoid, so nothing is ever cut mid-row). The preview
+  // shows ONE sheet at a time; the print CSS re-shows every prepared sheet.
+  // ---------------------------------------------------------------------
+  const dims = orientedSize(PAPERS[paper], orientation as Orientation);
+  const CARD_GAP_MM = 2;
+  const cardCols = Math.max(
+    1,
+    Math.floor((dims.w - margin * 2 + CARD_GAP_MM) / (cardW + CARD_GAP_MM)),
+  );
+  const cardRows = Math.max(
+    1,
+    Math.floor((dims.h - margin * 2 + CARD_GAP_MM) / (cardH + CARD_GAP_MM)),
+  );
+  const cardsPerPage = cardCols * cardRows;
+  /** Budgeted table rows per sheet (5mm average row incl. wrapping slack). */
+  const tableRowsPerPage = Math.max(1, Math.floor((dims.h - margin * 2 - 6) / 5));
+  const perPage = activeMode === "cards" ? cardsPerPage : tableRowsPerPage;
+  const totalPages = Math.max(1, Math.ceil(rows.length / perPage));
+  const activePage = Math.min(page, totalPages - 1);
+
+  // Mount one more sheet per frame so a hundreds-of-QRs workbook never
+  // freezes the window; the Print button shows the preparation progress.
+  useEffect(() => {
+    setMounted(1);
+    if (totalPages <= 1) return;
+    let n = 1;
+    let raf = 0;
+    let cancelled = false;
+    const step = () => {
+      if (cancelled) return;
+      n += 1;
+      setMounted(Math.min(n, totalPages));
+      if (n < totalPages) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+    };
+  }, [totalPages, perPage]);
+  const preparing = mounted < totalPages;
+
+  const doPrint = () => {
+    if (!rows.length || preparing) return;
+    // Let the final sheet frame paint before the (blocking) print dialog opens.
+    setTimeout(() => window.print(), 50);
+  };
+
   return (
     <AppShell>
       <div className="flex flex-col gap-6">
@@ -568,7 +649,7 @@ export default function ExportStudio() {
               cards, or download CSV.
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {/* Columns settings — pick exactly which columns print/export. */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -650,8 +731,13 @@ export default function ExportStudio() {
             <Button variant="outline" onClick={download} disabled={!rows?.length}>
               <FileDown className="size-4" /> Download CSV
             </Button>
-            <Button onClick={() => window.print()} disabled={!rows?.length}>
-              <Printer className="size-4" /> Print
+            <Button onClick={doPrint} disabled={!rows?.length || preparing}>
+              {preparing ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Printer className="size-4" />
+              )}
+              {preparing ? `Preparing ${mounted}/${totalPages}…` : "Print"}
             </Button>
           </div>
         </header>
@@ -665,10 +751,14 @@ export default function ExportStudio() {
                 key={key}
                 size="sm"
                 variant={dataset === key ? "default" : "outline"}
-                onClick={() => {
-                  setDataset(key);
-                  setStatusFilter("all");
-                }}
+                style={dataset === key ? activeTabStyle(DATASET_COLORS[key]) : undefined}
+                onClick={() =>
+                  startTransition(() => {
+                    setDataset(key);
+                    setStatusFilter("all");
+                    setPage(0);
+                  })
+                }
               >
                 {label}
               </Button>
@@ -701,14 +791,16 @@ export default function ExportStudio() {
               <Button
                 size="sm"
                 variant={activeMode === "table" ? "default" : "outline"}
-                onClick={() => setMode("table")}
+                style={activeMode === "table" ? activeTabStyle(MODE_COLORS.table) : undefined}
+                onClick={() => startTransition(() => setMode("table"))}
               >
                 <Table2 className="size-4" /> Table sheet
               </Button>
               <Button
                 size="sm"
                 variant={activeMode === "cards" ? "default" : "outline"}
-                onClick={() => setMode("cards")}
+                style={activeMode === "cards" ? activeTabStyle(MODE_COLORS.cards) : undefined}
+                onClick={() => startTransition(() => setMode("cards"))}
               >
                 <IdCard className="size-4" /> Printed cards
               </Button>
@@ -763,7 +855,7 @@ export default function ExportStudio() {
             </p>
             <div className="grid gap-1">
               <Label className="text-[11px] text-muted-foreground">Paper</Label>
-              <Select value={paper} onValueChange={setPaper}>
+              <Select value={paper} onValueChange={(v) => startTransition(() => setPaper(v))}>
                 <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {Object.entries(PAPERS).map(([k, v]) => (
@@ -774,7 +866,7 @@ export default function ExportStudio() {
             </div>
             <div className="grid gap-1">
               <Label className="text-[11px] text-muted-foreground">Orientation</Label>
-              <Select value={orientation} onValueChange={setOrientation}>
+              <Select value={orientation} onValueChange={(v) => startTransition(() => setOrientation(v))}>
                 <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="landscape">Landscape</SelectItem>
@@ -789,7 +881,11 @@ export default function ExportStudio() {
                 min={0}
                 max={30}
                 value={margin}
-                onChange={(e) => setMargin(Math.max(0, Math.min(30, Number(e.target.value) || 0)))}
+                onChange={(e) =>
+                  startTransition(() =>
+                    setMargin(Math.max(0, Math.min(30, Number(e.target.value) || 0))),
+                  )
+                }
                 className="w-20"
               />
             </div>
@@ -872,6 +968,23 @@ export default function ExportStudio() {
                     </div>
                   </div>
                 </div>
+                <div className="grid gap-1">
+                  <Label className="text-[11px] text-muted-foreground">QR size</Label>
+                  <Select
+                    value={String(cardQr)}
+                    onValueChange={(v) => startTransition(() => setCardQr(Number(v)))}
+                  >
+                    <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="0">Auto (fit)</SelectItem>
+                      <SelectItem value="10">10 mm</SelectItem>
+                      <SelectItem value="15">15 mm</SelectItem>
+                      <SelectItem value="20">20 mm</SelectItem>
+                      <SelectItem value="25">25 mm</SelectItem>
+                      <SelectItem value="30">30 mm</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <p className="max-w-64 text-[11px] leading-snug text-muted-foreground">
                   Postcard-sticker cards: item image left, QR right with the name + brand/model
                   (plus the container name) underneath it. Same filters as the sheet.
@@ -881,9 +994,8 @@ export default function ExportStudio() {
           </div>
         </div>
 
-        {/* Live print preview — one page at a time (pager) so the browser
-            never chokes on hundreds of QR codes/rows. This #print-area is
-            what prints, with the scale zoom applied inline. */}
+        {/* Live print preview — explicit .print-page sheets: the preview
+            shows one sheet at a time, every prepared sheet prints. */}
         {raw === undefined ? (
           <p className="py-16 text-center text-sm text-muted-foreground">
             <LoadingGifInline size={18} className="mr-2 inline size-4" /> Loading data…
@@ -897,7 +1009,14 @@ export default function ExportStudio() {
             orientation={orientation as "portrait" | "landscape"}
             cardW={cardW}
             cardH={cardH}
+            cardQr={cardQr}
             showGrid={showGrid}
+            dims={dims}
+            perPage={cardsPerPage}
+            activePage={activePage}
+            mounted={mounted}
+            totalPages={totalPages}
+            onPage={setPage}
           />
         ) : (
           <TablePreview
@@ -909,6 +1028,12 @@ export default function ExportStudio() {
             orientation={orientation as "portrait" | "landscape"}
             showGrid={showGrid}
             scale={scale}
+            dims={dims}
+            perPage={tableRowsPerPage}
+            activePage={activePage}
+            mounted={mounted}
+            totalPages={totalPages}
+            onPage={setPage}
           />
         )}
       </div>
@@ -1042,13 +1167,7 @@ function PaperTable({
   );
 }
 
-/** How many items render inside the live paper preview (performance cap).
- *  The FULL sheet still prints/downloads — only the on-screen preview is
- *  limited, with a pager to flip through pages. */
-const PREVIEW_PAGE_CARDS = 24;
-const PREVIEW_PAGE_ROWS = 40;
-
-/** Card-sheet preview: paper-fit width, one page of real cards at a time. */
+/** Card-sheet preview: one explicit .print-page per physical sheet. */
 function CardsPreview({
   rows,
   cardFor,
@@ -1057,7 +1176,14 @@ function CardsPreview({
   orientation,
   cardW,
   cardH,
+  cardQr,
   showGrid,
+  dims,
+  perPage,
+  activePage,
+  mounted,
+  totalPages,
+  onPage,
 }: {
   rows: any[];
   cardFor: (r: any) => { image?: string; qr: string; title: string; sub?: string; container?: string };
@@ -1066,19 +1192,21 @@ function CardsPreview({
   orientation: "portrait" | "landscape";
   cardW: number;
   cardH: number;
+  /** Fixed QR size in mm (0 = auto-fit the card). */
+  cardQr: number;
   showGrid: boolean;
+  dims: { w: number; h: number };
+  /** Integer cards per sheet — computed once in the parent. */
+  perPage: number;
+  activePage: number;
+  /** How many sheets are prepared so far (progressive mount). */
+  mounted: number;
+  totalPages: number;
+  onPage: (n: number) => void;
 }) {
-  const [page, setPage] = useState(0);
-  // Recompute per-page capacity from the paper + card size (mm).
-  const dims = orientedSize(PAPERS[paper], orientation);
-  const printableW = dims.w - margin * 2;
-  const printableH = dims.h - margin * 2;
-  const cols = Math.max(1, Math.floor((printableW + 2) / (cardW + 2)));
-  const rowsPerPage = Math.max(1, Math.floor((printableH + 2) / (cardH + 2)));
-  const perPage = Math.min(PREVIEW_PAGE_CARDS, cols * rowsPerPage);
-  const pages = Math.max(1, Math.ceil(rows.length / perPage));
-  const p = Math.min(page, pages - 1);
-  const slice = rows.slice(p * perPage, p * perPage + perPage);
+  const p = Math.min(activePage, totalPages - 1);
+  // The active sheet always renders, even while the rest still mount.
+  const shown = Math.min(totalPages, Math.max(mounted, p + 1));
 
   return (
     <PaperPreview
@@ -1088,14 +1216,17 @@ function CardsPreview({
       header={
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs text-muted-foreground">
-            {PAPERS[paper].label} · {rows.length} cards · page {p + 1}/{pages} · real scale
+            {PAPERS[paper].label} · {rows.length} cards · sheet {p + 1}/{totalPages} · real scale
           </p>
-          {pages > 1 && (
+          {totalPages > 1 && (
             <div className="flex items-center gap-1">
-              <Button variant="outline" size="sm" disabled={p === 0} onClick={() => setPage(p - 1)}>
+              <Button variant="outline" size="sm" disabled={p === 0} onClick={() => onPage(p - 1)}>
                 ‹ Prev
               </Button>
-              <Button variant="outline" size="sm" disabled={p >= pages - 1} onClick={() => setPage(p + 1)}>
+              <span className="px-1 text-xs tabular-nums text-muted-foreground">
+                {p + 1} / {totalPages}
+              </span>
+              <Button variant="outline" size="sm" disabled={p >= totalPages - 1} onClick={() => onPage(p + 1)}>
                 Next ›
               </Button>
             </div>
@@ -1103,46 +1234,65 @@ function CardsPreview({
         </div>
       }
     >
-      <div
-        id="print-area"
-        className="absolute flex flex-wrap content-start"
-        style={{
-          top: mm(margin),
-          left: mm(margin),
-          right: mm(margin),
-          bottom: mm(margin),
-          gap: mm(2),
-        }}
-      >
-        {slice.map((r, i) => {
-          const c = cardFor(r);
+      <div id="print-area" className="absolute inset-0">
+        {Array.from({ length: shown }, (_, i) => {
+          const slice = rows.slice(i * perPage, (i + 1) * perPage);
           return (
-            <div key={p * perPage + i} className="print-cell" style={showGrid ? { boxShadow: "0 0 0 0.5px #a3a3a3" } : undefined}>
-              <ScaledBox wMm={cardW} hMm={cardH}>
-                <PrintCard
-                  image={c.image}
-                  qrPayload={c.qr}
-                  title={c.title}
-                  sub={c.sub}
-                  container={c.container}
-                  widthMm={cardW}
-                  heightMm={cardH}
-                />
-              </ScaledBox>
+            <div
+              key={i}
+              className="print-page print-page--fixed"
+              style={{
+                display: i === p ? undefined : "none",
+                width: mm(dims.w),
+                height: mm(dims.h),
+                padding: mm(margin),
+                boxSizing: "border-box",
+                position: "relative",
+                background: "#fff",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{ display: "flex", flexWrap: "wrap", alignContent: "flex-start", gap: mm(2) }}
+              >
+                {slice.map((r, j) => {
+                  const c = cardFor(r);
+                  return (
+                    <div
+                      key={i * perPage + j}
+                      className="print-cell"
+                      style={showGrid ? { boxShadow: "0 0 0 0.5px #a3a3a3" } : undefined}
+                    >
+                      <ScaledBox wMm={cardW} hMm={cardH}>
+                        <PrintCard
+                          image={c.image}
+                          qrPayload={c.qr}
+                          title={c.title}
+                          sub={c.sub}
+                          container={c.container}
+                          widthMm={cardW}
+                          heightMm={cardH}
+                          qrMm={cardQr}
+                        />
+                      </ScaledBox>
+                    </div>
+                  );
+                })}
+              </div>
+              {i === 0 && rows.length === 0 && (
+                <p className="text-center text-neutral-500" style={{ fontSize: mm(3), padding: mm(4) }}>
+                  No rows match the filters.
+                </p>
+              )}
             </div>
           );
         })}
-        {rows.length === 0 && (
-          <p className="text-center text-neutral-500" style={{ fontSize: mm(3), padding: mm(4) }}>
-            No rows match the filters.
-          </p>
-        )}
       </div>
     </PaperPreview>
   );
 }
 
-/** Table-sheet preview: first N rows on-screen (pager for the rest). */
+/** Table-sheet preview: explicit chunk pages — every chunk prints. */
 function TablePreview({
   rows,
   cols,
@@ -1152,6 +1302,12 @@ function TablePreview({
   orientation,
   showGrid,
   scale,
+  dims,
+  perPage,
+  activePage,
+  mounted,
+  totalPages,
+  onPage,
 }: {
   rows: Record<string, string>[];
   cols: Col[];
@@ -1161,11 +1317,18 @@ function TablePreview({
   orientation: "portrait" | "landscape";
   showGrid: boolean;
   scale: number;
+  dims: { w: number; h: number };
+  /** Budgeted rows per sheet — computed once in the parent. */
+  perPage: number;
+  activePage: number;
+  /** How many sheets are prepared so far (progressive mount). */
+  mounted: number;
+  totalPages: number;
+  onPage: (n: number) => void;
 }) {
-  const [page, setPage] = useState(0);
-  const pages = Math.max(1, Math.ceil(rows.length / PREVIEW_PAGE_ROWS));
-  const p = Math.min(page, pages - 1);
-  const slice = rows.slice(p * PREVIEW_PAGE_ROWS, p * PREVIEW_PAGE_ROWS + PREVIEW_PAGE_ROWS);
+  const p = Math.min(activePage, totalPages - 1);
+  // The active sheet always renders, even while the rest still mount.
+  const shown = Math.min(totalPages, Math.max(mounted, p + 1));
 
   return (
     <PaperPreview
@@ -1175,15 +1338,18 @@ function TablePreview({
       header={
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs text-muted-foreground">
-            {PAPERS[paper].label} · {rows.length} rows · page {p + 1}/{pages} ·{" "}
+            {PAPERS[paper].label} · {rows.length} rows · sheet {p + 1}/{totalPages} ·{" "}
             {scale === 100 ? "real scale" : `scale ${scale}%`}
           </p>
-          {pages > 1 && (
+          {totalPages > 1 && (
             <div className="flex items-center gap-1">
-              <Button variant="outline" size="sm" disabled={p === 0} onClick={() => setPage(p - 1)}>
+              <Button variant="outline" size="sm" disabled={p === 0} onClick={() => onPage(p - 1)}>
                 ‹ Prev
               </Button>
-              <Button variant="outline" size="sm" disabled={p >= pages - 1} onClick={() => setPage(p + 1)}>
+              <span className="px-1 text-xs tabular-nums text-muted-foreground">
+                {p + 1} / {totalPages}
+              </span>
+              <Button variant="outline" size="sm" disabled={p >= totalPages - 1} onClick={() => onPage(p + 1)}>
                 Next ›
               </Button>
             </div>
@@ -1191,25 +1357,40 @@ function TablePreview({
         </div>
       }
     >
-      <div
-        id="print-area"
-        className="absolute overflow-hidden"
-        style={{
-          top: mm(margin),
-          left: mm(margin),
-          right: mm(margin),
-          bottom: mm(margin),
-        }}
-      >
-        {/* Zoom wrapper: the scale slider resizes the sheet content live on
-            screen AND at print time (inline zoom survives printing; the page
-            size/margin come from the injected @page rule). */}
-        <div style={{ zoom: `${scale / 100}` }}>
-          <p className="mb-2 font-semibold uppercase tracking-widest text-neutral-500" style={{ fontSize: mm(2.6) }}>
-            Robotics Club · {datasetLabel} · page {p + 1}/{pages} · {new Date().toLocaleDateString()}
-          </p>
-          <PaperTable cols={cols} rows={slice} showGrid={showGrid} />
-        </div>
+      <div id="print-area" className="absolute inset-0">
+        {Array.from({ length: shown }, (_, i) => {
+          const slice = rows.slice(i * perPage, (i + 1) * perPage);
+          return (
+            <div
+              key={i}
+              className="print-page print-page--flow"
+              style={{
+                display: i === p ? undefined : "none",
+                width: mm(dims.w),
+                height: mm(dims.h),
+                padding: mm(margin),
+                boxSizing: "border-box",
+                position: "relative",
+                background: "#fff",
+                overflow: "hidden",
+              }}
+            >
+              {/* Zoom wrapper: the scale slider resizes the sheet content live
+                  on screen AND at print time (inline zoom survives printing;
+                  page size/margin come from the injected @page rule). */}
+              <div style={{ zoom: `${scale / 100}` }}>
+                <p
+                  className="mb-2 font-semibold uppercase tracking-widest text-neutral-500"
+                  style={{ fontSize: mm(2.6) }}
+                >
+                  Robotics Club · {datasetLabel} · sheet {i + 1}/{totalPages} ·{" "}
+                  {new Date().toLocaleDateString()}
+                </p>
+                <PaperTable cols={cols} rows={slice} showGrid={showGrid} />
+              </div>
+            </div>
+          );
+        })}
       </div>
     </PaperPreview>
   );

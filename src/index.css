@@ -404,6 +404,18 @@ html:not(.dark) .neon-glow {
       0 3px 8px -2px color-mix(in oklab, var(--foreground) 22%, transparent);
   }
 
+  /* ── Colored subtab bars: every trigger carries its own --tab color and
+     the active one fills with it — same treatment as the Settings bar. ── */
+  .colored-tabs [role="tab"][data-state="active"] {
+    background: var(--tab, var(--primary));
+    border-color: var(--tab, var(--primary));
+    color: #0b1220;
+  }
+  /* Text/chips inside a colored active trigger stay readable on the tint. */
+  .colored-tabs [role="tab"][data-state="active"] * {
+    color: inherit;
+  }
+
   /* ── Glass icon tile: the 3D glassy icon treatment ───────────────── */
   .icon-glass {
     background:

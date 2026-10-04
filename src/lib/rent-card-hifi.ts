@@ -1,5 +1,6 @@
 import { snapdom } from "@zumer/snapdom";
 import {
+  fitCardQrForLayout,
   pageMm,
   placedCardMm,
   type CardPrintLayout,
@@ -107,7 +108,16 @@ export async function elementToPdfBytes(
   el: HTMLElement,
   layout?: CardPrintLayout,
 ): Promise<{ pdf: Uint8Array; widthPx: number; heightPx: number }> {
-  const canvas = await elementToCanvas(el);
+  // Exact printed QR size: resize [data-card-qr] for the capture, then put
+  // the element back exactly as it was (the on-screen size is an
+  // approximation of the same setting).
+  const restoreQr = layout ? fitCardQrForLayout(el, layout) : () => {};
+  let canvas: HTMLCanvasElement;
+  try {
+    canvas = await elementToCanvas(el);
+  } finally {
+    restoreQr();
+  }
   // 0.92 quality ≈ visually lossless at 3× scale, much smaller than PNG.
   const jpegUrl = canvas.toDataURL("image/jpeg", 0.92);
   const bytes = dataUrlToBytes(jpegUrl);
