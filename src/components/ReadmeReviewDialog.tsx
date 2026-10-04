@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { EditorChip } from "@/components/EditorChip";
 import { Textarea } from "@/components/ui/textarea";
 import {
   defaultDecisions,
@@ -38,6 +39,7 @@ export function ReadmeReviewDialog({
   baseContent,
   proposedContent,
   submitterName,
+  submitterImage,
   note,
   status,
   canReview,
@@ -49,6 +51,7 @@ export function ReadmeReviewDialog({
   baseContent: string;
   proposedContent: string;
   submitterName: string;
+  submitterImage?: string | null;
   note?: string;
   status: "pending" | "approved" | "denied";
   canReview: boolean;
@@ -195,7 +198,10 @@ export function ReadmeReviewDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[90vh] w-[min(1200px,96vw)] flex-col gap-3 overflow-hidden p-0 sm:max-w-[min(1200px,96vw)]">
         <DialogHeader className="border-b px-5 py-4">
-          <DialogTitle>Review README edit — {submitterName}</DialogTitle>
+          <DialogTitle className="flex flex-wrap items-center gap-2">
+            Review README edit —
+            <EditorChip name={submitterName} image={submitterImage} />
+          </DialogTitle>
           <p className="text-xs text-muted-foreground">
             {changeRows.length} changed line{changeRows.length === 1 ? "" : "s"} ·{" "}
             <span className="text-emerald-500">+{stat.added} added</span> ·{" "}

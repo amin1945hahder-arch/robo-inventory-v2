@@ -339,7 +339,9 @@ export default function ProjectDetail() {
   const [nUrl, setNUrl] = useState("");
 
   const memberPicker = (people ?? []).filter(
-    (p) => !data?.members.some((m) => m.userId === p._id),
+    // Ex-members / previous teams can be re-added — they then join the
+    // CURRENT team while their old membership row stays in the record.
+    (p) => !data?.members.some((m) => m.userId === p._id && !m.leftAt),
   );
 
   const byCenter = useMemo(() => {
@@ -677,7 +679,7 @@ export default function ProjectDetail() {
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                {!leader && (
+                                {!leader && isAdmin && (
                                   <DropdownMenuItem
                                     onClick={async () => {
                                       try {
@@ -687,6 +689,30 @@ export default function ProjectDetail() {
                                     }}
                                   >
                                     <UserCog className="size-3.5" /> Make team leader
+                                  </DropdownMenuItem>
+                                )}
+                                {leader && isAdmin && (
+                                  <DropdownMenuItem
+                                    onClick={async () => {
+                                      try {
+                                        await setMemberRole({ projectId, userId: m.userId as any, role: "member" });
+                                        toast.success(`${m.user.name ?? "Member"} is no longer the team leader`);
+                                      } catch (e) { toast.error(asMessage(e)); }
+                                    }}
+                                  >
+                                    <UserCog className="size-3.5" /> Remove leader
+                                  </DropdownMenuItem>
+                                )}
+                                {(isAdmin || !leader) && (
+                                  <DropdownMenuItem
+                                    onClick={async () => {
+                                      try {
+                                        await markMemberEx({ projectId, userId: m.userId as any });
+                                        toast.success("Marked as ex-member — kept in the project record");
+                                      } catch (e) { toast.error(asMessage(e)); }
+                                    }}
+                                  >
+                                    <UserMinus className="size-3.5" /> Mark as ex-member
                                   </DropdownMenuItem>
                                 )}
                                 {(isAdmin || !leader) && (
@@ -708,7 +734,53 @@ export default function ProjectDetail() {
                         </li>
                       );
                     })}
-                  </ul>
+                    </ul>
+                    {historyMembers.length > 0 && (
+                      <div className="border-t bg-muted/30 px-5 py-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+                          History — previous teams &amp; ex-members
+                        </p>
+                      </div>
+                    )}
+                    {historyMembers.length > 0 && (
+                      <ul className="divide-y opacity-80">
+                        {historyMembers.map((m) => {
+                          const prevTeam = (m.team ?? 1) < teamNo;
+                          return (
+                            <li key={m._id} className="flex items-center gap-3 px-5 py-3">
+                              <Avatar className="size-8">
+                                <AvatarImage src={m.user.image} />
+                                <AvatarFallback className="text-xs">
+                                  {(m.user.name ?? m.user.email ?? "?").slice(0, 1).toUpperCase()}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-medium">
+                                  {m.user.name ?? m.user.email}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {m.role === "leader"
+                                    ? "Was team leader"
+                                    : m.center
+                                      ? `${m.center} center`
+                                      : "Contributor"}
+                                </p>
+                              </div>
+                              {prevTeam ? (
+                                <span className="rounded-full border border-slate-400/40 bg-slate-400/10 px-2 py-0.5 text-[10px] text-slate-300">
+                                  Previous team
+                                </span>
+                              ) : (
+                                <span className="rounded-full border border-zinc-400/40 bg-zinc-400/10 px-2 py-0.5 text-[10px] text-zinc-300">
+                                  Ex-member
+                                </span>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </>
                 )}
               </section>
             </div>
@@ -742,6 +814,34 @@ export default function ProjectDetail() {
                 Team changes here stay in the project record — missions, notes and README history
                 keep every contributor's name for the archive.
               </p>
+
+              {/* ===== New team confirm ===== */}
+              <Dialog open={newTeamOpen} onOpenChange={setNewTeamOpen}>
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Start a new team?</DialogTitle>
+                  </DialogHeader>
+                  <p className="text-sm text-muted-foreground">
+                    Every current member becomes the <b>previous team</b> — kept in the record
+                    with their own badge, and every mission, note and README edit stays exactly
+                    as it is. Add the new members right after.
+                  </p>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setNewTeamOpen(false)}>Cancel</Button>
+                    <Button
+                      onClick={async () => {
+                        try {
+                          await startNewTeam({ projectId });
+                          setNewTeamOpen(false);
+                          toast.success("New team started — the previous team is now history");
+                        } catch (e) { toast.error(asMessage(e)); }
+                      }}
+                    >
+                      <RefreshCw className="size-4" /> Start new team
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </div>
           </div>
 
@@ -932,7 +1032,7 @@ export default function ProjectDetail() {
                   ))}
                 </SelectContent>
               </Select>
-              {members.length === 0 && (
+              {currentMembers.length === 0 && (
                 <p className="text-xs text-muted-foreground">
                   Tip: add the team leader first, then use their card menu → “Make team leader”.
                 </p>

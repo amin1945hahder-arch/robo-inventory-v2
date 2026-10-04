@@ -5,6 +5,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { MarkdownView } from "@/components/MarkdownView";
 import { ReadmeReviewDialog, type ReviewSubmission } from "@/components/ReadmeReviewDialog";
+import { EditorChip } from "@/components/EditorChip";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -230,8 +231,9 @@ export function ProjectReadmeTab({
             >
               <GitPullRequestArrow className="size-4 shrink-0 text-amber-400" />
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium">
-                  {p.submitterName} proposed README edits
+                <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                  <EditorChip name={p.submitterName} image={p.submitterImage} />
+                  proposed README edits
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {new Date(p.requestedAt).toLocaleString("en-GB")}
@@ -370,7 +372,7 @@ export function ProjectReadmeTab({
                         ) : (
                           <CheckCircle2 className="size-3.5 shrink-0 text-sky-400" />
                         )}
-                        <span className="text-sm font-medium">{e.editedByName}</span>
+                        <EditorChip name={e.editedByName} image={e.editedByImage} />
                         <span className="text-xs text-muted-foreground">
                           {e.source === "direct"
                             ? "edited directly"
@@ -379,8 +381,17 @@ export function ProjectReadmeTab({
                               : e.outcome === "partial"
                                 ? "edit request partially approved"
                                 : "edit request approved"}
-                          {e.reviewerName ? ` · reviewed by ${e.reviewerName}` : ""}
                         </span>
+                        {e.reviewerName && (
+                          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                            · reviewed by
+                            <EditorChip
+                              name={e.reviewerName}
+                              image={e.reviewerImage}
+                              size="xs"
+                            />
+                          </span>
+                        )}
                         <span className="ml-auto flex items-center gap-2 text-[11px] tabular-nums text-muted-foreground">
                           {stat.added > 0 && (
                             <span className="text-emerald-500">+{stat.added}</span>
@@ -438,6 +449,7 @@ export function ProjectReadmeTab({
         baseContent={reviewReq?.baseContent ?? ""}
         proposedContent={reviewReq?.proposedContent ?? ""}
         submitterName={reviewReq?.submitterName ?? ""}
+        submitterImage={reviewReq?.submitterImage ?? null}
         note={reviewReq?.note}
         status={reviewReq?.status ?? "pending"}
         canReview={reviewReq?.canReview ?? false}

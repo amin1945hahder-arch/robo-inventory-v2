@@ -8,6 +8,7 @@ import { cn, tabColor } from "@/lib/utils";
 import { AppShell } from "@/components/AppShell";
 import { LoadingGif, LoadingGifInline } from "@/components/LoadingGif";
 import { StatusBadge } from "@/components/StatusBadge";
+import { EditorChip } from "@/components/EditorChip";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -2182,10 +2183,14 @@ export default function AdminRequests() {
                         <FileText className="size-3.5 shrink-0 text-indigo-400" />
                         {r.projectName} — README edit request
                       </p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {r.submittedByName} ({r.submittedByEmail}) ·{" "}
-                        {new Date(r.requestedAt).toLocaleString("en-GB")}
-                        {r.note ? ` · “${r.note}”` : ""}
+                      <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                        <EditorChip
+                          name={r.submittedByName}
+                          image={r.submittedByImage}
+                          size="xs"
+                        />
+                        <span>({r.submittedByEmail}) · {new Date(r.requestedAt).toLocaleString("en-GB")}</span>
+                        {r.note && <span>· “{r.note}”</span>}
                       </p>
                     </div>
                     <Link
