@@ -112,6 +112,82 @@ export function hasPrinterPrivilege(
   return user.role === "admin" || user.printerRole === true;
 }
 
+// ===== Inventory manager privilege =========================================
+// Exactly like the printer privilege: stacks on any role, requestable by the
+// member, grantable by an admin — plus three sub-permissions (edit / add /
+// delete) that the admin picks when granting it. Admins hold all three.
+
+export type InventoryPerm = "edit" | "add" | "delete";
+
+export type InventoryPerms = Record<InventoryPerm, boolean>;
+
+/** Shared rule: admins implicitly hold every inventory permission. */
+export function hasInventoryPrivilege(
+  user:
+    | {
+        role?: string;
+        inventoryRole?: boolean;
+      }
+    | null
+    | undefined,
+): boolean {
+  if (!user) return false;
+  return user.role === "admin" || user.inventoryRole === true;
+}
+
+/** The effective inventory sub-permissions for a user. */
+export function inventoryPermsOf(
+  user:
+    | {
+        role?: string;
+        inventoryRole?: boolean;
+        inventoryPerms?: { edit: boolean; add: boolean; delete: boolean } | null;
+      }
+    | null
+    | undefined,
+): InventoryPerms {
+  if (!user) return { edit: false, add: false, delete: false };
+  if (user.role === "admin") return { edit: true, add: true, delete: true };
+  if (user.inventoryRole !== true) return { edit: false, add: false, delete: false };
+  // A granted privilege without explicit sub-permissions defaults to full
+  // access (same as the printer privilege); the admin can narrow it later.
+  return {
+    edit: user.inventoryPerms?.edit ?? true,
+    add: user.inventoryPerms?.add ?? true,
+    delete: user.inventoryPerms?.delete ?? true,
+  };
+}
+
+/**
+ * Gate for inventory WRITE operations. Students are blocked (restricted
+ * role); admins pass with every permission; inventory managers need the
+ * specific sub-permission the mutation performs.
+ */
+export async function requireInventory(ctx: QueryCtx, perm: InventoryPerm) {
+  const user = await requireNonStudent(ctx);
+  const perms = inventoryPermsOf(user);
+  if (!hasInventoryPrivilege(user)) {
+    throw new Error(
+      "Inventory manager access required — request it from your profile",
+    );
+  }
+  if (!perms[perm]) {
+    throw new Error(
+      `Your inventory manager access does not include the "${perm}" permission`,
+    );
+  }
+  return user;
+}
+
+/** Admins of the club, read through the `by_role` index (1 read) instead of
+ *  scanning every user document. Used by every request/return notification. */
+export async function listAdmins(ctx: QueryCtx) {
+  return await ctx.db
+    .query("users")
+    .withIndex("by_role", (q) => q.eq("role", "admin"))
+    .collect();
+}
+
 /**
  * Guard for profile pictures in list/query projections.
  *

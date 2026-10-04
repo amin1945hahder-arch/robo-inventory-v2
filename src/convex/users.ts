@@ -4,7 +4,9 @@ import { internal } from "./_generated/api";
 import { internalQuery, mutation, query, QueryCtx } from "./_generated/server";
 import { touchPatch, recordTombstone } from "./sync";
 import {
+  hasInventoryPrivilege,
   hasPrinterPrivilege,
+  inventoryPermsOf,
   requireAdmin,
   requireNonGuest,
   requireNonStudent,
@@ -13,6 +15,7 @@ import {
 } from "./lib";
 import { emailInAdminList } from "./adminConfig";
 import { notifyTelegram, telegramDM } from "./notify";
+import { getRankRoleMap, mappedRoleFor } from "./clubLists";
 
 /**
  * Get the current signed in user. Returns null if the user is not signed in.
@@ -35,6 +38,8 @@ export const currentUser = query({
 /**
  * Light directory of real (non-anonymous) members for pickers — e.g. the
  * project "Add people" dialog. Available to admins and members.
+ * Users are sorted once here so every consumer renders a stable order
+ * without re-sorting the list on each render.
  */
 export const listPeopleLite = query({
   args: {},
@@ -103,9 +108,14 @@ export const claimAdminIfNoAdmins = mutation({
     const user = await ctx.db.get(userId);
     if (!user) return { promoted: false, reason: "no-user" };
     if (user.role === "admin") return { promoted: false, alreadyAdmin: true };
-    const all = await ctx.db.query("users").collect();
+    // Index lookup: ONE read instead of collecting every user in the system
+    // on every single sign-in.
+    const existingAdmin = await ctx.db
+      .query("users")
+      .withIndex("by_role", (q) => q.eq("role", "admin"))
+      .first();
     const patch: Record<string, unknown> = {};
-    if (!all.some((u) => u.role === "admin")) {
+    if (!existingAdmin) {
       patch.role = "admin";
     } else if (!user.role) {
       // Brand-new accounts default to the restricted student role.
@@ -180,7 +190,21 @@ export const updatePersonProfile = mutation({
     }
     const patch: Record<string, unknown> = {};
     if (role) patch.role = role;
-    if (clubRoles !== undefined) patch.clubRoles = clubRoles;
+    if (clubRoles !== undefined) {
+      patch.clubRoles = clubRoles;
+      // Rank → app-role mapping: assigning a rank that an admin marked as a
+      // main role (e.g. "manager" → Admin) upgrades the person automatically.
+      // An explicit `role` argument always wins; a member who already holds
+      // the mapped role is left untouched (no write at all).
+      if (role === undefined) {
+        const map = await getRankRoleMap(ctx);
+        const mapped = mappedRoleFor(map, clubRoles);
+        if (mapped) {
+          const person = await ctx.db.get(userId);
+          if (person && person.role !== mapped) patch.role = mapped;
+        }
+      }
+    }
     if (academicState !== undefined) patch.academicState = academicState;
     if (major !== undefined) patch.major = major;
     if (telegramChatId !== undefined) patch.telegramChatId = telegramChatId.trim() || undefined;
@@ -269,6 +293,13 @@ export const adminCreatePerson = mutation({
     if (studentId !== undefined) doc.studentId = studentId.trim() || undefined;
     if (phone !== undefined) doc.phone = phone.trim() || undefined;
     if (clubRoles !== undefined) doc.clubRoles = clubRoles;
+    // Rank → app-role mapping for freshly created people as well (only when
+    // the admin did not pick an explicit role).
+    if (clubRoles !== undefined && role === undefined) {
+      const map = await getRankRoleMap(ctx);
+      const mapped = mappedRoleFor(map, clubRoles);
+      if (mapped) doc.role = mapped;
+    }
     if (academicState !== undefined) doc.academicState = academicState || undefined;
     if (major !== undefined) doc.major = major.trim() || undefined;
     if (dateOfBirth !== undefined) {
@@ -592,9 +623,11 @@ export const requestRankUpgrade = mutation({
     if (clean.length === 0) throw new ConvexError("Select at least one position");
     const mine = await ctx.db
       .query("rankRequests")
-      .withIndex("by_status", (q) => q.eq("status", "pending"))
-      .collect();
-    if (mine.some((r) => r.userId === user._id)) {
+      .withIndex("by_user_status", (q) =>
+        q.eq("userId", user._id).eq("status", "pending"),
+      )
+      .first();
+    if (mine) {
       throw new ConvexError("You already have a pending rank request");
     }
     await ctx.db.insert("rankRequests", {
@@ -614,7 +647,53 @@ export const requestRankUpgrade = mutation({
   },
 });
 
-// Admin view of all rank requests with the requester joined in.
+// ===== Main role requests (member / admin) =====
+
+// A member asks to be upgraded to one of the app's main roles. The admin
+// reviews it in the Requests console exactly like a rank request.
+export const requestRoleUpgrade = mutation({
+  args: {
+    role: v.union(v.literal("member"), v.literal("admin")),
+    message: v.optional(v.string()),
+  },
+  handler: async (ctx, { role, message }) => {
+    const user = await requireNonGuest(ctx);
+    if (user.role === role) {
+      throw new ConvexError(`You already have the ${role} role`);
+    }
+    const mine = await ctx.db
+      .query("rankRequests")
+      .withIndex("by_user_status", (q) =>
+        q.eq("userId", user._id).eq("status", "pending"),
+      )
+      .first();
+    if (mine) {
+      throw new ConvexError("You already have a pending request — wait for the admin first");
+    }
+    await ctx.db.insert("rankRequests", {
+      userId: user._id,
+      kind: "role",
+      requestedRoles: [role],
+      message: message?.trim() || undefined,
+      status: "pending",
+      requestedAt: Date.now(),
+    });
+    await ctx.db.insert("notifications", {
+      forRole: "admin",
+      type: "role_request",
+      text: `${user.name ?? user.email ?? "A member"} requested the ${role} role`,
+      link: "/admin/requests?tab=ranks",
+    });
+    await ctx.scheduler.runAfter(0, internal.push.pushToAdmins, {
+      title: "New role request",
+      body: `${user.name ?? user.email ?? "A member"} requested the ${role} role`,
+      tag: "roboshelf-role",
+      url: "/admin/requests?tab=ranks",
+    });
+  },
+});
+
+// Admin view of all rank/role requests with the requester joined in.
 export const listRankRequests = query({
   args: { status: v.optional(v.union(v.literal("pending"), v.literal("approved"), v.literal("denied"))) },
   handler: async (ctx, { status }) => {
@@ -622,68 +701,109 @@ export const listRankRequests = query({
     const rows = status
       ? await ctx.db.query("rankRequests").withIndex("by_status", (q) => q.eq("status", status)).collect()
       : await ctx.db.query("rankRequests").collect();
-    const out = [];
-    for (const r of rows.sort((a, b) => b.requestedAt - a.requestedAt)) {
-      const user = await ctx.db.get(r.userId);
-      out.push({
-        request: r,
-        user: user
-          ? {
-              _id: user._id,
-              name: user.name,
-              email: user.email,
-              image: safeImage(user.image),
-              role: user.role,
-              clubRoles: user.clubRoles,
-              studentId: user.studentId,
-              telegramChatId: user.telegramChatId,
-              telegramUsername: user.telegramUsername,
-            }
-          : null,
-      });
-    }
-    return out;
+    const sorted = rows.sort((a, b) => b.requestedAt - a.requestedAt);
+    // Parallel member joins — latency is wall-clock, so Promise.all keeps the
+    // console snappy while the read count stays one per request row.
+    const users = await Promise.all(sorted.map((r) => ctx.db.get(r.userId)));
+    return sorted.map((r, i) => ({
+      request: r,
+      user: users[i]
+        ? {
+            _id: users[i]!._id,
+            name: users[i]!.name,
+            email: users[i]!.email,
+            image: safeImage(users[i]!.image),
+            role: users[i]!.role,
+            clubRoles: users[i]!.clubRoles,
+            studentId: users[i]!.studentId,
+            telegramChatId: users[i]!.telegramChatId,
+            telegramUsername: users[i]!.telegramUsername,
+          }
+        : null,
+    }));
   },
 });
 
 // Admin approves (adds the positions to the member) or denies the request.
+// Role requests (kind "role") set the member's MAIN app role instead.
 export const decideRankRequest = mutation({
   args: { id: v.id("rankRequests"), approve: v.boolean() },
   handler: async (ctx, { id, approve }) => {
     await requireAdmin(ctx);
     const req = await ctx.db.get(id);
     if (!req || req.status !== "pending") throw new ConvexError("Request not found or already handled");
-    if (approve) {
-      const user = await ctx.db.get(req.userId);
-      if (user) {
+    const user = await ctx.db.get(req.userId);
+    let appliedRole: string | undefined;
+    if (approve && user) {
+      if (req.kind === "role") {
+        const target = req.requestedRoles[0];
+        if (target === "admin" || target === "member") {
+          // Already holds it → no write at all (nothing to change).
+          if (user.role !== target) {
+            await touchPatch(ctx, user._id, { role: target });
+            appliedRole = target;
+          }
+        }
+      } else {
         const merged = [...new Set([...(user.clubRoles ?? []), ...req.requestedRoles])];
-        await touchPatch(ctx, user._id, { clubRoles: merged });
+        const patch: Record<string, unknown> = { clubRoles: merged };
+        // Rank → app-role mapping (admin marks a rank in Settings): when the
+        // requested/assigned rank maps to a main role and the member does not
+        // hold it yet, the role is granted automatically.
+        const map = await getRankRoleMap(ctx);
+        const mapped = mappedRoleFor(map, merged);
+        if (mapped && user.role !== mapped) {
+          patch.role = mapped;
+          appliedRole = mapped;
+        }
+        await touchPatch(ctx, user._id, patch);
       }
     }
     await touchPatch(ctx, id, { status: approve ? "approved" : "denied", decidedAt: Date.now() });
-    const user = await ctx.db.get(req.userId);
-    if (user?.telegramChatId) {
-      await notifyTelegram(
-        ctx,
-        approve
-          ? `🏅 ${user.name ?? user.email} — your rank request was approved. New positions: ${req.requestedRoles.join(", ")}`
-          : `ℹ️ ${user.name ?? user.email} — your rank request (${req.requestedRoles.join(", ")}) was not approved this time.`,
-        user.telegramChatId,
-      );
+    const member = await ctx.db.get(req.userId);
+    if (member) {
+      await ctx.scheduler.runAfter(0, internal.push.pushToUser, {
+        userId: member._id,
+        title: approve
+          ? req.kind === "role"
+            ? "Role request approved 🎉"
+            : "Rank request approved 🏅"
+          : "Request reviewed",
+        body: approve
+          ? req.kind === "role"
+            ? `You are now ${appliedRole ?? "the requested role"} in the app.`
+            : `Your positions: ${req.requestedRoles.join(", ")}`
+          : `Your request (${req.requestedRoles.join(", ")}) was not approved this time.`,
+        tag: "roboshelf-rank",
+        url: "/profile",
+      });
+      if (member.telegramChatId) {
+        await notifyTelegram(
+          ctx,
+          approve
+            ? req.kind === "role"
+              ? `🎉 ${member.name ?? member.email} — your ${req.requestedRoles[0]} role request was approved.`
+              : `🏅 ${member.name ?? member.email} — your rank request was approved. New positions: ${req.requestedRoles.join(", ")}`
+            : `ℹ️ ${member.name ?? member.email} — your request (${req.requestedRoles.join(", ")}) was not approved this time.`,
+          member.telegramChatId,
+        );
+      }
     }
   },
 });
 
-// The signed-in member's own pending rank request (if any).
+// The signed-in member's own pending rank/role request (if any).
 export const myPendingRankRequest = query({
   args: {},
   handler: async (ctx) => {
     const user = await requireUser(ctx);
-    const rows = await ctx.db
+    const row = await ctx.db
       .query("rankRequests")
-      .withIndex("by_status", (q) => q.eq("status", "pending"))
-      .collect();
-    return rows.some((r) => r.userId === user._id);
+      .withIndex("by_user_status", (q) =>
+        q.eq("userId", user._id).eq("status", "pending"),
+      )
+      .first();
+    return Boolean(row);
   },
 });
 
@@ -699,9 +819,11 @@ export const requestPrinterRole = mutation({
     }
     const mine = await ctx.db
       .query("printerRequests")
-      .withIndex("by_status", (q) => q.eq("status", "pending"))
-      .collect();
-    if (mine.some((r) => r.userId === user._id)) {
+      .withIndex("by_user_status", (q) =>
+        q.eq("userId", user._id).eq("status", "pending"),
+      )
+      .first();
+    if (mine) {
       throw new ConvexError("You already have a pending printer request");
     }
     await ctx.db.insert("printerRequests", {
@@ -741,27 +863,26 @@ export const listPrinterRequests = query({
           .withIndex("by_status", (q) => q.eq("status", status))
           .collect()
       : await ctx.db.query("printerRequests").collect();
-    const out = [];
-    for (const r of rows.sort((a, b) => b.requestedAt - a.requestedAt)) {
-      const user = await ctx.db.get(r.userId);
-      out.push({
-        request: r,
-        user: user
-          ? {
-              _id: user._id,
-              name: user.name,
-              email: user.email,
-              image: safeImage(user.image),
-              role: user.role,
-              printerRole: user.printerRole,
-              studentId: user.studentId,
-              clubRoles: user.clubRoles,
-              telegramUsername: user.telegramUsername,
-            }
-          : null,
-      });
-    }
-    return out;
+    const sorted = rows.sort((a, b) => b.requestedAt - a.requestedAt);
+    const users = await Promise.all(sorted.map((r) => ctx.db.get(r.userId)));
+    return sorted.map((r, i) => ({
+      request: r,
+      user: users[i]
+        ? {
+            _id: users[i]!._id,
+            name: users[i]!.name,
+            email: users[i]!.email,
+            image: safeImage(users[i]!.image),
+            role: users[i]!.role,
+            printerRole: users[i]!.printerRole,
+            inventoryRole: users[i]!.inventoryRole,
+            inventoryPerms: users[i]!.inventoryPerms,
+            studentId: users[i]!.studentId,
+            clubRoles: users[i]!.clubRoles,
+            telegramUsername: users[i]!.telegramUsername,
+          }
+        : null,
+    }));
   },
 });
 
@@ -847,11 +968,232 @@ export const myPendingPrinterRequest = query({
   args: {},
   handler: async (ctx) => {
     const user = await requireUser(ctx);
-    const rows = await ctx.db
+    const row = await ctx.db
       .query("printerRequests")
-      .withIndex("by_status", (q) => q.eq("status", "pending"))
+      .withIndex("by_user_status", (q) =>
+        q.eq("userId", user._id).eq("status", "pending"),
+      )
+      .first();
+    return Boolean(row);
+  },
+});
+
+// ===== Inventory manager privilege (stacks on any role) =====
+
+// Member asks the admin for inventory-manager access.
+export const requestInventoryRole = mutation({
+  args: { message: v.optional(v.string()) },
+  handler: async (ctx, { message }) => {
+    const user = await requireNonGuest(ctx);
+    if (hasInventoryPrivilege(user)) {
+      throw new ConvexError("You already have inventory manager access");
+    }
+    const mine = await ctx.db
+      .query("inventoryRequests")
+      .withIndex("by_user_status", (q) =>
+        q.eq("userId", user._id).eq("status", "pending"),
+      )
+      .first();
+    if (mine) {
+      throw new ConvexError("You already have a pending inventory request");
+    }
+    await ctx.db.insert("inventoryRequests", {
+      userId: user._id,
+      message: message?.trim() || undefined,
+      status: "pending",
+      requestedAt: Date.now(),
+    });
+    await ctx.db.insert("notifications", {
+      forRole: "admin",
+      type: "inventory_request",
+      text: `${user.name ?? user.email ?? "A member"} requested inventory manager access`,
+      link: "/admin/requests?tab=printers",
+    });
+    await ctx.scheduler.runAfter(0, internal.push.pushToAdmins, {
+      title: "New inventory request",
+      body: `${user.name ?? user.email ?? "A member"} requested inventory manager access`,
+      tag: "roboshelf-inventory",
+      url: "/admin/requests?tab=printers",
+    });
+  },
+});
+
+// Admin view of inventory-manager requests with the requester joined in.
+export const listInventoryRequests = query({
+  args: {
+    status: v.optional(
+      v.union(v.literal("pending"), v.literal("approved"), v.literal("denied")),
+    ),
+  },
+  handler: async (ctx, { status }) => {
+    await requireAdmin(ctx);
+    const rows = status
+      ? await ctx.db
+          .query("inventoryRequests")
+          .withIndex("by_status", (q) => q.eq("status", status))
+          .collect()
+      : await ctx.db.query("inventoryRequests").collect();
+    const sorted = rows.sort((a, b) => b.requestedAt - a.requestedAt);
+    const users = await Promise.all(sorted.map((r) => ctx.db.get(r.userId)));
+    return sorted.map((r, i) => ({
+      request: r,
+      user: users[i]
+        ? {
+            _id: users[i]!._id,
+            name: users[i]!.name,
+            email: users[i]!.email,
+            image: safeImage(users[i]!.image),
+            role: users[i]!.role,
+            printerRole: users[i]!.printerRole,
+            inventoryRole: users[i]!.inventoryRole,
+            inventoryPerms: users[i]!.inventoryPerms,
+            studentId: users[i]!.studentId,
+            clubRoles: users[i]!.clubRoles,
+            telegramUsername: users[i]!.telegramUsername,
+          }
+        : null,
+    }));
+  },
+});
+
+// Admin grants/revokes the inventory privilege and picks the sub-permissions
+// (edit / add / delete) in one go. Pending requests are auto-resolved.
+export const setInventoryRole = mutation({
+  args: {
+    userId: v.id("users"),
+    granted: v.boolean(),
+    perms: v.optional(
+      v.object({ edit: v.boolean(), add: v.boolean(), delete: v.boolean() }),
+    ),
+  },
+  handler: async (ctx, { userId, granted, perms }) => {
+    const admin = await requireAdmin(ctx);
+    const person = await ctx.db.get(userId);
+    if (!person) throw new ConvexError("Person not found");
+    const nextPerms =
+      perms ??
+      (granted
+        ? // Keep the current sub-permissions when re-granting, otherwise
+          // start with full access.
+          (person.inventoryPerms ?? { edit: true, add: true, delete: true })
+        : undefined);
+    await touchPatch(ctx, userId, {
+      inventoryRole: granted || undefined,
+      inventoryPerms: granted ? nextPerms : undefined,
+    });
+    // Auto-resolve their pending request (if any) to keep the console clean.
+    const mine = await ctx.db
+      .query("inventoryRequests")
+      .withIndex("by_user_status", (q) =>
+        q.eq("userId", userId).eq("status", "pending"),
+      )
       .collect();
-    return rows.some((r) => r.userId === user._id);
+    for (const r of mine) {
+      await touchPatch(ctx, r._id, {
+        status: granted ? "approved" : "denied",
+        decidedAt: Date.now(),
+      });
+    }
+    if (userId !== admin._id) {
+      await telegramDM(
+        ctx,
+        {
+          name: person.name ?? person.email,
+          telegramChatId: person.telegramChatId,
+          telegramUsername: person.telegramUsername,
+        },
+        granted
+          ? `📦 ${admin.name ?? admin.email} granted you INVENTORY MANAGER access — you can now manage the shelf.`
+          : `📦 ${admin.name ?? admin.email} revoked your inventory manager access.`,
+        { name: admin.name ?? admin.email },
+        "members",
+      );
+    }
+    return { ok: true };
+  },
+});
+
+// Admin approves/denies an inventory-manager request (full access by default;
+// the admin can narrow the sub-permissions afterwards from People / Requests).
+export const decideInventoryRequest = mutation({
+  args: {
+    id: v.id("inventoryRequests"),
+    approve: v.boolean(),
+    perms: v.optional(
+      v.object({ edit: v.boolean(), add: v.boolean(), delete: v.boolean() }),
+    ),
+  },
+  handler: async (ctx, { id, approve, perms }) => {
+    const admin = await requireAdmin(ctx);
+    const req = await ctx.db.get(id);
+    if (!req || req.status !== "pending")
+      throw new ConvexError("Request not found or already handled");
+    if (approve) {
+      await touchPatch(ctx, req.userId, {
+        inventoryRole: true,
+        inventoryPerms: perms ?? { edit: true, add: true, delete: true },
+      });
+    }
+    await touchPatch(ctx, id, {
+      status: approve ? "approved" : "denied",
+      decidedAt: Date.now(),
+    });
+    const user = await ctx.db.get(req.userId);
+    if (user) {
+      await ctx.scheduler.runAfter(0, internal.push.pushToUser, {
+        userId: user._id,
+        title: approve ? "Inventory manager 📦" : "Inventory request reviewed",
+        body: approve
+          ? "You can now manage inventory items — ask an admin to fine-tune your permissions."
+          : "Your inventory manager request was not approved this time.",
+        tag: "roboshelf-inventory",
+        url: "/inventory",
+      });
+      if (user.telegramChatId || user.telegramUsername) {
+        await telegramDM(
+          ctx,
+          {
+            name: user.name ?? user.email,
+            telegramChatId: user.telegramChatId,
+            telegramUsername: user.telegramUsername,
+          },
+          approve
+            ? `📦 Your INVENTORY MANAGER access was granted${admin ? ` by ${admin.name ?? admin.email}` : ""}.`
+            : `ℹ️ Your inventory manager request was not approved this time.`,
+          { name: admin?.name ?? admin?.email },
+          "members",
+        );
+      }
+    }
+    return { ok: true };
+  },
+});
+
+// The signed-in member's own pending inventory request (if any).
+export const myPendingInventoryRequest = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await requireUser(ctx);
+    const row = await ctx.db
+      .query("inventoryRequests")
+      .withIndex("by_user_status", (q) =>
+        q.eq("userId", user._id).eq("status", "pending"),
+      )
+      .first();
+    return Boolean(row);
+  },
+});
+
+// Effective inventory access for the SIGNED-IN user — the client uses this
+// to show/hide inventory edit controls (admins always see everything).
+export const myInventoryAccess = query({
+  args: {},
+  handler: async (ctx) => {
+    const me = await requireUser(ctx);
+    return {
+      isManager: hasInventoryPrivilege(me),
+      perms: inventoryPermsOf(me),
+    };
   },
 });
 
@@ -885,6 +1227,28 @@ export const submitMyProfile = mutation({
       // seeded members without the flag stay grandfathered).
       profileApproved: false,
     });
+    // The NEW MEMBER hears back immediately: their submission landed and an
+    // admin will review it (push on their devices + bot DM when linked).
+    await ctx.scheduler.runAfter(0, internal.push.pushToUser, {
+      userId: user._id,
+      title: "Profile submitted 📝",
+      body: `Thanks ${cleanName} — an admin will review it shortly.`,
+      tag: "roboshelf-profile",
+      url: "/profile",
+    });
+    if (user.telegramChatId || user.telegramUsername) {
+      await telegramDM(
+        ctx,
+        {
+          name: user.name,
+          telegramUsername: user.telegramUsername,
+          telegramChatId: user.telegramChatId,
+        },
+        `📝 We received your profile — an admin will review it shortly.`,
+        { name: cleanName },
+        "members",
+      );
+    }
     await ctx.db.insert("notifications", {
       forRole: "admin",
       type: "profile",
@@ -916,6 +1280,40 @@ export const approveProfile = mutation({
         ? `✅ ${admin.name ?? admin.email} approved ${member.name ?? member.email ?? "a member"}'s profile — full member access unlocked.`
         : `🔒 ${admin.name ?? admin.email} revoked approval for ${member.name ?? member.email ?? "a member"}'s profile.`,
     );
+    // The member THEMSELVES gets the news: welcome push on their devices +
+    // a bot DM when they have one — approval unlocks the whole app for them.
+    if (approved) {
+      await ctx.scheduler.runAfter(0, internal.push.pushToUser, {
+        userId,
+        title: "Welcome to the club 🎉",
+        body: `Hi ${member.name ?? member.email ?? "there"} — your profile is approved, full access is unlocked.`,
+        tag: "roboshelf-welcome",
+        url: "/dashboard",
+      });
+    } else {
+      await ctx.scheduler.runAfter(0, internal.push.pushToUser, {
+        userId,
+        title: "Profile review update",
+        body: "Your profile approval was revoked — contact an admin for details.",
+        tag: "roboshelf-profile",
+        url: "/profile",
+      });
+    }
+    if (member.telegramChatId || member.telegramUsername) {
+      await telegramDM(
+        ctx,
+        {
+          name: member.name,
+          telegramUsername: member.telegramUsername,
+          telegramChatId: member.telegramChatId,
+        },
+        approved
+          ? `🎉 Welcome aboard! Your profile is approved — full member access is unlocked.`
+          : `ℹ️ Your profile approval was revoked. Please contact an admin for details.`,
+        { name: admin.name ?? admin.email },
+        "members",
+      );
+    }
     return { ok: true };
   },
 });
@@ -928,14 +1326,14 @@ export const listUnapprovedProfiles = query({
   args: {},
   handler: async (ctx) => {
     await requireAdmin(ctx);
-    const users = await ctx.db.query("users").collect();
-    return users
-      .filter(
-        (u) =>
-          !u.isAnonymous &&
-          u.profileApproved === false &&
-          (u.name || u.studentId || u.phone),
-      )
+    // Index lookup: only explicitly-pending submissions are read — never the
+    // whole users table (this was one of the biggest reads in the console).
+    const rows = await ctx.db
+      .query("users")
+      .withIndex("by_profileApproved", (q) => q.eq("profileApproved", false))
+      .collect();
+    return rows
+      .filter((u) => !u.isAnonymous && (u.name || u.studentId || u.phone))
       .map((u) => ({
         _id: u._id,
         name: u.name,

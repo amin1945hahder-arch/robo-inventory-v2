@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="dark">
 
 <head>
   <meta charset="UTF-8" />
@@ -7,23 +7,27 @@
   <link rel="manifest" href="/manifest.webmanifest" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>Robo Inventory</title>
-  <script type="module" crossorigin src="/assets/index-DiYOAzLc.js"></script>
+  <script type="module" crossorigin src="/assets/index-JFUzjcZJ.js"></script>
   <link rel="modulepreload" crossorigin href="/assets/react-vendor-KgAAZzzj.js">
   <link rel="modulepreload" crossorigin href="/assets/framer-motion-CzqMM4Kv.js">
   <link rel="modulepreload" crossorigin href="/assets/radix-ui-CbBda5RO.js">
   <link rel="modulepreload" crossorigin href="/assets/charts-DalHbOQV.js">
-  <link rel="stylesheet" crossorigin href="/assets/index-MKCt-ali.css">
+  <link rel="stylesheet" crossorigin href="/assets/index-DI__qujQ.css">
 </head>
 
 
-<body class="dark">
+<body>
   <div id="root"></div>
   <script>
     // No-flash appearance bootstrap: restore THIS member's last mode before
     // React mounts (the per-user setting from the DB re-applies right after
     // sign-in). Keyed by member id, saved by use-appearance.ts.
+    // NOTE: the dark class lives on <html> ONLY — a .dark class on <body>
+    // would re-declare the token variables there and shadow the published
+    // app theme's inline vars set on <html> (themes never applied correctly).
     (function () {
       try {
+        var root = document.documentElement;
         var mode = null;
         for (var i = 0; i < localStorage.length; i++) {
           var k = localStorage.key(i);
@@ -33,17 +37,14 @@
           }
         }
         if (mode === "light") {
-          document.body.classList.remove("dark");
-          document.documentElement.style.colorScheme = "light";
-        } else if (mode === "dark" || mode === "system") {
-          if (
-            mode === "system" &&
-            window.matchMedia("(prefers-color-scheme: light)").matches
-          ) {
-            document.body.classList.remove("dark");
-            document.documentElement.style.colorScheme = "light";
-          }
+          root.classList.remove("dark");
+          root.style.colorScheme = "light";
+        } else if (mode === "system" && window.matchMedia("(prefers-color-scheme: light)").matches) {
+          root.classList.remove("dark");
+          root.style.colorScheme = "light";
         }
+        // dark / system-dark / unset → keep the markup's default .dark class
+        document.body.classList.remove("dark");
       } catch (e) {}
     })();
   </script>

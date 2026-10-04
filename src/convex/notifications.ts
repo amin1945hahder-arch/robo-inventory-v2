@@ -1,7 +1,9 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { requireAdmin, requireUser, safeImage } from "./lib";
 import { recordTombstone } from "./sync";
+import { telegramDM } from "./notify";
 
 // ===== Admin notifications =====
 
@@ -123,6 +125,21 @@ export const requestProfileChange = mutation({
       status: "pending",
       requestedAt: Date.now(),
     });
+    // Surface it EVERYWHERE an admin looks: the bell feed (notifications)
+    // and the OS-level push — same as every other request type.
+    const fields = Object.keys(payload).join(", ");
+    await ctx.db.insert("notifications", {
+      forRole: "admin",
+      type: "profile_request",
+      text: `${user.name ?? user.email ?? "A member"} requested a profile change (${fields})`,
+      link: "/admin/requests?tab=profiles",
+    });
+    await ctx.scheduler.runAfter(0, internal.push.pushToAdmins, {
+      title: "New profile request",
+      body: `${user.name ?? user.email ?? "A member"} requested a profile change`,
+      tag: "roboshelf-profile",
+      url: "/admin/requests?tab=profiles",
+    });
   },
 });
 
@@ -169,6 +186,30 @@ export const decideProfileRequest = mutation({
       await ctx.db.patch(req.userId, { ...req.payload });
     }
     await ctx.db.patch(id, { status: approve ? "approved" : "denied", decidedAt: Date.now() });
+    // The MEMBER hears back too: Telegram DM (bot) + a real push on their
+    // devices — approval and rejection both notify the requester.
+    const member = await ctx.db.get(req.userId);
+    const who = member?.name ?? member?.email ?? "Member";
+    if (member) {
+      await telegramDM(
+        ctx,
+        { name: member.name, telegramUsername: member.telegramUsername, telegramChatId: member.telegramChatId },
+        approve
+          ? `✅ Your profile change was applied — it is live now.`
+          : `ℹ️ Your profile change was not approved this time. An admin can tell you why.`,
+        { name: member.name },
+        "members",
+      );
+      await ctx.scheduler.runAfter(0, internal.push.pushToUser, {
+        userId: req.userId,
+        title: approve ? "Profile updated ✅" : "Profile request reviewed",
+        body: approve
+          ? `${who}, your changes are live now.`
+          : `${who}, your profile request was not approved.`,
+        tag: "roboshelf-profile",
+        url: "/profile",
+      });
+    }
   },
 });
 

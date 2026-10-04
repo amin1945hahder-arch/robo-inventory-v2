@@ -64,6 +64,19 @@ const schema = defineSchema(
       // (member + printer, student + printer). Admins have it implicitly.
       printerRole: v.optional(v.boolean()),
 
+      // "inventory manager" works exactly like the printer privilege: it
+      // stacks on any role and can be requested or granted by an admin.
+      // Sub-permissions decide WHAT the manager may do in the inventory
+      // (admins implicitly hold all three).
+      inventoryRole: v.optional(v.boolean()),
+      inventoryPerms: v.optional(
+        v.object({ edit: v.boolean(), add: v.boolean(), delete: v.boolean() }),
+      ),
+
+      // Per-user display font: family id from the app font catalog (null /
+      // undefined = the app default). Follows the person across devices.
+      font: v.optional(v.string()),
+
       // Per-user notification sound settings (JSON SoundSettings): every
       // member tunes their own tones in Settings/Profile — sounds are NOT
       // global anymore.
@@ -80,7 +93,12 @@ const schema = defineSchema(
     })
       .index("email", ["email"]) // index for the email. do not remove or modify
       .index("by_telegram_username", ["telegramUsername"])
-      .index("by_updatedAt", ["updatedAt"]),
+      .index("by_updatedAt", ["updatedAt"])
+      // Hot lookups that used to scan the WHOLE users table on every load:
+      // "is there an admin yet" (every sign-in), "who are the admins"
+      // (every request/return notification) and the pending-profile badge.
+      .index("by_role", ["role"])
+      .index("by_profileApproved", ["profileApproved"]),
 
     // ===== Robotics Club Inventory =====
 
@@ -569,7 +587,10 @@ const schema = defineSchema(
       status: v.union(v.literal("pending"), v.literal("approved"), v.literal("denied")),
       requestedAt: v.number(),
       decidedAt: v.optional(v.number()),
-    }).index("by_status", ["status"]),
+    })
+      .index("by_status", ["status"])
+      // Per-member pending checks read ONE row instead of every pending row.
+      .index("by_user_status", ["userId", "status"]),
 
     // Admin-editable club lists: ranks/positions and academic states. Stored
     // as one row per list; full CRUD from the Settings page (never hardcoded).
@@ -579,17 +600,21 @@ const schema = defineSchema(
     }).index("by_list_key", ["listKey"]),
 
     // Member-submitted rank/position upgrade requests (e.g. "make me مدرب").
-    // `kind` distinguishes a rank request (list of club positions) from a
-    // membership upgrade request (a student asking to become a full member).
+    // `kind` distinguishes a rank request (list of club positions), a
+    // membership upgrade request (a student asking to become a full member)
+    // and a MAIN ROLE request (member / admin) — requestedRoles then holds
+    // the app role name.
     rankRequests: defineTable({
       userId: v.id("users"),
-      kind: v.optional(v.union(v.literal("rank"), v.literal("member"))),
+      kind: v.optional(v.union(v.literal("rank"), v.literal("member"), v.literal("role"))),
       requestedRoles: v.array(v.string()),
       message: v.optional(v.string()),
       status: v.union(v.literal("pending"), v.literal("approved"), v.literal("denied")),
       requestedAt: v.number(),
       decidedAt: v.optional(v.number()),
-    }).index("by_status", ["status"]),
+    })
+      .index("by_status", ["status"])
+      .index("by_user_status", ["userId", "status"]),
 
     // Member-submitted "printer" privilege requests (admin grants via the
     // Requests console or People page; admins implicitly have the privilege).
@@ -599,7 +624,22 @@ const schema = defineSchema(
       status: v.union(v.literal("pending"), v.literal("approved"), v.literal("denied")),
       requestedAt: v.number(),
       decidedAt: v.optional(v.number()),
-    }).index("by_status", ["status"]),
+    })
+      .index("by_status", ["status"])
+      .index("by_user_status", ["userId", "status"]),
+
+    // Member-submitted "inventory manager" privilege requests — same shape
+    // as the printer privilege, with the admin choosing the sub-permissions
+    // (edit / add / delete) when granting it.
+    inventoryRequests: defineTable({
+      userId: v.id("users"),
+      message: v.optional(v.string()),
+      status: v.union(v.literal("pending"), v.literal("approved"), v.literal("denied")),
+      requestedAt: v.number(),
+      decidedAt: v.optional(v.number()),
+    })
+      .index("by_status", ["status"])
+      .index("by_user_status", ["userId", "status"]),
 
     // ===== Fast sign-in ("remember this device") =====
     // A per-device secret issued right after a successful email-code sign-in.
