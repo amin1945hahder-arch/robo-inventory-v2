@@ -166,6 +166,37 @@ empty tombstone page ≈ **~4 docs**, versus "all tombstones of all tables" befo
 | `src/convex/parts.ts` (`listPackages`, `getPackage`) | `by_user` history collect + filter → `by_package` index | The package console read the requester's ENTIRE rental history once per package (N+1) | Per package: `N_user_rentals` → `N_pkg_rows` |
 | `src/convex/parts.ts` (`returnPackage`, `editPackage`, package pickup) + `src/convex/bulk.ts` (×3, in loops) | Same `by_package` conversion | These run inside per-package loops, multiplying the history scans | same pattern |
 
+### P0 — offline-first read path (batch 3)
+
+The root cause of "pages show empty data when offline" was never a server
+problem: `useQuery` returns `undefined` until the websocket delivers, and
+offline it never delivers, so every page rendered its empty state. The
+delta-sync cache already existed but was **not connected to any page**.
+
+| File | Change | Why |
+|---|---|---|
+| `src/lib/sync/queryCache.ts` | NEW — pure cache-key + freshness logic | Stable keys (args sorted, `"skip"` folded into no-args) and an explicit fresh/stale/miss decision. Unit-testable, no React |
+| `src/lib/sync/queryStore.ts` | NEW — IndexedDB store for query RESULTS | Separate from the table cache (different shape/lifecycle). Entries are **scoped per user id** so a shared device never cross-reads |
+| `src/hooks/use-offline-query.ts` | NEW — drop-in `useQuery` replacement | Hydrates from IndexedDB on mount (first paint is already full), writes every live result back, and revalidates only on **interrupts**: reconnect or `bumpDataSync`. Nothing polls |
+| `src/hooks/use-auth.ts` | Persisted identity in `localStorage` | `user === undefined` offline made `isLoading` permanently true → the app couldn't even be **opened** without a signal. Cached identity renders the shell immediately; live query always wins when online |
+| `src/hooks/use-auth.ts` | Shared identity store (`publishAuthUser` / `subscribeAuthUser` / `getAuthUserSync`) | The cache key needs the user id, but a page opens ~100 query hooks. Reading it via `useAuth()` in each meant ~100 duplicate `useConvexAuth` + `currentUser` subscriptions — the fix would have added the exact read cost this section removes. One subscription publishes; the rest read it synchronously |
+| 20 page files | `useQuery` → `useOfflineQuery` (aliased) | Mechanical import swap only — same call signature, same return type, so no call site changed. Verified by `tsc` exit 0 across all of them |
+
+Read-cost effect: an offline (or reconnect) page view now serves a **local**
+read. Only a genuine cold cache costs a network query; repeated navigation
+within `DEFAULT_MAX_AGE_MS` (10 min) costs none. `useCachedData` remains for
+the table-level delta sync it was built for and is untouched.
+
+Deliberate limits: the cache stores query RESULTS, not a re-implementation of
+every page's derived logic, so stale entries are possible by design — bounded
+by `maxAgeMs` and always replaced by the live value once the network answers.
+
+One more correctness detail found while measuring the hook: when the cache key
+changes (different args, or the member signs out and the scope re-keys) and no
+entry exists for the new key, the hydrated snapshot must be **cleared**, not
+left in place — otherwise the previous key's rows keep rendering under the
+new one.
+
 ## 7. Deliberately NOT changed (and why)
 
 - **`stats.groupStats` / `stats.overview` full scans** — the correct fix is to

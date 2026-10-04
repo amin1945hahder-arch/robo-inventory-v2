@@ -1,4 +1,4 @@
-import { useQuery } from "convex/react";
+import { useOfflineQuery as useQuery } from "@/hooks/use-offline-query";
 import { Link } from "react-router";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";

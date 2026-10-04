@@ -642,9 +642,9 @@ export function SlicerStudio({
   const railButton = "h-9 w-full justify-start gap-2 text-xs font-medium";
 
   return (
-    {/* Mobile/tablet: the viewport claims the screen (dvh-aware so the URL
-        bar can't eat its length) and the control rail becomes a capped
-        scroll strip BELOW it. Desktop: the original side-by-side layout. */}
+    /* Mobile/tablet: the viewport claims the screen (dvh-aware so the URL
+       bar can't eat its length) and the control rail becomes a capped
+       scroll strip BELOW it. Desktop: the original side-by-side layout. */
     <div className="flex h-[calc(100dvh-10rem)] min-h-[600px] flex-col gap-3 lg:h-[calc(100vh-14rem)] lg:min-h-[560px]">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">

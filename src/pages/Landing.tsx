@@ -7,20 +7,22 @@ import { Badge } from "@/components/ui/badge";
 import logo from "@/assets/logo.svg";
 import {
   ArrowRight,
+  BarChart3,
+  Bell,
+  Box,
   Boxes,
-  CalendarClock,
   Camera,
   CheckCircle2,
-  CircleUser,
   CloudOff,
+  FileDown,
+  FileUp,
   FolderKanban,
-  Layers,
+  LayoutDashboard,
   Mail,
   PackageSearch,
   QrCode,
   ScanLine,
   ShieldCheck,
-  User,
   Users,
   WifiOff,
   Warehouse,
@@ -88,6 +90,92 @@ const STEPS = [
   { n: "04", title: "Build & return", body: "Take it to your robot, then return it or assign it to your project." },
 ];
 
+/** Every module the app offers, grouped by who uses it — the "everything"
+ *  showcase: one glance at the whole platform before signing up. */
+const MEMBER_MODULES = [
+  {
+    icon: LayoutDashboard,
+    name: "Dashboard",
+    body: "Live availability at a glance: what's rented, broken, on projects and what's waiting for approval.",
+  },
+  {
+    icon: Boxes,
+    name: "Inventory",
+    body: "Search by name, brand or category — or just scan a shelf. Live stock, storages and categories.",
+  },
+  {
+    icon: Warehouse,
+    name: "Storages",
+    body: "Every storage door and category has its own QR. Scan a door to see exactly what lives inside it.",
+  },
+  {
+    icon: FolderKanban,
+    name: "Projects",
+    body: "Assign parts to club builds for the long haul — checked out until the project is dismantled.",
+  },
+  {
+    icon: PackageSearch,
+    name: "My rentals",
+    body: "Bar of tabs for package bundles, active requests and history — one place for everything borrowed.",
+  },
+  {
+    icon: Box,
+    name: "3D printing",
+    body: "Embedded slicer with printer, material and filament in view. Slice, preview, export and print.",
+  },
+];
+
+const ADMIN_MODULES = [
+  {
+    icon: Bell,
+    name: "Requests console",
+    body: "Nine tabs — updates, pending, packages, pickups, active, projects, history, ranks and profiles — with unread bubbles.",
+  },
+  {
+    icon: Users,
+    name: "People & roles",
+    body: "Ranks, printer and inventory permissions, review workflows. Everyone gets their exact level of access.",
+  },
+  {
+    icon: FileUp,
+    name: "Import CSV",
+    body: "Batch load parts, storages, projects and more from a spreadsheet — no manual entry for the long tail.",
+  },
+  {
+    icon: QrCode,
+    name: "Print labels",
+    body: "Design the QR label sheet: paper size, per-section labels and cut lines. Prints every page in one go.",
+  },
+  {
+    icon: FileDown,
+    name: "Export studio",
+    body: "Turn filtered inventory into print sheets or CSV — real mm scale, whole rows, zero page clipping.",
+  },
+  {
+    icon: BarChart3,
+    name: "Reports",
+    body: "What's out, what's due, what's broken. The numbers the club runs on, straight from the database.",
+  },
+];
+
+const OFFLINE_POINTS = [
+  {
+    icon: Warehouse,
+    title: "Full cache per member",
+    body: "Every table is downloaded and stored locally on first open — the whole club's inventory, not just your own.",
+  },
+  {
+    icon: CheckCircle2,
+    title: "Interrupt-only refresh",
+    body: "Your app never polls. When someone else writes, you get one notification and exactly what changed is merged in.",
+  },
+  {
+    icon: WifiOff,
+    title: "Offline login, always",
+    body: "Sign in uses the session stored on your device, so the app opens and the cache syncs without a connection.",
+  },
+];
+
 export default function Landing() {
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
@@ -108,7 +196,6 @@ export default function Landing() {
         <nav className="hidden items-center gap-6 text-sm text-muted-foreground md:flex">
           <a href="#features" className="transition-colors hover:text-foreground">Features</a>
           <a href="#modules" className="transition-colors hover:text-foreground">Everything</a>
-          <a href="#modules" className="transition-colors hover:text-foreground">Everything</a>
           <a href="#how" className="transition-colors hover:text-foreground">How it works</a>
           <a href="#roles" className="transition-colors hover:text-foreground">Roles</a>
         </nav>
@@ -118,52 +205,17 @@ export default function Landing() {
               Dashboard <ArrowRight className="size-4" />
             </Button>
           ) : (
-            <>                <Button size="sm" variant="ghost" className="hidden sm:inline-flex" onClick={() => navigate("/auth")}>
-                  Sign in
-                </Button>
-                <Button size="sm" onClick={() => navigate("/auth")}>
-                  Get started
-                </Button>
+            <>
+              <Button size="sm" variant="ghost" className="hidden sm:inline-flex" onClick={() => navigate("/auth")}>
+                Sign in
+              </Button>
+              <Button size="sm" onClick={() => navigate("/auth")}>
+                Get started
+              </Button>
             </>
           )}
         </div>
       </header>
-
-      {/* every-thing — one glance at the whole platform, the page's
-          "productivity" promise in one scannable strip. */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, delay: 0.12 }}
-        className="mt-10 flex flex-wrap items-center justify-center gap-2"
-      >
-        {[
-          ["Dashboard", "LayoutDashboard"],
-          ["Inventory", "Boxes"],
-          ["Storages", "Warehouse"],
-          ["Projects", "FolderKanban"],
-          ["My rentals", "PackageSearch"],
-          ["3D printing", "Box"],
-          ["Requests", "Bell"],
-          ["People", "Users"],
-          ["Import CSV", "FileUp"],
-          ["Print labels", "QrCode"],
-          ["Export", "FileDown"],
-          ["Reports", "BarChart3"],
-          ["Settings", "Settings"],
-          ["Offline-first", "WifiOff"],
-          ["Themes", "Palette"],
-        ].map(([name, icon]) => (
-          <span
-            key={name}
-            className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background/60 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <Icon name={icon} className="size-3.5" />
-            {name}
-          </span>
-        )}
-      </motion.div>
-    </header>
 
       {/* hero */}
       <section id="hero" className="relative z-10 mx-auto flex w-full max-w-6xl flex-col items-center px-6 pb-24 pt-16 text-center md:pt-24">
@@ -217,87 +269,33 @@ export default function Landing() {
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.12 }}
-          className="mt-10 flex flex-wrap items-center justify-center gap-2"
+          transition={{ duration: 0.4, delay: 0.32 }}
+          className="mt-12 flex flex-wrap items-center justify-center gap-2"
         >
           {[
-            ["Dashboard", "LayoutDashboard"],
-            ["Inventory", "Boxes"],
-            ["Storages", "Warehouse"],
-            ["Projects", "FolderKanban"],
-            ["My rentals", "PackageSearch"],
-            ["3D printing", "Box"],
-            ["Requests", "Bell"],
-            ["People", "Users"],
-            ["Import CSV", "FileUp"],
-            ["Print labels", "QrCode"],
-            ["Export", "FileDown"],
-            ["Reports", "BarChart3"],
-            ["Settings", "Settings"],
-            ["Offline-first", "WifiOff"],
-            ["Themes", "Palette"],
-          ].map(([name, icon]) => (
+            ["Dashboard", LayoutDashboard],
+            ["Inventory", Boxes],
+            ["Storages", Warehouse],
+            ["Projects", FolderKanban],
+            ["My rentals", PackageSearch],
+            ["3D printing", Box],
+            ["Requests", Bell],
+            ["People", Users],
+            ["Import CSV", FileUp],
+            ["Print labels", QrCode],
+            ["Export", FileDown],
+            ["Reports", BarChart3],
+            ["Offline-first", WifiOff],
+          ].map(([name, Icon]) => (
             <span
-              key={name}
+              key={name as string}
               className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background/60 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
             >
-              <Icon name={icon} className="size-3.5" />
-              {name}
+              <Icon className="size-3.5" />
+              {name as string}
             </span>
           ))}
         </motion.div>
-      </section>
-
-      {/* features */}
-      <section id="features" className="relative z-10 mx-auto w-full max-w-6xl px-6 py-20">
-        <motion.div {...fadeUp} transition={{ duration: 0.5 }} className="mx-auto max-w-2xl text-center">
-          <h2 className="text-3xl font-bold tracking-tight">Built for makers, not spreadsheets</h2>
-          <p className="mt-3 text-muted-foreground">
-            Hardware lives in storages, parts go missing, projects hoard components. RoboShelf keeps
-            the whole story straight.
-          </p>
-        </motion.div>
-        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {FEATURES.map(({ icon: Icon, title, body }, i) => (
-            <motion.div key={title} {...fadeUp} transition={{ duration: 0.45, delay: i * 0.06 }}>
-              <Card className="h-full border-border/80">
-                <CardContent className="flex flex-col gap-3 p-6">
-                  <div className="icon-glass flex size-11 items-center justify-center rounded-lg text-primary">
-                    <Icon className="icon-3d size-5" />
-                  </div>
-                  <h3 className="font-semibold tracking-tight">{title}</h3>
-                  <p className="text-sm leading-6 text-muted-foreground">{body}</p>
-                </CardContent>
-              </Card>
-            </motion.div>
-          ))}
-        </div>
-      </section>
-
-      {/* features */}
-      <section id="features" className="relative z-10 mx-auto w-full max-w-6xl px-6 py-20">
-        <motion.div {...fadeUp} transition={{ duration: 0.5 }} className="mx-auto max-w-2xl text-center">
-          <h2 className="text-3xl font-bold tracking-tight">Built for makers, not spreadsheets</h2>
-          <p className="mt-3 text-muted-foreground">
-            Hardware lives in storages, parts go missing, projects hoard components. RoboShelf keeps
-            the whole story straight.
-          </p>
-        </motion.div>
-        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {FEATURES.map(({ icon: Icon, title, body }, i) => (
-            <motion.div key={title} {...fadeUp} transition={{ duration: 0.45, delay: i * 0.06 }}>
-              <Card className="h-full border-border/80">
-                <CardContent className="flex flex-col gap-3 p-6">
-                  <div className="icon-glass flex size-11 items-center justify-center rounded-lg text-primary">
-                    <Icon className="icon-3d size-5" />
-                  </div>
-                  <h3 className="font-semibold tracking-tight">{title}</h3>
-                  <p className="text-sm leading-6 text-muted-foreground">{body}</p>
-                </CardContent>
-              </Card>
-            </motion.div>
-          ))}
-        </div>
       </section>
 
       {/* mock scan card */}
@@ -339,33 +337,8 @@ export default function Landing() {
         </motion.div>
       </section>
 
-      {/* features */}
-      <section id="features" className="relative z-10 mx-auto w-full max-w-6xl px-6 py-20">
-        <motion.div {...fadeUp} transition={{ duration: 0.5 }} className="mx-auto max-w-2xl text-center">
-          <h2 className="text-3xl font-bold tracking-tight">Built for makers, not spreadsheets</h2>
-          <p className="mt-3 text-muted-foreground">
-            Hardware lives in storages, parts go missing, projects hoard components. RoboShelf keeps
-            the whole story straight.
-          </p>
-        </motion.div>
-        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {FEATURES.map(({ icon: Icon, title, body }, i) => (
-            <motion.div key={title} {...fadeUp} transition={{ duration: 0.45, delay: i * 0.06 }}>
-              <Card className="h-full border-border/80">
-                <CardContent className="flex flex-col gap-3 p-6">
-                  <div className="icon-glass flex size-11 items-center justify-center rounded-lg text-primary">
-                    <Icon className="icon-3d size-5" />
-                  </div>
-                  <h3 className="font-semibold tracking-tight">{title}</h3>
-                  <p className="text-sm leading-6 text-muted-foreground">{body}</p>
-                </CardContent>
-              </Card>
-            </motion.div>
-          ))}
-        </div>
-      </section>      {/* everything — every feature and workflow the app offers, grouped
-          by who it's for. One section, every module. */}
-      <section id="modules" className="relative z-10 mx-auto w-full max-w-6xl px-6 py-20">
+      {/* everything — every module the app offers, grouped by who it's for */}
+      <section id="modules" className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-8">
         <motion.div {...fadeUp} transition={{ duration: 0.5 }} className="mx-auto max-w-2xl text-center">
           <Badge variant="outline" className="w-fit gap-2 border-primary/40 bg-primary/10 px-3 text-primary">
             <Boxes className="size-3.5" />
@@ -376,60 +349,15 @@ export default function Landing() {
           </h2>
           <p className="mt-3 text-muted-foreground">
             From a single QR scan to a slicer job, from your desk to the lab and back again offline —
-            Roboshelf covers the whole inventory story.
+            RoboShelf covers the whole inventory story.
           </p>
         </motion.div>
 
-        {/* Member workspace */}
-      <section id="modules" className="relative z-10 mx-auto w-full max-w-6xl px-6 py-20">
-        <motion.div {...fadeUp} transition={{ duration: 0.5 }} className="mx-auto max-w-2xl text-center">
-          <Badge variant="outline" className="w-fit gap-2 border-primary/40 bg-primary/10 px-3 text-primary">
-            <Boxes className="size-3.5" />
-            Everything the app offers
-          </Badge>
-          <h2 className="mt-3 text-3xl font-bold tracking-tight">
-            One workspace, every lab workflow.
-          </h2>
-          <p className="mt-3 text-muted-foreground">
-            From a single QR scan to a slicer job, from your desk to the lab and back again offline —
-            Roboshelf covers the whole inventory story.
-          </p>
-        </motion.div>
-
-        {/* Member workspace */}
-        <div className="mt-12 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {[
-            {
-              icon: LayoutDashboard,
-              name: "Dashboard",
-              body: "Live availability at a glance: what's rented, broken, on projects and what's waiting for your approval.",
-            },
-            {
-              icon: Boxes,
-              name: "Inventory",
-              body: "Search by name, brand or category — or just scan a shelf. See live stock, storages and categories.",
-            },
-            {
-              icon: Warehouse,
-              name: "Storages",
-              body: "Every storage door and category has its own QR. Scan a door to see exactly what lives inside it.",
-            },
-            {
-              icon: FolderKanban,
-              name: "Projects",
-              body: "Assign parts to club builds for the long haul — checked out until the project is dismantled.",
-            },
-            {
-              icon: PackageSearch,
-              name: "My rentals",
-              body: "Bar of tabs for package bundles, active requests and history — one place for everything you've borrowed.",
-            },
-            {
-              icon: Box,
-              name: "3D printing",
-              body: "Embedded slicer with the printer, material and filament in view. Slice, preview, export and print.",
-            },
-          ].map(({ icon: Icon, name, body }, i) => (
+        <p className="mt-12 text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+          Member workspace
+        </p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {MEMBER_MODULES.map(({ icon: Icon, name, body }, i) => (
             <motion.div
               key={name}
               {...fadeUp}
@@ -445,44 +373,15 @@ export default function Landing() {
           ))}
         </div>
 
-        {/* Admin console */}
-        <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {[
-            {
-              icon: Bell,
-              name: "Requests console",
-              body: "Nine tabs — updates, pending, packages, pickups, active, projects, history, ranks and profiles — with unread bubbles and email links.",
-            },
-            {
-              icon: Users,
-              name: "People & roles",
-              body: "Ranks, printer and inventory permissions, review workflows. Everyone gets their exact level of access.",
-            },
-            {
-              icon: FileUp,
-              name: "Import CSV",
-              body: "Batch load parts, storages, projects and more from a spreadsheet — no manual entry for the long tail.",
-            },
-            {
-              icon: QrCode,
-              name: "Print labels",
-              body: "Design the QR label sheet: pick a paper size, per-section labels and cut lines. Prints every page, in one go.",
-            },
-            {
-              icon: FileDown,
-              name: "Export studio",
-              body: "Turn filtered inventory into print sheets or CSV — real mm scale, whole rows, zero page clipping.",
-            },
-            {
-              icon: BarChart3,
-              name: "Reports",
-              body: "What's out, what's due, what's broken. The numbers the club runs on, straight from the database.",
-            },
-          ].map(({ icon: Icon, name, body }, i) => (
+        <p className="mt-10 text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+          Admin console
+        </p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {ADMIN_MODULES.map(({ icon: Icon, name, body }, i) => (
             <motion.div
               key={name}
               {...fadeUp}
-              transition={{ duration: 0.45, delay: i * 0.06 + 0.25 }}
+              transition={{ duration: 0.45, delay: i * 0.06 }}
               className="rounded-xl border border-border/80 bg-card/40 p-4"
             >
               <div className="icon-glass flex size-10 items-center justify-center rounded-lg text-primary">
@@ -521,134 +420,48 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* mock scan card */}
-      <section className="relative z-10 mx-auto flex w-full max-w-xl flex-col items-center px-6 pb-24">
-        <motion.div
-          initial={{ opacity: 0, y: 32, scale: 0.97 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ duration: 0.65, delay: 0.35 }}
-          className="glass rounded-2xl p-6 text-left"
-        >
-          <div className="flex items-center gap-3 border-b border-border/60 pb-4">
-            <div className="icon-glass flex size-11 items-center justify-center rounded-lg text-primary">
-              <QrCode className="size-5" />
-            </div>
-            <div>
-              <p className="font-mono text-xs text-muted-foreground">ARD-003 · scanned</p>
-              <p className="text-sm font-semibold">Arduino Uno — unit 3</p>
-            </div>
-            <Badge variant="outline" className="ml-auto border-emerald-500/40 bg-emerald-500/10 text-emerald-400">
-              Available
-            </Badge>
-          </div>
-          <div className="grid grid-cols-3 gap-3 pt-4 text-center text-xs">
-            {[
-              ["8", "units total"],
-              ["3", "available now"],
-              ["2", "on projects"],
-            ].map(([v, l]) => (
-              <div key={l} className="glass-3d rounded-lg border border-border/60 bg-background/40 px-3 py-3">
-                <p className="text-lg font-bold tabular-nums">{v}</p>
-                <p className="text-muted-foreground">{l}</p>
-              </div>
-            ))}
-          </div>
-          <div className="mt-4 flex items-center gap-2 glass-3d rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-xs text-primary">
-            <CheckCircle2 className="size-4" />
-            Request sent — Admin approved it in no time.
-          </div>
+      {/* offline-first band — the database is local, the app works with zero
+          signal, and only interrupts from other users ever touch the cache. */}
+      <section className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-20">
+        <motion.div {...fadeUp} transition={{ duration: 0.5 }} className="mx-auto max-w-3xl text-center">
+          <Badge variant="outline" className="w-fit gap-2 border-violet-500/40 bg-violet-500/10 px-3 text-violet-400">
+            <CloudOff className="size-3.5" />
+            Offline first
+          </Badge>
+          <h2 className="mt-3 text-3xl font-bold tracking-tight">The database is always on your side.</h2>
+          <p className="mt-3 text-muted-foreground">
+            The first time you open RoboShelf, the entire database for your club is synced and stored
+            locally on your device. Every page reads from that cache — nothing waits on the network,
+            and your tabs stay fast even with zero signal.
+          </p>
+          <p className="mt-2 text-muted-foreground">
+            Updates only arrive as interrupts: when another member changes something, the app is
+            notified and refreshes precisely what changed — nothing more. Open the app again and it
+            pulls every change since you last visited. Even the login works offline, using the session
+            already stored on your device, so you're never blocked by the network on the way in.
+          </p>
         </motion.div>
-      </section>
 
-      {/* offline-first band — the quiet superpower: the database is local,
-          the app works with zero signal, and only interrupts from other users
-          ever touch the cache. Professional write-up for the marketing page. */}
-      <section className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-24">
-        <motion.div {...fadeUp} transition={{ duration: 0.5 }} className="mx-auto max-w-3xl text-center">
-          <Badge variant="outline" className="w-fit gap-2 border-violet-500/40 bg-violet-500/10 px-3 text-violet-400">
-            <CloudOff className="size-3.5" />
-            Offline first
-          </Badge>
-          <h2 className="mt-3 text-3xl font-bold tracking-tight">The database is always on your side.</h2>
-          <p className="mt-3 text-muted-foreground">
-            The first time you open Roboshelf, the entire database for your club is synced and stored
-            locally on your device. Every page reads from that cache — nothing waits on the network,
-            and your tabs stay fast even with zero signal.
-          </p>
-          <p className="mt-2 text-muted-foreground">
-            Updates only arrive as interrupts: when another member changes something, the app is notified
-            and refreshes precisely what changed — nothing more. Open the app again and it pulls every
-            change since you last visited. Even the login works offline, using the session already
-            stored on your device, so you're never blocked by the network on the way in.
-          </p>
-    </motion.div>
-
-    <div className="mt-10 grid gap-4 sm:grid-cols-3">
-      <section className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-24">
-        <motion.div {...fadeUp} transition={{ duration: 0.5 }} className="mx-auto max-w-3xl text-center">
-          <Badge variant="outline" className="w-fit gap-2 border-violet-500/40 bg-violet-500/10 px-3 text-violet-400">
-            <CloudOff className="size-3.5" />
-            Offline first
-          </Badge>
-          <h2 className="mt-3 text-3xl font-bold tracking-tight">The database is always on your side.</h2>
-          <p className="mt-3 text-muted-foreground">
-            The first time you open Roboshelf, the entire database for your club is synced and stored
-
-      <section className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-24">
-        <motion.div {...fadeUp} transition={{ duration: 0.5 }} className="mx-auto max-w-3xl text-center">
-          <Badge variant="outline" className="w-fit gap-2 border-violet-500/40 bg-violet-500/10 px-3 text-violet-400">
-            <CloudOff className="size-3.5" />
-            Offline first
-          </Badge>
-          <h2 className="mt-3 text-3xl font-bold tracking-tight">The database is always on your side.</h2>
-          <p className="mt-3 text-muted-foreground">
-            The first time you open Roboshelf, the entire database for your club is synced and stored
-            locally on your device. Every page reads from that cache — nothing waits on the network,
-            and your tabs stay fast even with zero signal.
-          </p>
-          <p className="mt-2 text-muted-foreground">
-            Updates only arrive as interrupts: when another member changes something, the app is notified
-            and refreshes precisely what changed — nothing more. Open the app again and it pulls every
-            change since you last visited. Even the login works offline, using the session already
-            stored on your device, so you're never blocked by the network on the way in.
-          </p>
-    </motion.div>
-
-    <div className="mt-10 grid gap-4 sm:grid-cols-3">
-          {[
-            {
-              title: "Full cache per member",
-              body: "Every table is downloaded and stored locally on first open — the whole club's inventory, not just your own.",
-              icon: Warehouse,
-            },
-            {
-              title: "Interrupt-only refresh",
-              body: "Your app never polls. When someone else writes, you get one notification; exactly what changed is merged in.",
-              icon: CheckCircle2,
-            },
-            {
-              title: "Offline login, always",
-              body: "Sign in uses the session stored on your device, so the app opens and the cache syncs without a connection.",
-              icon: WifiOff,
-            },
-          ].map(({ title, body, icon: Icon }) => (
+        <div className="mt-10 grid gap-4 sm:grid-cols-3">
+          {OFFLINE_POINTS.map(({ icon: Icon, title, body }, i) => (
             <motion.div
               key={title}
               {...fadeUp}
-              transition={{ duration: 0.45 }}
+              transition={{ duration: 0.45, delay: i * 0.06 }}
               className="rounded-xl border border-border/80 bg-card/40 p-6"
             >
               <div className="icon-glass flex size-10 items-center justify-center rounded-lg text-primary">
                 <Icon className="icon-3d size-5" />
               </div>
               <h3 className="mt-2 font-semibold tracking-tight">{title}</h3>
-              <p className="mt-1.5 text-sm text-muted-foreground">{body}</p>
+              <p className="mt-1.5 text-sm leading-6 text-muted-foreground">{body}</p>
             </motion.div>
           ))}
         </div>
       </section>
 
-      {/* how it works */}        <section id="how" className="relative z-10 mx-auto w-full max-w-6xl px-6 py-20">
+      {/* how it works */}
+      <section id="how" className="relative z-10 mx-auto w-full max-w-6xl px-6 py-20">
         <motion.div {...fadeUp} transition={{ duration: 0.5 }} className="mx-auto max-w-2xl text-center">
           <h2 className="text-3xl font-bold tracking-tight">From shelf to robot in four steps</h2>
         </motion.div>
@@ -670,8 +483,8 @@ export default function Landing() {
 
       {/* roles */}
       <section id="roles" className="relative z-10 mx-auto w-full max-w-6xl px-6 py-20">
-      <div className="grid gap-4 md:grid-cols-2">
-        <motion.div {...fadeUp} transition={{ duration: 0.5 }}>
+        <div className="grid gap-4 md:grid-cols-2">
+          <motion.div {...fadeUp} transition={{ duration: 0.5 }}>
             <Card className="h-full border-border/80">
               <CardContent className="flex flex-col gap-4 p-8">
                 <Badge variant="outline" className="w-fit border-primary/40 text-primary">For members</Badge>
@@ -694,8 +507,8 @@ export default function Landing() {
           <motion.div {...fadeUp} transition={{ duration: 0.5, delay: 0.1 }}>
             <Card className="h-full border-border/80">
               <CardContent className="flex flex-col gap-4 p-8">
-        <Badge variant="outline" className="w-fit border-violet-500/40 text-violet-400">For the admin</Badge>
-        <h3 className="text-xl font-semibold tracking-tight">Total oversight, zero chasing</h3>
+                <Badge variant="outline" className="w-fit border-violet-500/40 text-violet-400">For the admin</Badge>
+                <h3 className="text-xl font-semibold tracking-tight">Total oversight, zero chasing</h3>
                 <ul className="flex flex-col gap-2.5 text-sm text-muted-foreground">
                   {[
                     "Every request lands in the dashboard and your inbox",
@@ -715,12 +528,12 @@ export default function Landing() {
       </section>
 
       {/* CTA */}
-  <section className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-24">
-    <motion.div
-      {...fadeUp}
-      transition={{ duration: 0.5 }}
-      className="neon-ring relative overflow-hidden glass-3d rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/12 via-card/60 to-violet-500/10 px-8 py-14 text-center"
-    >
+      <section className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-24">
+        <motion.div
+          {...fadeUp}
+          transition={{ duration: 0.5 }}
+          className="neon-ring relative overflow-hidden glass-3d rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/12 via-card/60 to-violet-500/10 px-8 py-14 text-center"
+        >
           <Boxes className="mx-auto size-10 text-primary" />
           <h2 className="mt-4 text-3xl font-bold tracking-tight">The lab is open</h2>
           <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">

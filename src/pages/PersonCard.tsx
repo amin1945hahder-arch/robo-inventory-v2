@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { LoadingGifInline } from "@/components/LoadingGif";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
+import { useOfflineQuery as useQuery } from "@/hooks/use-offline-query";
 import { api } from "@/convex/_generated/api";
 import { AppShell } from "@/components/AppShell";
 import { StatusBadge } from "@/components/StatusBadge";

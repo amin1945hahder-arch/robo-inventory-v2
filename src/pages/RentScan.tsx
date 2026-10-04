@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { LoadingGifInline } from "@/components/LoadingGif";
 import { Link, useNavigate } from "react-router";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
+import { useOfflineQuery as useQuery } from "@/hooks/use-offline-query";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { useSound } from "@/hooks/use-sound";

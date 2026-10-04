@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
+import { useOfflineQuery as useQuery } from "@/hooks/use-offline-query";
 import { api } from "@/convex/_generated/api";
 import { formatLineAmount } from "@/lib/group-measure";
 import { contains, matchesSearch as deepMatch } from "@/lib/searchText";

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "convex/react";
+import { useOfflineQuery as useQuery } from "@/hooks/use-offline-query";
 import {
   Bar,
   BarChart,

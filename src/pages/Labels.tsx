@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
 import { LoadingGifInline } from "@/components/LoadingGif";
-import { useQuery } from "convex/react";
+import { useOfflineQuery as useQuery } from "@/hooks/use-offline-query";
 import QRCode from "react-qr-code";
 import { api } from "@/convex/_generated/api";
 import { AppShell } from "@/components/AppShell";

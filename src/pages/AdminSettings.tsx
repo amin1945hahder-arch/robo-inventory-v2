@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { LoadingGifInline } from "@/components/LoadingGif";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useAction, useMutation } from "convex/react";
+import { useOfflineQuery as useQuery } from "@/hooks/use-offline-query";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AppShell } from "@/components/AppShell";
