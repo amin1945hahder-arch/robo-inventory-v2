@@ -34,7 +34,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { asMessage } from "@/components/EditRentalDialog";
-import { Award, Bell, BellRing, Boxes, Check, FileText, History, IdCard, Inbox, PackageCheck, PackagePlus, Printer, RotateCcw, ScanLine, Search, SquarePen, Trash2, X } from "lucide-react";
+import { Award, Bell, BellRing, Boxes, Check, FileText, History, IdCard, Inbox, PackageCheck, PackagePlus, Printer, RotateCcw, ScanLine, Search, SquarePen, Trash2, Warehouse, X } from "lucide-react";
 import { EditRentalDialog } from "@/components/EditRentalDialog";
 import { EditPackageDialog } from "@/components/EditPackageDialog";
 import { PackageCardDialog } from "@/components/PackageCardDialog";
@@ -138,6 +138,13 @@ export default function AdminRequests() {
   const decideRank = useMutation(api.users.decideRankRequest);
   const printerReqs = useQuery(api.users.listPrinterRequests, { status: "pending" });
   const decidePrinter = useMutation(api.users.decidePrinterRequest);
+  // Inventory-manager requests — same stacked-privilege idea as printer
+  // access; rendered in the Printers tab (deep links use ?tab=printers).
+  const inventoryReqs = useQuery(api.users.listInventoryRequests, { status: "pending" });
+  const decideInventory = useMutation(api.users.decideInventoryRequest);
+  // New-member sign-ups awaiting profile approval (Profiles tab rows carry
+  // the userId directly, not a request id).
+  const approveProfileAcct = useMutation(api.users.approveProfile);
   // Unread admin notifications: listed below the tabs, marked read when this
   // page opens (and per-row on click) so the sidebar/header bubbles decrease
   // properly instead of only clearing when every row is actioned.
@@ -277,12 +284,16 @@ export default function AdminRequests() {
       const rankIds = new Set<string>((rankReqs ?? []).map((r) => r.request._id));
       const printerIds = new Set<string>((printerReqs ?? []).map((r) => r.request._id));
       const profileIds = new Set<string>((profileReqs ?? []).map((r) => r.request._id));
+      const inventoryIds = new Set<string>((inventoryReqs ?? []).map((r) => r.request._id));
+      const signupIds = new Set<string>((unapproved ?? []).map((u) => u._id as string));
       let ok = 0;
       for (const id of selected) {
         try {
           if (rankIds.has(id)) await decideRank({ id: id as any, approve: false });
           else if (printerIds.has(id)) await decidePrinter({ id: id as any, approve: false });
           else if (profileIds.has(id)) await decideProfile({ id: id as any, approve: false });
+          else if (inventoryIds.has(id)) await decideInventory({ id: id as any, approve: false });
+          else if (signupIds.has(id)) await approveProfileAcct({ userId: id as never, approved: false });
           else await act({ rentalId: id as never, action: "deny" });
           ok++;
         } catch {
@@ -305,11 +316,17 @@ export default function AdminRequests() {
     try {
       const rankIds = new Set<string>((rankReqs ?? []).map((r) => r.request._id));
       const printerIds = new Set<string>((printerReqs ?? []).map((r) => r.request._id));
+      const profileIds = new Set<string>((profileReqs ?? []).map((r) => r.request._id));
+      const inventoryIds = new Set<string>((inventoryReqs ?? []).map((r) => r.request._id));
+      const signupIds = new Set<string>((unapproved ?? []).map((u) => u._id as string));
       let ok = 0;
       for (const id of selected) {
         try {
           if (rankIds.has(id)) await decideRank({ id: id as any, approve: true });
           else if (printerIds.has(id)) await decidePrinter({ id: id as any, approve: true });
+          else if (profileIds.has(id)) await decideProfile({ id: id as any, approve: true });
+          else if (inventoryIds.has(id)) await decideInventory({ id: id as any, approve: true });
+          else if (signupIds.has(id)) await approveProfileAcct({ userId: id as never, approved: true });
           else await act({ rentalId: id as never, action: "approve" });
           ok++;
         } catch {
@@ -468,6 +485,13 @@ export default function AdminRequests() {
         : profileReqs,
     [profileReqs, matchesRowText],
   );
+  const fInventory = useMemo(
+    () =>
+      search.trim()
+        ? (inventoryReqs ?? []).filter((e) => matchesRowText(e) || matchesRowText(e.request))
+        : inventoryReqs,
+    [inventoryReqs, matchesRowText],
+  );
   const fUnapproved = useMemo(
     () => (search.trim() ? (unapproved ?? []).filter((u: any) => matchesRowText(u)) : unapproved),
     [unapproved, matchesRowText],
@@ -487,7 +511,7 @@ export default function AdminRequests() {
   // is explicitly marked seen) it disappears from here but stays in its
   // dedicated tab. Rendered as a notification inbox for the whole console.
   type UpdateRow = {
-    kind: "single" | "package" | "rank" | "printer" | "profile" | "signup";
+    kind: "single" | "package" | "rank" | "printer" | "inventory" | "profile" | "signup";
     key: string;
     at: number;
     data: any;
@@ -503,12 +527,14 @@ export default function AdminRequests() {
       out.push({ kind: "rank", key: `rank:${e.request._id}`, at: e.request.requestedAt, data: e });
     for (const e of printerReqs ?? [])
       out.push({ kind: "printer", key: `printer:${e.request._id}`, at: e.request.requestedAt, data: e });
+    for (const e of inventoryReqs ?? [])
+      out.push({ kind: "inventory", key: `inventory:${e.request._id}`, at: e.request.requestedAt, data: e });
     for (const e of profileReqs ?? [])
       out.push({ kind: "profile", key: `profile:${e.request._id}`, at: e.request.requestedAt, data: e });
     for (const u of unapproved ?? [])
       out.push({ kind: "signup", key: `signup:${u._id}`, at: Date.now(), data: u });
     return out.sort((a, b) => b.at - a.at);
-  }, [pendingSingles, packages, rankReqs, printerReqs, profileReqs, unapproved]);
+  }, [pendingSingles, packages, rankReqs, printerReqs, inventoryReqs, profileReqs, unapproved]);
   const newUpdates = useMemo(() => updateRows.filter((u) => !seenKeys.has(u.key)), [updateRows, seenKeys]);
 
   // Select-all for the CURRENT tab: pending rows, active/on-project/history
@@ -538,13 +564,13 @@ export default function AdminRequests() {
       case "ranks":
         return (rankReqs ?? []).map((e) => e.request._id);
       case "printers":
-        return (printerReqs ?? []).map((e) => e.request._id);
+        return [...(printerReqs ?? []).map((e) => e.request._id), ...(inventoryReqs ?? []).map((e) => e.request._id)];
       case "profiles":
         return [...(profileReqs ?? []).map((e) => e.request._id), ...(unapproved ?? []).map((u) => u._id as string)];
       default:
         return [];
     }
-  }, [tab, fPending, pendingPkgRows, packages, fAwaiting, pickupPkgs, fActive, fOnProject, fHistory, rankReqs, printerReqs, profileReqs, unapproved, newUpdates]);
+  }, [tab, fPending, pendingPkgRows, packages, fAwaiting, pickupPkgs, fActive, fOnProject, fHistory, rankReqs, printerReqs, inventoryReqs, profileReqs, unapproved, newUpdates]);
   const allSelected = currentTabIds.length > 0 && currentTabIds.every((id) => selected.has(id));
   const toggleSelectAll = () => {
     setSelected((prev) => {
@@ -571,6 +597,8 @@ export default function AdminRequests() {
     const rankIds = new Set<string>((rankReqs ?? []).map((e) => String(e.request._id)));
     const printerIds = new Set<string>((printerReqs ?? []).map((e) => String(e.request._id)));
     const profileIds = new Set<string>((profileReqs ?? []).map((e) => String(e.request._id)));
+    const inventoryIds = new Set<string>((inventoryReqs ?? []).map((e) => String(e.request._id)));
+    const signupIds = new Set<string>((unapproved ?? []).map((u) => String(u._id)));
     const rentalStatus = new Map<string, string>();
     for (const r of [
       ...(pendingRowsQ ?? []),
@@ -588,8 +616,11 @@ export default function AdminRequests() {
       other = 0,
       person = 0;
     for (const id of selected) {
-      if (rankIds.has(id) || printerIds.has(id) || profileIds.has(id)) {
+      if (rankIds.has(id) || printerIds.has(id) || profileIds.has(id) || inventoryIds.has(id) || signupIds.has(id)) {
         person++;
+        // Person requests are themselves PENDING decisions — they must light
+        // up the Approve/Deny bulk buttons like rental requests do.
+        pending++;
         continue;
       }
       const pkg = pkgById.get(id);
@@ -608,7 +639,7 @@ export default function AdminRequests() {
       else other++;
     }
     return { pending, approved, active: activeSel, other, person };
-  }, [selected, packages, rankReqs, printerReqs, profileReqs, pendingRowsQ, awaiting, active, onProject, history]);
+  }, [selected, packages, rankReqs, printerReqs, profileReqs, inventoryReqs, unapproved, pendingRowsQ, awaiting, active, onProject, history]);
 
   // Whole-package card (bundle-level receipt, like the per-unit rent card).
   const [pkgCard, setPkgCard] = useState<PackageCardData | null>(null);
@@ -1270,7 +1301,9 @@ export default function AdminRequests() {
             </TabsTrigger>
             <TabsTrigger value="printers" className="flex-none gap-1.5" style={tStyle("printers")}>
               Printer
-              {(printerReqs?.length ?? 0) > 0 && <TabCount tab="printers" n={printerReqs?.length ?? 0} />}
+              {(printerReqs?.length ?? 0) + (inventoryReqs?.length ?? 0) > 0 && (
+                <TabCount tab="printers" n={(printerReqs?.length ?? 0) + (inventoryReqs?.length ?? 0)} />
+              )}
             </TabsTrigger>
             <TabsTrigger value="profiles" className="flex-none gap-1.5" style={tStyle("profiles")}>
               Profiles
@@ -1321,6 +1354,8 @@ export default function AdminRequests() {
                           <Award className="size-5 shrink-0 text-amber-500" />
                         ) : u.kind === "printer" ? (
                           <Printer className="size-5 shrink-0 text-sky-500" />
+                        ) : u.kind === "inventory" ? (
+                          <Warehouse className="size-5 shrink-0 text-amber-400" />
                         ) : u.kind === "profile" || u.kind === "signup" ? (
                           <IdCard className="size-5 shrink-0 text-violet-500" />
                         ) : (
@@ -1351,6 +1386,9 @@ export default function AdminRequests() {
                             )}
                             {u.kind === "printer" && (
                               <span className="break-words">{u.data.user?.name ?? "Member"} requests printer access</span>
+                            )}
+                            {u.kind === "inventory" && (
+                              <span className="break-words">{u.data.user?.name ?? "Member"} requests inventory manager access</span>
                             )}
                             {u.kind === "profile" && (
                               <span className="break-words">{u.data.user?.name ?? "Member"} requests profile changes</span>
@@ -1419,6 +1457,16 @@ export default function AdminRequests() {
                                 <Check className="size-4" /> Grant
                               </Button>
                               <Button size="sm" variant="outline" onClick={async () => { try { await decidePrinter({ id: u.data.request._id, approve: false }); toast.success("Request denied"); } catch (e) { toast.error(asMessage(e)); } }}>
+                                <X className="size-4" />
+                              </Button>
+                            </>
+                          )}
+                          {u.kind === "inventory" && (
+                            <>
+                              <Button size="sm" onClick={async () => { try { await decideInventory({ id: u.data.request._id, approve: true }); toast.success("Inventory manager access granted"); } catch (e) { toast.error(asMessage(e)); } }}>
+                                <Check className="size-4" /> Grant
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={async () => { try { await decideInventory({ id: u.data.request._id, approve: false }); toast.success("Request denied"); } catch (e) { toast.error(asMessage(e)); } }}>
                                 <X className="size-4" />
                               </Button>
                             </>
@@ -2286,13 +2334,15 @@ export default function AdminRequests() {
           </TabsContent>
 
           <TabsContent value="printers" className="mt-4">
-            {fPrinter === undefined ? (
+            {fPrinter === undefined || fInventory === undefined ? (
               <LoadingGif size={48} label={null} />
-            ) : fPrinter.length === 0 ? (
+            ) : fPrinter.length === 0 && fInventory.length === 0 ? (
               <p className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
-                No printer-access requests — members can send them from their profile page.
+                No printer-access or inventory-manager requests — members can send them from their profile page.
               </p>
             ) : (
+              <>
+              {fPrinter.length > 0 && (
               <ul className="divide-y glass-3d rounded-lg border">
                 {fPrinter.map(({ request, user }) => (
                   <li key={request._id} className="flex flex-col gap-3 px-4 py-3 wide:flex-row wide:items-center">
@@ -2362,17 +2412,100 @@ export default function AdminRequests() {
                   </li>
                 ))}
               </ul>
+              )}
+
+              {fInventory.length > 0 && (
+              <div className="mt-6">
+                <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold">
+                  <Warehouse className="size-4 text-amber-400" />
+                  Inventory manager requests ({fInventory.length})
+                </h3>
+                <ul className="divide-y glass-3d rounded-lg border">
+                  {fInventory.map(({ request, user }) => (
+                    <li key={request._id} className="flex flex-col gap-3 px-4 py-3 wide:flex-row wide:items-center">
+                      <Checkbox
+                        checked={selected.has(request._id)}
+                        onCheckedChange={() => toggleSel(request._id)}
+                        aria-label="Select inventory request"
+                        className="shrink-0 self-start wide:self-center"
+                      />
+                      <div className="flex min-w-0 flex-1 items-center gap-3">
+                        <Warehouse className="size-4 shrink-0 text-amber-400" />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">
+                            {user?.name ?? user?.email ?? "(removed)"}
+                          </p>
+                          <p className="flex flex-wrap gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
+                            <span className="whitespace-nowrap">requests inventory manager access</span>
+                            {request.message ? <span className="break-words">— “{request.message}”</span> : null}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 wide:ml-auto">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          title="Member badge card"
+                          onClick={() => user && setBadgeFor(badgeOf(user))}
+                        >
+                          <IdCard className="size-4" /> Badge
+                        </Button>
+                        <Button
+                          size="sm"
+                          disabled={busyId === request._id}
+                          title="Grant with all three sub-permissions (edit / add / delete) — fine-tune later from People"
+                          onClick={async () => {
+                            setBusyId(request._id);
+                            try {
+                              await decideInventory({ id: request._id, approve: true });
+                              toast.success("Inventory manager access granted");
+                            } catch (e) {
+                              toast.error(asMessage(e));
+                            } finally {
+                              setBusyId(null);
+                            }
+                          }}
+                        >
+                          <Check className="size-4" /> Grant
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busyId === request._id}
+                          onClick={async () => {
+                            setBusyId(request._id);
+                            try {
+                              await decideInventory({ id: request._id, approve: false });
+                              toast.success("Request denied");
+                            } catch (e) {
+                              toast.error(asMessage(e));
+                            } finally {
+                              setBusyId(null);
+                            }
+                          }}
+                        >
+                          <X className="size-4" />
+                        </Button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              )}
+              </>
             )}
           </TabsContent>
 
           <TabsContent value="profiles" className="mt-4">
-            {fProfile === undefined ? (
+            {fProfile === undefined || fUnapproved === undefined ? (
               <LoadingGif size={48} label={null} />
-            ) : fProfile.length === 0 ? (
+            ) : fProfile.length === 0 && fUnapproved.length === 0 ? (
               <p className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
                 No profile change requests.
               </p>
             ) : (
+              <>
+              {fProfile.length > 0 && (
               <ul className="divide-y glass-3d rounded-lg border">
                 {fProfile.map(({ request, user }) => (
                   <li key={request._id} className="flex flex-col gap-3 px-4 py-3 wide:flex-row wide:items-center">
@@ -2430,6 +2563,77 @@ export default function AdminRequests() {
                   </li>
                 ))}
               </ul>
+              )}
+
+              {fUnapproved.length > 0 && (
+              <div className="mt-6">
+                <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold">
+                  <Inbox className="size-4 text-orange-400" />
+                  New sign-ups awaiting approval ({fUnapproved.length})
+                </h3>
+                <ul className="divide-y glass-3d rounded-lg border">
+                  {fUnapproved.map((u) => (
+                    <li key={u._id} className="flex flex-col gap-3 px-4 py-3 wide:flex-row wide:items-center">
+                      <Checkbox
+                        checked={selected.has(u._id)}
+                        onCheckedChange={() => toggleSel(u._id)}
+                        aria-label="Select sign-up"
+                        className="shrink-0 self-start wide:self-center"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{u.name ?? u.email}</p>
+                        <p className="flex flex-wrap gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
+                          <span className="whitespace-nowrap">joined — awaiting profile approval</span>
+                          {u.studentId ? <span className="whitespace-nowrap">ID: {u.studentId}</span> : null}
+                          {u.phone ? <span className="whitespace-nowrap">{u.phone}</span> : null}
+                          {!u.studentId && !u.phone && u.email ? <span className="break-words">{u.email}</span> : null}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 wide:ml-auto">
+                        <Button
+                          size="sm"
+                          disabled={busyId === u._id}
+                          title="Approve — unlocks full member access"
+                          onClick={async () => {
+                            setBusyId(u._id);
+                            try {
+                              await approveProfileAcct({ userId: u._id, approved: true });
+                              toast.success("Profile approved — full access unlocked");
+                            } catch (e) {
+                              toast.error(asMessage(e));
+                            } finally {
+                              setBusyId(null);
+                            }
+                          }}
+                        >
+                          <Check className="size-4" /> Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busyId === u._id}
+                          title="Keep locked — the submission stays pending until verified"
+                          onClick={async () => {
+                            setBusyId(u._id);
+                            try {
+                              await approveProfileAcct({ userId: u._id, approved: false });
+                              toast.success("Kept pending — the member stays locked");
+                            } catch (e) {
+                              toast.error(asMessage(e));
+                            } finally {
+                              setBusyId(null);
+                            }
+                          }}
+                        >
+                          <X className="size-4" />
+                        </Button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              )}
+              </>
             )}
           </TabsContent>
         </Tabs>

@@ -42,6 +42,7 @@ import { normalizeScan } from "@/lib/qr";
 import { AppIcon } from "@/components/AppIcon";
 import { useSound } from "@/hooks/use-sound";
 import { useAppearance } from "@/hooks/use-appearance";
+import { useFont } from "@/hooks/use-font";
 import { usePush } from "@/hooks/use-push";
 import { usePermission } from "@/hooks/use-permissions";
 import { useOnline } from "@/hooks/use-online";
@@ -90,6 +91,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // Per-user app mode (dark/light/system): applies the theme for THIS member
   // and keeps it in sync across their devices.
   useAppearance(user?._id);
+  // Per-user font: applies the member's saved typeface on <html>.
+  useFont();
   const prevNotifs = useRef<number | null>(null);
   // Member tab bubble: pending rental requests on "My rentals" (live-updated).
   const myCounts = useQuery(api.parts.myRequestCounts, {});
@@ -274,7 +277,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
                 )}
               >
-                <Bell className="size-4" />
+                <AppIcon route="/admin/requests" fallback={Bell} className="size-6" />
                 Requests
                 {notifData ? (
                   <span className="ml-auto rounded-full bg-foreground px-1.5 py-0.5 text-[10px] font-semibold text-background">
@@ -291,7 +294,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
                 )}
               >
-                <Users className="size-4" />
+                <AppIcon route="/people" fallback={Users} className="size-6" />
                 People
               </Link>
               <Link
@@ -303,7 +306,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
                 )}
               >
-                <PackageSearch className="size-4" />
+                <AppIcon route="/import" fallback={PackageSearch} className="size-6" />
                 Import CSV
               </Link>
               <Link
@@ -315,7 +318,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
                 )}
               >
-                <QrCode className="size-4" />
+                <AppIcon route="/labels" fallback={QrCode} className="size-6" />
                 Print labels
               </Link>
               <Link
@@ -327,7 +330,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
                 )}
               >
-                <FileDown className="size-4" />
+                <AppIcon route="/export" fallback={FileDown} className="size-6" />
                 Export
               </Link>
               <Link
@@ -339,7 +342,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
                 )}
               >
-                <BarChart3 className="size-4" />
+                <AppIcon route="/admin/reports" fallback={BarChart3} className="size-6" />
                 Reports
               </Link>
               <Link
@@ -351,7 +354,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
                 )}
               >
-                <Settings className="size-4" />
+                <AppIcon route="/settings" fallback={Settings} className="size-6" />
                 Settings
               </Link>
             </>
@@ -493,7 +496,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                           : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
                       )}
                     >
-                      <Icon className="size-4" />
+                      <AppIcon route={to} fallback={Icon} className="size-4" />
                       {label}
                       {bubble ? (
                         <span className="ml-auto rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">

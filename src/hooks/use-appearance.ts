@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { isThemeActive, setThemeAwareUserMode } from "@/lib/appTheme";
+import { setThemeAwareUserMode, setThemeModeOverride } from "@/lib/appTheme";
 
 /**
  * Per-user app mode (dark / light / follow system).
@@ -38,9 +38,10 @@ function applyMode(mode: AppearanceValue, userId?: string) {
   // Remember the member's own choice: it is re-applied if the admin ever
   // switches the published app theme off (see src/lib/appTheme.ts).
   setThemeAwareUserMode(mode);
-  // While a published app theme is live, IT owns the mode for everyone —
-  // the per-member choice takes over again as soon as the theme is off.
-  if (isThemeActive()) return;
+  // The member's mode applies ALWAYS — even while a published app theme is
+  // live. The theme keeps owning the colors (its inline vars on <html> are
+  // untouched); only the dark/light class follows the member's choice, which
+  // setThemeModeOverride remembers so theme re-applies keep honoring it.
   const dark = resolve(mode);
   document.documentElement.classList.toggle("dark", dark);
   // Keep the class off <body>: a .dark block on body shadows the published
@@ -57,7 +58,7 @@ export function applyAppearance(mode: AppearanceValue) {
 export function useAppearance(userId?: string) {
   // Settings load with the authed session; undefined while loading.
   const mode = useQuery(api.settings.getMyAppearance, {});
-  const save = useMutation(api.settings.setMyAppearance);
+  const saveMode = useMutation(api.settings.setMyAppearance);
 
   // Apply (and keep applying) the user's mode.
   useEffect(() => {
@@ -74,5 +75,12 @@ export function useAppearance(userId?: string) {
   // Keep the DB value reachable for the Settings UI without prop drilling:
   // use-appearance (mounted in AppShell) holds the query, the Settings section
   // reads the current value from the same query itself.
+  // Every explicit switch is also remembered as the member's mode override:
+  // a live app theme keeps its colors, but this dark/light choice wins over
+  // the theme's base mode from now on (see src/lib/appTheme.ts).
+  const save = async (args: { value: AppearanceValue }) => {
+    setThemeModeOverride(args.value);
+    return saveMode(args);
+  };
   return { mode: mode ?? "dark", save };
 }

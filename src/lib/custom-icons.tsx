@@ -60,6 +60,44 @@ export function iconFileName(name: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
+// ── Per-theme icon overrides ─────────────────────────────────────────────
+// A published theme may map icon slots to catalog icons (lib/theme-icons):
+//   "nav:/inventory" → "Boxes"    "category:arduino" → "Cpu"
+// The map lives in this tiny external store so AppIcon re-renders the moment
+// a theme (or preview) is applied. No override → the slot keeps its current
+// icon (svg file, else the built-in fallback).
+
+let themeIconOverrides: Record<string, string> | null = null;
+const themeIconListeners = new Set<() => void>();
+
+/** Push a new override map (theme applied / cleared / previewed). */
+export function setThemeIconOverrides(next: Record<string, string> | null): void {
+  themeIconOverrides = next && Object.keys(next).length > 0 ? next : null;
+  for (const listener of themeIconListeners) listener();
+}
+
+export function getThemeIconOverrides(): Record<string, string> | null {
+  return themeIconOverrides;
+}
+
+/** useSyncExternalStore subscription. */
+export function subscribeThemeIcons(listener: () => void): () => void {
+  themeIconListeners.add(listener);
+  return () => {
+    themeIconListeners.delete(listener);
+  };
+}
+
+/** Slot key for a nav/route icon. */
+export function navIconSlot(route: string): string {
+  return `nav:${route}`;
+}
+
+/** Slot key for a category icon. */
+export function categoryIconSlot(name: string): string {
+  return `category:${iconFileName(name)}`;
+}
+
 /** Resolver for a category icon url (undefined → caller uses the Lucide fallback). */
 export function categoryIconUrl(name: string): string | undefined {
   return categoryIcons.get(iconFileName(name));

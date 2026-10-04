@@ -29,7 +29,7 @@ export function containerChainFromIndex(
   return parts.join(" > ");
 }
 import { mutation, query } from "./_generated/server";
-import { requireAdmin, requireInteractingMember, requireNonStudent } from "./lib";
+import { requireInteractingMember, requireInventory, requireNonStudent } from "./lib";
 import { telegramGroup } from "./notify";
 import { planMeasureTake } from "../lib/measure-alloc";
 
@@ -102,7 +102,7 @@ export const upsertCloset = mutation({
     imageUrl: v.optional(v.string()),
   },
   handler: async (ctx, { id, name, location, note, imageUrl }) => {
-    await requireAdmin(ctx);
+    await requireInventory(ctx, ["add", "edit"]);
     const clean = name.trim();
     if (!clean) throw new ConvexError("Name is required");
     // No duplicate storages: match case-insensitively against every closet.
@@ -137,7 +137,7 @@ export const upsertCloset = mutation({
 export const deleteCloset = mutation({
   args: { id: v.id("closets") },
   handler: async (ctx, { id }) => {
-    await requireAdmin(ctx);
+    await requireInventory(ctx, "delete");
     const groups = await ctx.db
       .query("groups")
       .withIndex("by_closet", (q) => q.eq("closetId", id))
@@ -172,7 +172,7 @@ export const upsertCategory = mutation({
     consumable: v.optional(v.boolean()),
   },
   handler: async (ctx, { id, name, description, consumable }) => {
-    await requireAdmin(ctx);
+    await requireInventory(ctx, ["add", "edit"]);
     const clean = name.trim();
     if (!clean) throw new ConvexError("Name is required");
     // No duplicate categories: exact + case-insensitive check.
@@ -207,7 +207,7 @@ export const upsertCategory = mutation({
 export const setCategoryConsumable = mutation({
   args: { id: v.id("categories"), consumable: v.boolean() },
   handler: async (ctx, { id, consumable }) => {
-    await requireAdmin(ctx);
+    await requireInventory(ctx, "edit");
     await touchPatch(ctx, id, { consumable });
     return { ok: true };
   },
@@ -216,7 +216,7 @@ export const setCategoryConsumable = mutation({
 export const deleteCategory = mutation({
   args: { id: v.id("categories") },
   handler: async (ctx, { id }) => {
-    await requireAdmin(ctx);
+    await requireInventory(ctx, "delete");
     const groups = await ctx.db
       .query("groups")
       .withIndex("by_category", (q) => q.eq("categoryId", id))
@@ -369,7 +369,7 @@ export const upsertGroup = mutation({
     measureLowAt: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx);
+    await requireInventory(ctx, ["add", "edit"]);
     const {
       id,
       name,
@@ -523,7 +523,7 @@ export const moveGroupToContainer = mutation({
     parentGroupId: v.optional(v.union(v.id("groups"), v.null())),
   },
   handler: async (ctx, { groupId, parentGroupId }) => {
-    await requireAdmin(ctx);
+    await requireInventory(ctx, "edit");
     const group = await ctx.db.get(groupId);
     if (!group || group.deleted) throw new ConvexError("Group not found");
     if (parentGroupId) {
@@ -554,7 +554,7 @@ export const moveGroupToContainer = mutation({
 export const deleteGroup = mutation({
   args: { id: v.id("groups") },
   handler: async (ctx, { id }) => {
-    await requireAdmin(ctx);
+    await requireInventory(ctx, "delete");
     if (await hasChildGroups(ctx, id)) {
       throw new ConvexError("This container holds groups — move or delete them first.");
     }
@@ -587,7 +587,7 @@ export const addPartToGroup = mutation({
   handler: async (ctx: any, args: any) => {
     const groupId = args.groupId as string;
     const count = args.count as number | undefined;
-    await requireAdmin(ctx);
+    await requireInventory(ctx, "add");
     const group = await ctx.db.get(groupId);
     if (!group) throw new ConvexError("Group not found");
     // Master containers hold groups, not units.
@@ -677,7 +677,7 @@ export const updateBulkUnit = mutation({
     note: v.optional(v.string()),
   },
   handler: async (ctx, { partId, amountRemaining, lowAt, note }) => {
-    const admin = await requireAdmin(ctx);
+    const admin = await requireInventory(ctx, "edit");
     const part = await ctx.db.get(partId);
     if (!part) throw new ConvexError("Unit not found");
     const group = await ctx.db.get(part.groupId);
@@ -732,7 +732,7 @@ export const consumeBulkUnit = mutation({
     note: v.optional(v.string()),
   },
   handler: async (ctx, { partId, amount, fully, note }) => {
-    const admin = await requireAdmin(ctx);
+    const admin = await requireInventory(ctx, "edit");
     const part = await ctx.db.get(partId);
     if (!part) throw new ConvexError("Unit not found");
     const group = await ctx.db.get(part.groupId);
@@ -892,7 +892,7 @@ export const adjustBulkStock = mutation({
     newStock: v.number(),
   },
   handler: async (ctx, { groupId, newStock }) => {
-    await requireAdmin(ctx);
+    await requireInventory(ctx, "edit");
     const group = await ctx.db.get(groupId);
     if (!group) throw new ConvexError("Group not found");
     if (group.measure !== "weight" && group.measure !== "length") {
@@ -925,7 +925,7 @@ export const bulkUpdateGroups = mutation({
     imageUrl: v.optional(v.string()),
   },
   handler: async (ctx, { groupIds, categoryId, closetId, parentGroupId, brand, model, datasheetUrl, imageUrl }) => {
-    await requireAdmin(ctx);
+    await requireInventory(ctx, "edit");
     let moved = 0;
     for (const groupId of groupIds) {
       const group = await ctx.db.get(groupId);
@@ -973,7 +973,7 @@ export const bulkUpdateGroups = mutation({
 export const bulkDeleteGroups = mutation({
   args: { groupIds: v.array(v.id("groups")) },
   handler: async (ctx, { groupIds }) => {
-    await requireAdmin(ctx);
+    await requireInventory(ctx, "delete");
     let deleted = 0;
     const skipped: string[] = [];
     for (const groupId of groupIds) {

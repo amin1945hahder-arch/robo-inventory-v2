@@ -6,11 +6,19 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { AppShell } from "@/components/AppShell";
 import { AppThemeSection } from "@/components/AppThemeSection";
 import { CardLayoutSection } from "@/components/CardLayoutSection";
-import { isThemeActive } from "@/lib/appTheme";
+import { setThemeModeOverride } from "@/lib/appTheme";
+import { FontPicker } from "@/components/FontPicker";
 import { PermissionsManager } from "@/components/PermissionsManager";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { toast } from "sonner";
@@ -133,6 +141,94 @@ function ListEditor({
           <Plus className="size-4" /> Add
         </Button>
       </div>
+    </div>
+  );
+}
+
+/** Map every club position to an app role — applied automatically whenever
+ *  the position is granted (request approval or the People editor), skipped
+ *  when the person already holds the mapped role. */
+function RankRoleMapper({ ranks }: { ranks: string[] | undefined }) {
+  const map = useQuery(api.clubLists.getRankRoleMapQuery, {});
+  const save = useMutation(api.clubLists.setRankRoleMap);
+  const [local, setLocal] = useState<Record<string, string> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const current: Record<string, string> = local ?? map ?? {};
+  const pick = (rank: string, role: string) => setLocal({ ...current, [rank]: role });
+
+  const saveAll = async () => {
+    setBusy(true);
+    try {
+      const entries: { rank: string; role: "admin" | "member" | "student" }[] = [];
+      for (const r of ranks ?? []) {
+        const role = current[r];
+        if (role === "admin" || role === "member" || role === "student") {
+          entries.push({ rank: r, role });
+        }
+      }
+      await save({ entries });
+      toast.success("Rank → role mapping saved");
+      setLocal(null);
+    } catch (e) {
+      toast.error(asMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="grid gap-3 rounded-lg border border-dashed p-4">
+      <div>
+        <Label className="text-sm font-semibold">Rank → app role</Label>
+        <p className="mt-1 text-xs text-muted-foreground">
+          When a position is granted — approved from a member request or set in the People
+          editor — the mapped app role is applied automatically (and skipped if they already
+          hold it). Positions with no mapping leave the role untouched.
+        </p>
+      </div>
+      {map === undefined ? (
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <LoadingGifInline size={18} className="size-4" /> Loading…
+        </p>
+      ) : (ranks ?? []).length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          No positions yet — add them in the list above first.
+        </p>
+      ) : (
+        <>
+          <div className="grid gap-2">
+            {(ranks ?? []).map((r) => (
+              <div key={r} className="flex items-center gap-3">
+                <span className="min-w-0 flex-1 truncate text-sm">{r}</span>
+                <Select value={current[r] ?? "__none"} onValueChange={(v) => pick(r, v)}>
+                  <SelectTrigger className="w-48">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none">No automatic role</SelectItem>
+                    <SelectItem value="member">Member</SelectItem>
+                    <SelectItem value="admin">Admin</SelectItem>
+                    <SelectItem value="student">Student</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ))}
+          </div>
+          <Button
+            size="sm"
+            className="self-start"
+            disabled={busy || local === null}
+            onClick={saveAll}
+          >
+            {busy ? (
+              <LoadingGifInline size={18} className="size-4" />
+            ) : (
+              <Save className="size-4" />
+            )}
+            Save mapping
+          </Button>
+        </>
+      )}
     </div>
   );
 }
@@ -841,15 +937,11 @@ function AppearanceSection() {
 
   const choose = async (next: "dark" | "light" | "system") => {
     if (pending) return;
-    // While a published app theme is live it owns the mode for everyone —
-    // the per-member choice takes over again once the theme is switched off.
-    if (isThemeActive()) {
-      toast.info(
-        "A published App theme is setting the colors right now — turn it off in the App theme tab to use your own mode.",
-      );
-      return;
-    }
+    // The member can switch freely EVEN WHILE a published app theme is live:
+    // the theme keeps its colors (inline vars) — only the dark/light class
+    // follows the choice, remembered so theme refreshes keep honoring it.
     setPending(true);
+    setThemeModeOverride(next);
     const prev = value;
     setValue(next);
     // Apply immediately for instant feedback (the AppShell hook also applies
@@ -927,6 +1019,17 @@ function AppearanceSection() {
           ))}
         </div>
       )}
+
+      <div className="grid gap-2 border-t border-border/40 pt-4">
+        <div>
+          <Label className="text-sm font-semibold">Font</Label>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Pick the typeface used across the app for YOU — saved to your account and
+            applied on every device. Arabic-ready families included.
+          </p>
+        </div>
+        <FontPicker />
+      </div>
     </section>
   );
 }
@@ -1548,6 +1651,7 @@ export default function AdminSettings() {
               listKey="academicStates"
               values={states}
             />
+            <RankRoleMapper ranks={roles} />
           </section>
         )}
 

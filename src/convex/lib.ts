@@ -163,17 +163,24 @@ export function inventoryPermsOf(
  * role); admins pass with every permission; inventory managers need the
  * specific sub-permission the mutation performs.
  */
-export async function requireInventory(ctx: QueryCtx, perm: InventoryPerm) {
+export async function requireInventory(
+  ctx: QueryCtx,
+  perm: InventoryPerm | readonly InventoryPerm[],
+) {
   const user = await requireNonStudent(ctx);
-  const perms = inventoryPermsOf(user);
   if (!hasInventoryPrivilege(user)) {
     throw new Error(
       "Inventory manager access required — request it from your profile",
     );
   }
-  if (!perms[perm]) {
+  const perms = inventoryPermsOf(user);
+  // Pass an array for operations that satisfy either permission (e.g. an
+  // upsert counts as "add" when creating and "edit" when updating).
+  const wanted: readonly InventoryPerm[] =
+    typeof perm === "string" ? [perm] : perm;
+  if (!wanted.some((p) => perms[p])) {
     throw new Error(
-      `Your inventory manager access does not include the "${perm}" permission`,
+      `Your inventory manager access does not include the "${wanted.join('" or "')}" permission`,
     );
   }
   return user;

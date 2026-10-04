@@ -223,6 +223,32 @@ export const setMyAppearance = mutation({
   },
 });
 
+// ---- Per-user font ---------------------------------------------------------
+// Each member picks the typeface used across the app. Only the font ID is
+// stored (validated to a short slug); the client owns the catalog and applies
+// the matching font stack on <html>. "" restores the app default.
+
+export const getMyFont = query({
+  args: {},
+  handler: async (ctx): Promise<string> => {
+    const me = await requireUser(ctx);
+    return me.font ?? "";
+  },
+});
+
+export const setMyFont = mutation({
+  args: { font: v.string() },
+  handler: async (ctx, { font }) => {
+    const me = await requireUser(ctx);
+    const clean = font.trim().slice(0, 64);
+    if (clean && !/^[a-z0-9-]+$/.test(clean)) {
+      throw new ConvexError("Unknown font id");
+    }
+    await ctx.db.patch(me._id, { font: clean || undefined });
+    return { ok: true };
+  },
+});
+
 // @deprecated legacy global sounds (kept only so old clients don't break).
 export const getSounds = query({
   args: {},

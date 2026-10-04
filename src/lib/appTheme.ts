@@ -228,6 +228,38 @@ export function setThemeAwareUserMode(mode: "dark" | "light" | "system") {
   lastUserMode = mode;
 }
 
+// ---- Member mode override while a theme is live ---------------------------
+// The published theme keeps owning the COLORS (inline vars), but the member
+// keeps their own dark/light switch: once they explicitly change mode, that
+// choice is remembered here (localStorage) and wins over the theme's own
+// base mode on every theme re-apply. Members who never touch the mode still
+// get exactly the theme's mode, as before.
+
+const MODE_OVERRIDE_KEY = "roboShelf.appTheme.modeOverride";
+let modeOverride: "dark" | "light" | "system" | null = null;
+try {
+  const raw =
+    typeof localStorage !== "undefined" ? localStorage.getItem(MODE_OVERRIDE_KEY) : null;
+  if (raw === "dark" || raw === "light" || raw === "system") modeOverride = raw;
+} catch {
+  /* storage unavailable */
+}
+
+/** Persist + apply the member's explicit mode choice (called on switch). */
+export function setThemeModeOverride(mode: "dark" | "light" | "system"): void {
+  modeOverride = mode;
+  try {
+    localStorage.setItem(MODE_OVERRIDE_KEY, mode);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+/** The member's explicit choice, if any (else the theme's base mode). */
+export function getThemeModeOverride(): "dark" | "light" | "system" | null {
+  return modeOverride;
+}
+
 /** True while a published (or previewed) theme owns the colors + mode. */
 export function isThemeActive(): boolean {
   return appliedThemeId !== null;
@@ -262,7 +294,9 @@ export function applyThemeToDom(theme: AppTheme | null): void {
   appliedVars.add("--radius");
 
   appliedThemeId = theme.id;
-  applyModeClass(theme.mode);
+  // The theme repaints the tokens, but the member's own dark/light switch
+  // keeps working while it is live (see setThemeModeOverride above).
+  applyModeClass(modeOverride ?? theme.mode);
 }
 
 // ---------------------------------------------------------------------------

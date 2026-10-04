@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { api } from "./_generated/api";
-import { requireAdmin, requireNonGuest, requireInteractingMember, requireUser, safeImage } from "./lib";
+import { requireAdmin, requireInventory, requireNonGuest, requireInteractingMember, requireUser, safeImage } from "./lib";
 import { adminPhones } from "./whatsapp";
 import { telegramDM, telegramGroup, notifyTelegram } from "./notify";
 import { internal } from "./_generated/api";
@@ -359,7 +359,7 @@ export const updatePart = mutation({
     transferToName: v.optional(v.string()),
   },
   handler: async (ctx, { id, tag, status, note, imageUrl, projectId, holderId, rentedAt, dueAt, moveGroupId, transferToName }) => {
-    await requireAdmin(ctx);
+    await requireInventory(ctx, "edit");
     const currentPart = await ctx.db.get(id);
     if (!currentPart) throw new ConvexError("Part not found");
     if (moveGroupId && moveGroupId !== currentPart.groupId) {
@@ -529,7 +529,7 @@ export const updatePart = mutation({
 export const deletePart = mutation({
   args: { id: v.id("parts") },
   handler: async (ctx, { id }) => {
-    await requireAdmin(ctx);
+    await requireInventory(ctx, "delete");
     const part = await ctx.db.get(id);
     if (!part) return;
     if (part.status === "rented" || part.status === "on_project") {
@@ -1684,7 +1684,7 @@ export const setPartStatusDirect = mutation({
     conditionReport: v.optional(v.string()),
   },
   handler: async (ctx, { partId, functional, conditionReport }) => {
-    await requireAdmin(ctx);
+    await requireInventory(ctx, "edit");
     const part = await ctx.db.get(partId);
     if (!part) throw new ConvexError("Part not found");
     if (part.status !== "rented") {
@@ -1722,7 +1722,7 @@ export const assignPartToProject = mutation({
     conditionReport: v.optional(v.string()),
   },
   handler: async (ctx, { partId, projectId, functional, conditionReport }) => {
-    await requireAdmin(ctx);
+    await requireInventory(ctx, "edit");
     const part = await ctx.db.get(partId);
     if (!part) throw new ConvexError("Part not found");
     if (part.status !== "rented") {

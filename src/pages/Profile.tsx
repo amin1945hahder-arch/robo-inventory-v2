@@ -17,8 +17,9 @@ import { useAppearance } from "@/hooks/use-appearance";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { asMessage } from "@/components/EditRentalDialog";
-import { Camera, Check, Github, IdCard, Loader2, LogOut, MonitorSmartphone, Moon, Printer, Send, ShieldCheck, Sun } from "lucide-react";
+import { Boxes, Camera, Check, Github, IdCard, Loader2, LogOut, MonitorSmartphone, Moon, Printer, Send, ShieldCheck, Sun } from "lucide-react";
 import { PersonBadgeDialog } from "@/components/PersonBadgeDialog";
+import { FontPicker } from "@/components/FontPicker";
 
 // A member can request any of the club positions — the list is admin-editable
 // (Settings → Club lists) and falls back to these defaults.
@@ -47,6 +48,12 @@ export default function Profile() {
   const hasPendingRank = useQuery(api.users.myPendingRankRequest, {});
   const hasPendingPrinter = useQuery(api.users.myPendingPrinterRequest, {});
   const requestPrinter = useMutation(api.users.requestPrinterRole);
+  // Main access-level request (member / admin) — stored as a rankRequest with
+  // kind "role", decided in the Requests console like every other request.
+  const requestRole = useMutation(api.users.requestRoleUpgrade);
+  // Inventory-manager privilege (stacks on any role, like printer access).
+  const hasPendingInventory = useQuery(api.users.myPendingInventoryRequest, {});
+  const requestInventory = useMutation(api.users.requestInventoryRole);
 
   const [name, setName] = useState(user?.name ?? "");
   const [studentId, setStudentId] = useState(user?.studentId ?? "");
@@ -61,6 +68,10 @@ export default function Profile() {
   const [wantedRoles, setWantedRoles] = useState<string[]>([]);
   const [rankMsg, setRankMsg] = useState("");
   const [printerMsg, setPrinterMsg] = useState("");
+  // main access-level + inventory request state
+  const [wantedRole, setWantedRole] = useState<"member" | "admin">("member");
+  const [roleMsg, setRoleMsg] = useState("");
+  const [inventoryMsg, setInventoryMsg] = useState("");
 
   // telegram username + chat id self-service
   const [tgName, setTgName] = useState(user?.telegramUsername ?? "");
@@ -91,6 +102,12 @@ export default function Profile() {
   const rankMine = hasPendingRank === true;
   const printerMine = hasPendingPrinter === true;
   const isPrinter = user?.role === "admin" || user?.printerRole === true;
+  const inventoryMine = hasPendingInventory === true;
+  const isInventoryManager = user?.role === "admin" || user?.inventoryRole === true;
+  // The picker must never point at the role the member already holds — when
+  // the stored choice equals the current role, show the OTHER one selected.
+  const wanted =
+    user?.role === wantedRole ? (wantedRole === "member" ? "admin" : "member") : wantedRole;
 
   const toggleWanted = (r: string) => {
     setWantedRoles((prev) =>
@@ -193,6 +210,32 @@ export default function Profile() {
       await requestPrinter({ message: printerMsg.trim() || undefined });
       toast.success("Printer access requested — an admin will review it");
       setPrinterMsg("");
+    } catch (e) {
+      toast.error(asMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitRoleRequest = async () => {
+    setBusy(true);
+    try {
+      await requestRole({ role: wanted, message: roleMsg.trim() || undefined });
+      toast.success("Access request sent to the admin");
+      setRoleMsg("");
+    } catch (e) {
+      toast.error(asMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitInventoryRequest = async () => {
+    setBusy(true);
+    try {
+      await requestInventory({ message: inventoryMsg.trim() || undefined });
+      toast.success("Inventory request sent to the admin");
+      setInventoryMsg("");
     } catch (e) {
       toast.error(asMessage(e));
     } finally {
@@ -499,7 +542,78 @@ export default function Profile() {
               </button>
             ))}
           </div>
+          <div className="grid gap-2 border-t border-border/40 pt-4">
+            <div>
+              <h2 className="text-sm font-semibold">Font</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Pick the typeface used across the app — saved to your account and applied
+                on every device. Arabic-ready families included.
+              </p>
+            </div>
+            <FontPicker />
+          </div>
         </section>
+
+        {/* Main account access level (member / admin) — requestable by any non-admin */}
+        {user?.role !== "admin" && (
+          <section className="flex flex-col gap-4 glass-3d rounded-lg border p-5">
+            <div>
+              <h2 className="flex items-center gap-2 text-sm font-semibold">
+                <ShieldCheck className="size-4 text-primary" /> Account access level
+              </h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Request a step up to a main app role — <span className="font-medium">member</span>{" "}
+                unlocks rentals and requests, <span className="font-medium">admin</span> manages the
+                whole console. The admin reviews every request.
+              </p>
+            </div>
+            {rankMine ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <StatusBadge status="pending" /> your access request is awaiting admin approval
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  {(["member", "admin"] as const).map((r) => {
+                    const have = user?.role === r;
+                    const on = wanted === r;
+                    return (
+                      <button
+                        key={r}
+                        type="button"
+                        disabled={have}
+                        onClick={() => setWantedRole(r)}
+                        className={`rounded-md border px-3 py-2 text-sm transition-colors ${
+                          have
+                            ? "cursor-default border-border/50 bg-muted/40 text-muted-foreground/60 line-through"
+                            : on
+                              ? "border-primary/50 bg-primary/10 text-primary"
+                              : "border-border text-muted-foreground hover:border-primary/30"
+                        }`}
+                      >
+                        {r === "member" ? "Member" : "Admin"}
+                      </button>
+                    );
+                  })}
+                </div>
+                <Textarea
+                  value={roleMsg}
+                  onChange={(e) => setRoleMsg(e.target.value)}
+                  placeholder="Why do you need this access level? (what you'll manage, experience…)"
+                  rows={2}
+                />
+                <Button
+                  onClick={submitRoleRequest}
+                  disabled={busy || user?.role === wanted}
+                  className="self-start"
+                >
+                  <Send className="size-4" /> Request {wanted === "admin" ? "admin" : "member"}{" "}
+                  access
+                </Button>
+              </>
+            )}
+          </section>
+        )}
 
         {/* Printer privilege (stacks on any role; admins hold it implicitly) */}
         <section className="flex flex-col gap-4 glass-3d rounded-lg border p-5">
@@ -534,6 +648,62 @@ export default function Profile() {
                 className="self-start"
               >
                 <Send className="size-4" /> Request printer access
+              </Button>
+            </>
+          )}
+        </section>
+
+        {/* Inventory manager privilege (stacks on any role, like printer access) */}
+        <section className="flex flex-col gap-4 glass-3d rounded-lg border p-5">
+          <div>
+            <h2 className="flex items-center gap-2 text-sm font-semibold">
+              <Boxes className="size-4 text-amber-400" /> Inventory manager
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Manage the shelf: add, edit and delete items, groups and stock. It stacks on any
+              role like printer access — the admin grants it with per-action permissions
+              (edit / add / delete).
+            </p>
+          </div>
+          {isInventoryManager ? (
+            <div className="flex flex-wrap items-center gap-2 text-sm text-emerald-400">
+              <Boxes className="size-4" /> you have inventory manager access
+              {user?.inventoryPerms && (
+                <span className="flex flex-wrap gap-1">
+                  {(["edit", "add", "delete"] as const).map((p) => (
+                    <span
+                      key={p}
+                      className={cn(
+                        "rounded-full border px-2 py-0.5 text-[11px]",
+                        user?.inventoryPerms?.[p]
+                          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
+                          : "border-border bg-muted/60 text-muted-foreground line-through",
+                      )}
+                    >
+                      {p}
+                    </span>
+                  ))}
+                </span>
+              )}
+            </div>
+          ) : inventoryMine ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <StatusBadge status="pending" /> your inventory request is awaiting admin approval
+            </div>
+          ) : (
+            <>
+              <Textarea
+                value={inventoryMsg}
+                onChange={(e) => setInventoryMsg(e.target.value)}
+                placeholder="Why do you need inventory manager access? (restocking, lab duties…)"
+                rows={2}
+              />
+              <Button
+                onClick={submitInventoryRequest}
+                disabled={busy}
+                className="self-start"
+              >
+                <Send className="size-4" /> Request inventory access
               </Button>
             </>
           )}
