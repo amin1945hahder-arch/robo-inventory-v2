@@ -172,10 +172,12 @@ function RouteSyncer() {
 
 /** Per-navigation error boundary: a crash on one page shows a recoverable
  *  panel (with the message) instead of a dead app; moving to another page
- *  remounts fresh. */
+ *  clears it. `resetKey` (not a React `key`) is deliberate — a key change would
+ *  remount the whole route tree on every navigation and blank the app while a
+ *  lazily-loaded page fetches its code. */
 function RoutedBoundary({ children }: { children: React.ReactNode }) {
   const location = useLocation();
-  return <PageErrorBoundary key={location.pathname}>{children}</PageErrorBoundary>;
+  return <PageErrorBoundary resetKey={location.pathname}>{children}</PageErrorBoundary>;
 }
 
 

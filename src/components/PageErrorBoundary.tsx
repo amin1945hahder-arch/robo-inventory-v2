@@ -14,13 +14,33 @@ import { Button } from "@/components/ui/button";
  * a known-good route, so recovering never needs the browser refresh button.
  */
 export class PageErrorBoundary extends React.Component<
-  { children: React.ReactNode },
-  { error: Error | null }
+  { children: React.ReactNode; resetKey?: string },
+  { error: Error | null; resetKey?: string }
 > {
-  state = { error: null as Error | null };
+  state = { error: null as Error | null, resetKey: undefined as string | undefined };
 
   static getDerivedStateFromError(error: Error) {
     return { error };
+  }
+
+  /**
+   * Clear a previous crash when the route changes — WITHOUT remounting.
+   *
+   * This used to be `key={location.pathname}` on the boundary. A key change
+   * tears down and rebuilds the entire route tree on every navigation, which
+   * defeats a lazy route's transition: the previous page (and the shell with
+   * every nav link) is destroyed the instant you click, so a slow chunk leaves
+   * a blank app until it resolves. Resetting state in place keeps the old
+   * screen visible while the new one loads and still recovers from a crash.
+   */
+  static getDerivedStateFromProps(
+    props: { resetKey?: string },
+    state: { error: Error | null; resetKey?: string },
+  ) {
+    if (props.resetKey !== state.resetKey) {
+      return { resetKey: props.resetKey, error: null };
+    }
+    return null;
   }
 
   componentDidCatch(err: Error) {

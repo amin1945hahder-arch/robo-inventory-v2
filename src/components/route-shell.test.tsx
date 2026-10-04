@@ -44,7 +44,7 @@ const Boom = lazy(
 
 function Boundary({ children }: { children: ReactNode }) {
   const location = useLocation();
-  return <PageErrorBoundary key={location.pathname}>{children}</PageErrorBoundary>;
+  return <PageErrorBoundary resetKey={location.pathname}>{children}</PageErrorBoundary>;
 }
 
 function Layout() {
