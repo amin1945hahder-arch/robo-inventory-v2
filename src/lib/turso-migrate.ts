@@ -35,7 +35,17 @@ export interface SqlExecutor {
   execute(sql: string, args?: unknown[]): Promise<{ rows: unknown[] }>;
   /** Optional: run a group of statements atomically. */
   transaction?<T>(fn: () => Promise<T>): Promise<T>;
+  /**
+   * Optional: send many statements in ONE round trip. A real migration is
+   * thousands of rows, and one HTTP request per row over libSQL is far too
+   * slow (and risks the Convex action timeout), so drivers that can batch
+   * (libSQL) do.
+   */
+  executeBatch?(statements: { sql: string; args: unknown[] }[]): Promise<void>;
 }
+
+/** Rows per batched round trip. */
+export const BATCH_SIZE = 50;
 
 export type ConvexDoc = Record<string, unknown>;
 
@@ -296,15 +306,36 @@ export async function importDump(
       const stmt = insertSql(table);
       const write = async () => {
         let written = 0;
-        for (const doc of rows) {
-          if (doc?._id === undefined || doc?._id === null) continue;
-          const values = encodeRow(doc, columns);
-          await exec.execute(
-            stmt.sql,
-            stmt.columns.map((c) => values[c] ?? null),
-          );
-          written++;
-        }
+        const batch = exec.executeBatch
+          ? async () => {
+              let chunk: { sql: string; args: unknown[] }[] = [];
+              for (const doc of rows) {
+                if (doc?._id === undefined || doc?._id === null) continue;
+                const values = encodeRow(doc, columns);
+                chunk.push({
+                  sql: stmt.sql,
+                  args: stmt.columns.map((c) => values[c] ?? null),
+                });
+                if (chunk.length >= BATCH_SIZE) {
+                  await exec.executeBatch!(chunk);
+                  written += chunk.length;
+                  chunk = [];
+                }
+              }
+              if (chunk.length) {
+                await exec.executeBatch!(chunk);
+                written += chunk.length;
+              }
+            }
+          : async () => {
+              for (const doc of rows) {
+                if (doc?._id === undefined || doc?._id === null) continue;
+                const values = encodeRow(doc, columns);
+                await exec.execute(stmt.sql, stmt.columns.map((c) => values[c] ?? null));
+                written++;
+              }
+            };
+        await batch();
         return written;
       };
       const written = exec.transaction ? await exec.transaction(write) : await write();

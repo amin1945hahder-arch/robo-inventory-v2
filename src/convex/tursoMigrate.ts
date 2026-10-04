@@ -2,7 +2,7 @@
 
 import { createClient } from "@libsql/client/http";
 import { v } from "convex/values";
-import { action, type ActionCtx } from "./_generated/server";
+import { action, internalAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import {
   MIGRATION_VERSION,
@@ -54,11 +54,17 @@ function tursoExecutor(): { exec: SqlExecutor | null; problem: string | null } {
   return {
     exec: {
       async execute(sql: string, args: unknown[] = []) {
-        const res = await db.execute({
-          sql,
-          args: args as never,
-        });
+        const res = await db.execute({ sql, args: args as never });
         return { rows: res.rows as unknown[] };
+      },
+      // One HTTP round trip per 50 rows instead of per row — a real migration
+      // is thousands of rows and would otherwise crawl or time out.
+      async executeBatch(statements: { sql: string; args: unknown[] }[]) {
+        if (statements.length === 0) return;
+        await db.batch(
+          statements.map((s) => ({ sql: s.sql, args: s.args as never })),
+          "write",
+        );
       },
     },
     problem: null,
@@ -160,6 +166,69 @@ export const verify = action({
     if (!exec) throw new Error(problem ?? "Turso is not configured");
     const dump = await collectDump(ctx, wanted);
     return verifyDump(exec, dump, wanted);
+  },
+});
+
+/**
+ * Server/CLI-only entry points.
+ *
+ * These are INTERNAL actions, so they are unreachable from the public
+ * internet and need no user session — which is what lets the migration be run
+ * from the Convex CLI (`convex run --type internal`) and from a cron/ops job.
+ * The admin-gated actions above stay the ones the UI uses.
+ */
+export const previewInternal = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const { exec, problem } = tursoExecutor();
+    const tables: { table: string; rows: number }[] = [];
+    let totalRows = 0;
+    for (const table of TABLE_NAMES) {
+      const rows = (await ctx.runQuery(
+        internal.tursoMigrateSource.dumpTable,
+        { table },
+      )) as Dump[string];
+      tables.push({ table, rows: rows.length });
+      totalRows += rows.length;
+    }
+    return {
+      turso: { configured: Boolean(exec), problem },
+      version: MIGRATION_VERSION,
+      tables,
+      totalRows,
+    };
+  },
+});
+
+export const runImportInternal = internalAction({
+  args: {
+    mode: v.optional(v.union(v.literal("merge"), v.literal("replace"))),
+    tables: v.optional(v.array(v.string())),
+  },
+  handler: async (ctx, { mode, tables }) => {
+    const wanted = (tables ?? TABLE_NAMES).filter((t) => t in MIGRATION_TABLES);
+    if (wanted.length === 0) throw new Error("No known tables selected");
+    const { exec, problem } = tursoExecutor();
+    if (!exec) throw new Error(problem ?? "Turso is not configured");
+
+    const dump = await collectDump(ctx, wanted);
+    const report = await importDump(exec, dump, {
+      mode: mode ?? "merge",
+      source: "convex-cli",
+      tables: wanted,
+    });
+    const verify = await verifyDump(exec, dump, wanted);
+    return { report, verify };
+  },
+});
+
+export const verifyInternal = internalAction({
+  args: { tables: v.optional(v.array(v.string())) },
+  handler: async (ctx, { tables }) => {
+    const wanted = (tables ?? TABLE_NAMES).filter((t) => t in MIGRATION_TABLES);
+    const { exec, problem } = tursoExecutor();
+    if (!exec) throw new Error(problem ?? "Turso is not configured");
+    return verifyDump(exec, await collectDump(ctx, wanted), wanted);
   },
 });
 

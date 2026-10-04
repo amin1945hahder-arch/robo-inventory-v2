@@ -7,6 +7,7 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  BATCH_SIZE,
   MIGRATION_VERSION,
   RUNS_TABLE,
   checksum,
@@ -270,6 +271,46 @@ describe("offline dry run against real SQLite", () => {
       .all() as { name: string }[];
     expect(tables.map((t) => t.name)).toContain("rentals");
     expect(tables.map((t) => t.name)).not.toContain("users");
+    db.close();
+  });
+
+  it("batches writes when the driver supports it, with identical results", async () => {
+    const db = freshDb();
+    const base = sqliteExec(db);
+    let batches = 0;
+    let statements = 0;
+    const exec: SqlExecutor = {
+      execute: base.execute,
+      transaction: base.transaction,
+      async executeBatch(list) {
+        batches++;
+        statements += list.length;
+        for (const s of list) await base.execute(s.sql, s.args);
+      },
+    };
+
+    const many: Dump = {
+      users: Array.from({ length: 125 }, (_, i) => ({
+        _id: `u${i}`,
+        _creationTime: 1000 + i,
+        name: `Member ${i}`,
+        profileApproved: i % 2 === 0,
+      })),
+    };
+
+    const report = await importDump(exec, many, { mode: "replace" });
+    expect(report.totals.written).toBe(125);
+    // 125 rows at BATCH_SIZE 50 => 3 round trips, not 125.
+    expect(batches).toBe(Math.ceil(125 / BATCH_SIZE));
+    expect(statements).toBe(125);
+
+    const n = db.prepare('SELECT COUNT(*) AS n FROM "users"').get() as { n: number };
+    expect(n.n).toBe(125);
+    const booleans = db
+      .prepare('SELECT profileApproved FROM "users" WHERE _id = ?')
+      .get("u1") as { profileApproved: number };
+    expect(booleans.profileApproved).toBe(0);
+    expect((await verifyDump(exec, many)).ok).toBe(true);
     db.close();
   });
 
