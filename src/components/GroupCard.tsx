@@ -58,6 +58,8 @@ function GroupCardBase({
   stats,
   categoryName,
   isAdmin,
+  canEdit,
+  canDelete,
   onEdit,
   onDelete,
   containedGroups,
@@ -70,6 +72,10 @@ function GroupCardBase({
   /** Storage (closet) display name, e.g. "Main room — basement shelf". */
   closetName?: string;
   isAdmin: boolean;
+  /** Inventory-manager sub-permissions. Fall back to the admin flag when the
+   *  caller doesn't manage permissions itself. */
+  canEdit?: boolean;
+  canDelete?: boolean;
   onEdit?: () => void;
   onDelete?: () => void;
   /** Master containers: the groups inside — shown on the card instead of
@@ -83,6 +89,10 @@ function GroupCardBase({
   const s: GroupStats =
     stats ?? { total: 0, available: 0, rented: 0, onProject: 0, broken: 0, pending: 0, transferred: 0, consumed: 0 };
   const total = Math.max(s.total, 1);
+  // Inventory managers hold the privilege in parts, so the caller passes the
+  // effective edit/delete permission; every other screen just uses isAdmin.
+  const showEdit = canEdit ?? isAdmin;
+  const showDelete = canDelete ?? isAdmin;
   // A card that was handed the list of groups it contains renders as a
   // master container (outside view mirrors the inside view).
   const isMasterView = Boolean(containedGroups?.length);
@@ -189,7 +199,7 @@ function GroupCardBase({
           </Link>
           <div className="flex items-center gap-1.5">
             <QrChip payload={groupQr(group._id)} label={group.name} />
-            {isAdmin && (
+            {(showEdit || showDelete) && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" size="icon" className="size-7 shrink-0">
@@ -197,18 +207,24 @@ function GroupCardBase({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={onEdit}>
-                    <Pencil className="size-4" /> Edit
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setMoveOpen(true)}>
-                    <FolderInput className="size-4" /> Move to inside group
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className="text-destructive focus:text-destructive"
-                    onClick={onDelete}
-                  >
-                    <Trash2 className="size-4" /> Delete
-                  </DropdownMenuItem>
+                  {showEdit && (
+                    <>
+                      <DropdownMenuItem onClick={onEdit}>
+                        <Pencil className="size-4" /> Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setMoveOpen(true)}>
+                        <FolderInput className="size-4" /> Move to inside group
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                  {showDelete && (
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onClick={onDelete}
+                    >
+                      <Trash2 className="size-4" /> Delete
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
@@ -311,6 +327,8 @@ export const GroupCard = memo(
     a.stats === b.stats &&
     a.categoryName === b.categoryName &&
     a.isAdmin === b.isAdmin &&
+    a.canEdit === b.canEdit &&
+    a.canDelete === b.canDelete &&
     a.containedGroups === b.containedGroups &&
     a.containerPath === b.containerPath &&
     a.closetName === b.closetName,

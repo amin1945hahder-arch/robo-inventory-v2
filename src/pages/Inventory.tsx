@@ -64,6 +64,13 @@ type SortKey = "name" | "total" | "available" | "broken";
 export default function Inventory() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+  // Admins hold every inventory permission implicitly; managers get exactly
+  // what an admin granted them from the People editor (edit / add / delete).
+  const access = useQuery(api.users.myInventoryAccess, {});
+  const isManager = access?.isManager === true;
+  const canEdit = isManager && access?.perms.edit === true;
+  const canAdd = isManager && access?.perms.add === true;
+  const canDelete = isManager && access?.perms.delete === true;
   const [searchParams, setSearchParams] = useSearchParams();
   const categoryFilter = searchParams.get("category") ?? "";
   // Search-button filters live in the URL so they survive navigation and can
@@ -290,7 +297,7 @@ export default function Inventory() {
             <Button variant="outline" onClick={() => setScanOpen(true)}>
               <ScanLine className="size-4" /> Scan QR
             </Button>
-            {isAdmin && (
+            {canAdd && (
               <>
                 <Button variant="outline" onClick={() => setCatDialogOpen(true)}>
                   <Plus className="size-4" /> Category
@@ -308,7 +315,7 @@ export default function Inventory() {
           </div>
         </header>
 
-        {isAdmin && (
+        {(canEdit || canDelete) && (
           <div className="flex flex-wrap items-center gap-2">
             {/* Select-all: every group currently shown by the filters. */}
             <Checkbox
@@ -331,12 +338,16 @@ export default function Inventory() {
             </span>
             {selected.size > 0 && (
               <>
-                <Button size="sm" variant="outline" onClick={() => setBulkEditOpen(true)}>
-                  <Pencil className="size-3.5" /> Edit selected
-                </Button>
-                <Button size="sm" variant="outline" className="text-destructive" onClick={bulkDelete}>
-                  <Trash2 className="size-3.5" /> Delete selected
-                </Button>
+                {canEdit && (
+                  <Button size="sm" variant="outline" onClick={() => setBulkEditOpen(true)}>
+                    <Pencil className="size-3.5" /> Edit selected
+                  </Button>
+                )}
+                {canDelete && (
+                  <Button size="sm" variant="outline" className="text-destructive" onClick={bulkDelete}>
+                    <Trash2 className="size-3.5" /> Delete selected
+                  </Button>
+                )}
                 <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
                   Clear selection
                 </Button>
@@ -434,7 +445,7 @@ export default function Inventory() {
         ) : filtered.length === 0 ? (
           <div className="glass-3d rounded-lg border border-dashed px-6 py-16 text-center">
             <p className="text-sm text-muted-foreground">
-              Nothing matches these filters. {isAdmin ? "Adjust them or import a CSV." : "Try another search."}
+              Nothing matches these filters. {isManager ? "Adjust them or import a CSV." : "Try another search."}
             </p>
             {filtersActive && (
               <Button variant="outline" size="sm" className="mt-3" onClick={resetFilters}>
@@ -459,7 +470,7 @@ export default function Inventory() {
                     <div className="ml-1">
                       <QrChip payload={categoryQr(cat.name)} label={cat.name} />
                     </div>
-                    {isAdmin && (
+                    {(canEdit || canDelete) && (
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="icon" className="size-7">
@@ -467,16 +478,19 @@ export default function Inventory() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="start">
-                          <DropdownMenuItem
-                            onClick={() => {
-                              setEditingCat(cat);
-                              setEditCatName(cat.name);
-                              setEditCatDesc(cat.description ?? "");
-                            }}
-                          >
-                            <Pencil className="size-4" /> Edit category
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
+                          {canEdit && (
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setEditingCat(cat);
+                                setEditCatName(cat.name);
+                                setEditCatDesc(cat.description ?? "");
+                              }}
+                            >
+                              <Pencil className="size-4" /> Edit category
+                            </DropdownMenuItem>
+                          )}
+                          {canDelete && (
+                            <DropdownMenuItem
                             className="text-destructive"
                             onClick={async () => {
                               if (!confirm(`Delete category “${cat.name}”? Categories with groups cannot be deleted.`)) return;
@@ -488,8 +502,9 @@ export default function Inventory() {
                               }
                             }}
                           >
-                            <Trash2 className="size-4" /> Delete category
-                          </DropdownMenuItem>
+                              <Trash2 className="size-4" /> Delete category
+                            </DropdownMenuItem>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     )}
@@ -502,7 +517,7 @@ export default function Inventory() {
                           key={g._id}
                           className={`flex flex-col gap-2 rounded-lg transition-colors${selected.has(g._id) ? " ring-1 ring-primary/60" : ""}`}
                         >
-                          {isAdmin && (
+                          {(canEdit || canDelete) && (
                             <label className="ml-1 flex w-fit cursor-pointer items-center gap-2 text-xs text-muted-foreground">
                               <Checkbox
                                 checked={selected.has(g._id)}
@@ -517,6 +532,8 @@ export default function Inventory() {
                             stats={stats?.[g._id]}
                             categoryName={cat.name}
                             isAdmin={isAdmin}
+                            canEdit={canEdit}
+                            canDelete={canDelete}
                             containedGroups={contained}
                             closetName={closetNames.get(g.closetId ?? "")}
                             onEdit={() => {

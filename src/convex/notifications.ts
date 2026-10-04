@@ -276,6 +276,10 @@ export const listPeople = query({
           membershipStatus: u.membershipStatus,
           profileApproved: u.profileApproved,
           printerRole: u.printerRole,
+          // Inventory privilege + its sub-permissions: the People editor
+          // grants/revokes it exactly like the printer privilege.
+          inventoryRole: u.inventoryRole,
+          inventoryPerms: u.inventoryPerms,
         },
         activeRentals: byUser.get(u._id)?.active ?? 0,
         pending: byUser.get(u._id)?.pending ?? 0,

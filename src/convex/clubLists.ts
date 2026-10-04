@@ -1,6 +1,14 @@
 import { v } from "convex/values";
 import { mutation, query, QueryCtx } from "./_generated/server";
 import { requireAdmin, requireUser } from "./lib";
+import {
+  isAppRole,
+  parseRankRoleValues,
+  serializeRankRoleEntries,
+  strongestMappedRole,
+  type AppRoleKey,
+  type RankRoleEntry,
+} from "../lib/rank-role-map";
 
 /**
  * Admin-editable club lists, stored in the clubLists table as one row per
@@ -58,27 +66,29 @@ export const setList = mutation({
 
 export const RANK_ROLE_MAP_KEY = "rankRoleMap";
 
-export type RankRoleMap = Record<string, "admin" | "member" | "student">;
+/**
+ * In-memory lookup of rank → role. NEVER return this from a query: the rank
+ * names are Arabic, and Convex encodes object keys as JSON field names (ASCII
+ * only) — returning it crashed the Settings page with
+ * "Field name إداري has invalid character 'إ'". Query results must use the
+ * `{ rank, role }[]` entry list instead.
+ */
+export type RankRoleMap = Record<string, AppRoleKey>;
 
-// Priority when a person holds several mapped ranks: the strongest wins.
-const ROLE_RANK: Record<string, number> = { admin: 3, member: 2, student: 1 };
+/** The stored `"rank=>role"` strings, parsed into wire-safe entries. */
+export function rankRoleEntries(ctx: QueryCtx): Promise<RankRoleEntry[]> {
+  return ctx.db
+    .query("clubLists")
+    .withIndex("by_list_key", (q) => q.eq("listKey", RANK_ROLE_MAP_KEY))
+    .unique()
+    .then((row) => parseRankRoleValues(row?.values ?? []));
+}
 
 /** Server-side read of the map (settings-style row in clubLists). */
 export async function getRankRoleMap(ctx: QueryCtx): Promise<RankRoleMap> {
-  const row = await ctx.db
-    .query("clubLists")
-    .withIndex("by_list_key", (q) => q.eq("listKey", RANK_ROLE_MAP_KEY))
-    .unique();
-  if (!row) return {};
+  const entries = await rankRoleEntries(ctx);
   const out: RankRoleMap = {};
-  // Values are stored as "rank=>role" strings so they live in the same
-  // array-shaped list row as every other club list.
-  for (const entry of row.values) {
-    const [rank, role] = entry.split("=>");
-    if (rank && role && ROLE_RANK[role]) {
-      out[rank.trim()] = role.trim() as RankRoleMap[string];
-    }
-  }
+  for (const { rank, role } of entries) out[rank] = role;
   return out;
 }
 
@@ -86,22 +96,22 @@ export async function getRankRoleMap(ctx: QueryCtx): Promise<RankRoleMap> {
 export function mappedRoleFor(
   map: RankRoleMap,
   roles: string[] | undefined,
-): "admin" | "member" | "student" | undefined {
-  if (!roles?.length) return undefined;
-  let best: "admin" | "member" | "student" | undefined;
-  for (const r of roles) {
-    const mapped = map[r];
-    if (mapped && (!best || ROLE_RANK[mapped] > ROLE_RANK[best])) best = mapped;
-  }
-  return best;
+): AppRoleKey | undefined {
+  return strongestMappedRole(map, roles);
 }
 
-/** Current rank → role assignments (admin: the settings editor). */
+/**
+ * Current rank → role assignments for the Settings editor.
+ *
+ * Returns an ARRAY of `{ rank, role }` — never a map keyed by rank. Arabic
+ * rank names used as object keys make Convex throw on serialization, which
+ * took the whole page down. See src/lib/rank-role-map.ts.
+ */
 export const getRankRoleMapQuery = query({
   args: {},
   handler: async (ctx) => {
     await requireAdmin(ctx);
-    return await getRankRoleMap(ctx);
+    return await rankRoleEntries(ctx);
   },
 });
 
@@ -117,13 +127,11 @@ export const setRankRoleMap = mutation({
   },
   handler: async (ctx, { entries }) => {
     await requireAdmin(ctx);
-    const values = [
-      ...new Set(
-        entries
-          .map((e) => `${e.rank.trim()}=>${e.role}`)
-          .filter((s) => s.split("=>")[0].length > 0),
-      ),
-    ];
+    // Same clean-up the parser does, applied before writing: trimmed ranks,
+    // no blanks, no duplicates.
+    const values = serializeRankRoleEntries(
+      entries.filter((e) => e.rank.trim().length > 0 && isAppRole(e.role)),
+    );
     const row = await ctx.db
       .query("clubLists")
       .withIndex("by_list_key", (q) => q.eq("listKey", RANK_ROLE_MAP_KEY))

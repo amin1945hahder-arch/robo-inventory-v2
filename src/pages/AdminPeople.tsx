@@ -13,7 +13,15 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { ageFromIso } from "@/lib/utils";
 import { printerPrivilegeLabel } from "@/lib/printer-role";
-import { Printer } from "lucide-react";
+import {
+  ALL_INVENTORY_PERMS,
+  INVENTORY_PERMS,
+  type InventoryPermKey,
+  type InventoryPerms,
+  inventoryPermsLabel,
+  inventoryPermsOf,
+} from "@/lib/inventory-perms";
+import { Printer, Boxes } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -94,6 +102,8 @@ type Person = {
     membershipStatus?: string;
     profileApproved?: boolean;
     printerRole?: boolean;
+    inventoryRole?: boolean;
+    inventoryPerms?: { edit: boolean; add: boolean; delete: boolean } | null;
   };
   activeRentals: number;
   pending: number;
@@ -211,7 +221,8 @@ function PersonRow({
             user.telegramChatId ||
             age !== null ||
             user.githubUrl ||
-            user.printerRole) && (
+            user.printerRole ||
+            user.inventoryRole) && (
             <div className="mt-1 flex flex-wrap items-center gap-1">
               {(user.clubRoles ?? []).map((r) => (
                 <ClubRoleChip key={r} role={r} />
@@ -219,6 +230,11 @@ function PersonRow({
               {user.printerRole && (
                 <span className="inline-flex items-center gap-1 rounded-full border border-cyan-500/40 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-medium text-cyan-400">
                   <Printer className="size-2.5" /> printer
+                </span>
+              )}
+              {user.inventoryRole && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+                  <Boxes className="size-2.5" /> inventory · {inventoryPermsLabel(user)}
                 </span>
               )}
               {user.academicState && (
@@ -317,6 +333,7 @@ export default function AdminPeople() {
   }, [peopleRaw, sortKey]);
   const updateProfile = useMutation(api.users.updatePersonProfile);
   const setPrinterRole = useMutation(api.users.setPrinterRole);
+  const setInventoryRole = useMutation(api.users.setInventoryRole);
   const setMembership = useMutation(api.users.setMembershipStatus);
   const deletePerson = useMutation(api.users.deletePerson);
   const dmMember = useMutation(api.parts.adminDmMember);
@@ -374,6 +391,8 @@ export default function AdminPeople() {
   // edit form state
   const [editRole, setEditRole] = useState<"admin" | "member" | "student">("member");
   const [editPrinter, setEditPrinter] = useState(false);
+  const [editInventory, setEditInventory] = useState(false);
+  const [editPerms, setEditPerms] = useState<InventoryPerms>(ALL_INVENTORY_PERMS);
   const [editRoles, setEditRoles] = useState<string[]>([]);
   const [editAcademic, setEditAcademic] = useState("");
   const [editMajor, setEditMajor] = useState("");
@@ -388,6 +407,10 @@ export default function AdminPeople() {
       p.user.role === "admin" ? "admin" : p.user.role === "student" ? "student" : "member",
     );
     setEditPrinter(p.user.printerRole === true);
+    setEditInventory(p.user.inventoryRole === true);
+    // Not granted yet → start from full, so the first Grant hands over the
+    // whole privilege (identical to the printer toggle) instead of read-only.
+    setEditPerms(p.user.inventoryRole ? inventoryPermsOf(p.user) : ALL_INVENTORY_PERMS);
     setEditRoles(p.user.clubRoles ?? []);
     setEditAcademic(p.user.academicState ?? "");
     setEditMajor(p.user.major ?? "");
@@ -413,6 +436,45 @@ export default function AdminPeople() {
     } catch (e) {
       toast.error(asMessage(e));
     }
+  };
+
+  // Inventory manager: same shape as the printer privilege — grant/revoke plus
+  // the edit/add/delete sub-permissions, each saved the moment it is toggled
+  // (admins hold all three implicitly, so it stays hidden for them).
+  const saveInventory = async (
+    userId: string,
+    granted: boolean,
+    perms: InventoryPerms,
+  ) => {
+    try {
+      await setInventoryRole({ userId: userId as any, granted, perms });
+      toast.success(
+        granted
+          ? `Inventory manager granted${INVENTORY_PERMS.filter((p) => perms[p.key]).length === 0 ? " (read-only)" : ""}`
+          : "Inventory manager revoked",
+      );
+    } catch (e) {
+      toast.error(asMessage(e));
+    }
+  };
+
+  const toggleInventory = async () => {
+    if (!editing) return;
+    const next = !editInventory;
+    const perms = next ? editPerms : ALL_INVENTORY_PERMS;
+    setEditInventory(next);
+    setEditPerms(perms);
+    await saveInventory(editing.user._id, next, perms);
+  };
+
+  const toggleInventoryPerm = async (key: InventoryPermKey) => {
+    if (!editing) return;
+    const perms = { ...editPerms, [key]: !editPerms[key] };
+    setEditPerms(perms);
+    // Granting a sub-permission implies the privilege itself.
+    const granted = editInventory || perms[key];
+    if (!editInventory) setEditInventory(true);
+    await saveInventory(editing.user._id, granted, perms);
   };
 
   const submit = async () => {
@@ -719,6 +781,59 @@ export default function AdminPeople() {
                     </Button>
                   )}
                 </div>
+              </div>
+
+              <div className="grid gap-2">
+                <Label>Inventory manager</Label>
+                <div className="flex items-center justify-between glass-3d rounded-md border px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="text-sm">Edit, add and delete shelf items</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {editing.user.role === "admin"
+                        ? "implicit — admins hold every inventory permission"
+                        : editInventory
+                          ? `granted · ${inventoryPermsLabel({ ...editing.user, inventoryRole: editInventory, inventoryPerms: editPerms })}`
+                          : "not granted"}
+                    </p>
+                  </div>
+                  {editing.user.role === "admin" ? (
+                    <Badge variant="secondary" className="text-[11px]">implicit</Badge>
+                  ) : (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={editInventory ? "default" : "outline"}
+                      onClick={() => void toggleInventory()}
+                    >
+                      <Boxes className="size-3.5" /> {editInventory ? "Revoke" : "Grant"}
+                    </Button>
+                  )}
+                </div>
+
+                {/* Sub-permissions: pick exactly what this person may do. */}
+                {editing.user.role !== "admin" && (
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    {INVENTORY_PERMS.map((perm) => {
+                      const on = editInventory && editPerms[perm.key];
+                      return (
+                        <button
+                          key={perm.key}
+                          type="button"
+                          title={perm.hint}
+                          onClick={() => void toggleInventoryPerm(perm.key)}
+                          className={`rounded-md border px-3 py-2 text-left text-sm transition-colors ${
+                            on
+                              ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-400"
+                              : "border-border text-muted-foreground hover:border-emerald-500/30"
+                          }`}
+                        >
+                          <span className="block font-medium">{perm.label}</span>
+                          <span className="block text-[11px] opacity-80">{perm.hint}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               <div className="grid gap-2">

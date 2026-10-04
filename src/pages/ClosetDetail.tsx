@@ -24,6 +24,13 @@ export default function ClosetDetail() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
+  // Admins hold every inventory permission implicitly; a granted inventory
+  // manager gets exactly the sub-permissions the admin picked in People.
+  const access = useQuery(api.users.myInventoryAccess, {});
+  const isManager = access?.isManager === true;
+  const canEdit = isManager && access?.perms.edit === true;
+  const canAdd = isManager && access?.perms.add === true;
+  const canDelete = isManager && access?.perms.delete === true;
   const closet = useQuery(api.catalog.getCloset, id ? { id: id as any } : "skip");
   const groups = useQuery(api.catalog.listGroups, id ? { closetId: id as any } : "skip");
   // Sibling storages for the ← → arrows (alphabetical, same as the list page).
@@ -110,7 +117,7 @@ export default function ClosetDetail() {
                   {closet.note ? ` · ${closet.note}` : ""}
                 </p>
               </div>
-              {isAdmin && (
+              {canAdd && (
                 <Button
                   className="gap-2"
                   onClick={() => {
@@ -131,7 +138,7 @@ export default function ClosetDetail() {
                 <p className="text-sm text-muted-foreground">
                   No component groups in this storage yet.
                 </p>
-                {isAdmin && (
+                {canAdd && (
                   <p className="text-xs text-muted-foreground">
                     Use “Add unit here” to create the first one.
                   </p>
@@ -162,6 +169,8 @@ export default function ClosetDetail() {
                             stats={stats?.[g._id]}
                             categoryName={cat.name}
                             isAdmin={isAdmin}
+                            canEdit={canEdit}
+                            canDelete={canDelete}
                             containedGroups={contained}
                             closetName={
                               g.closetId

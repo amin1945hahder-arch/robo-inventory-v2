@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { LoadingGifInline } from "@/components/LoadingGif";
 import { useAction, useMutation } from "convex/react";
 import { useOfflineQuery as useQuery } from "@/hooks/use-offline-query";
@@ -8,6 +8,7 @@ import { AppShell } from "@/components/AppShell";
 import { AppThemeSection } from "@/components/AppThemeSection";
 import { CardLayoutSection } from "@/components/CardLayoutSection";
 import { setThemeModeOverride } from "@/lib/appTheme";
+import { rankRoleEntriesToMap } from "@/lib/rank-role-map";
 import { FontPicker } from "@/components/FontPicker";
 import { previewSound } from "@/hooks/use-sound";
 import { SOUND_WAVES, type SoundSpec } from "@/lib/sound-engine";
@@ -152,11 +153,16 @@ function ListEditor({
  *  the position is granted (request approval or the People editor), skipped
  *  when the person already holds the mapped role. */
 function RankRoleMapper({ ranks }: { ranks: string[] | undefined }) {
-  const map = useQuery(api.clubLists.getRankRoleMapQuery, {});
+  const entries = useQuery(api.clubLists.getRankRoleMapQuery, {});
   const save = useMutation(api.clubLists.setRankRoleMap);
   const [local, setLocal] = useState<Record<string, string> | null>(null);
   const [busy, setBusy] = useState(false);
-  const current: Record<string, string> = local ?? map ?? {};
+  // The query returns `{ rank, role }[]` — rank names are Arabic and can't be
+  // Convex field names — so the lookup is rebuilt here, client-side.
+  const current = useMemo<Record<string, string>>(
+    () => local ?? rankRoleEntriesToMap(entries ?? []),
+    [local, entries],
+  );
   const pick = (rank: string, role: string) => setLocal({ ...current, [rank]: role });
 
   const saveAll = async () => {
@@ -189,7 +195,7 @@ function RankRoleMapper({ ranks }: { ranks: string[] | undefined }) {
           hold it). Positions with no mapping leave the role untouched.
         </p>
       </div>
-      {map === undefined ? (
+      {entries === undefined ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <LoadingGifInline size={18} className="size-4" /> Loading…
         </p>

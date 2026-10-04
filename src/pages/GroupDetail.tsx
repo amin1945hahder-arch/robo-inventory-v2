@@ -53,6 +53,14 @@ export default function GroupDetail() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const isAdmin = user?.role === "admin";
+  // Inventory-manager sub-permissions (admins hold all three implicitly).
+  // NOTE: unit-level controls further down (UnitRow / GroupDetailUnits) stay
+  // admin-only — they mix inventory edits with rental admin actions.
+  const access = useQuery(api.users.myInventoryAccess, {});
+  const isManager = access?.isManager === true;
+  const canEdit = isManager && access?.perms.edit === true;
+  const canAdd = isManager && access?.perms.add === true;
+  const canDelete = isManager && access?.perms.delete === true;
   const group = useQuery(api.catalog.getGroup, id ? { id: id as any } : "skip");
   const parts = useQuery(api.parts.listPartsOfGroup, id ? { groupId: id as any } : "skip");
   const stats = useQuery(api.stats.groupStats, {});
@@ -336,7 +344,7 @@ export default function GroupDetail() {
                   so it cannot be lent. You can still edit it and manage its units.
                 </p>
               )}
-              {isAdmin && !isMaster && (
+              {canAdd && !isMaster && (
                 <Button
                   variant="outline"
                   onClick={() => {
@@ -361,7 +369,7 @@ export default function GroupDetail() {
                   <PackagePlus className="size-4" /> {isPackGroup(group) ? "Add pack" : "Add unit"}
                 </Button>
               )}
-              {isAdmin && (
+              {canAdd && (
                 <Button
                   variant="outline"
                   onClick={() => {
@@ -485,6 +493,8 @@ export default function GroupDetail() {
                         stats={stats?.[g._id]}
                         categoryName={categories?.find((c) => c._id === g.categoryId)?.name}
                         isAdmin={isAdmin}
+                        canEdit={canEdit}
+                        canDelete={canDelete}
                         containedGroups={contained.length > 0 ? contained : undefined}
                         closetName={
                           g.closetId
