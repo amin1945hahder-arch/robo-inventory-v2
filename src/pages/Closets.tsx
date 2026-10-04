@@ -26,13 +26,19 @@ import { compressImageFile } from "@/lib/utils";
 import { toast } from "sonner";
 import { asMessage } from "@/components/EditRentalDialog";
 import { Pencil, Plus, Trash2, Warehouse } from "lucide-react";
+import {
+  useTursoClosets,
+  useTursoGroups,
+} from "@/hooks/use-turso-catalog";
 type Stats = { total: number; available: number; rented: number; onProject: number; broken: number; pending: number };
 
 export default function Closets() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
-  const closets = useQuery(api.catalog.listClosets, {});
-  const groups = useQuery(api.catalog.listGroups, {});
+  // Turso is the store now: these two reads come from the edge SQLite
+  // database (polled), not from Convex's database.
+  const { data: closets } = useTursoClosets();
+  const { data: groups } = useTursoGroups();
   const allGroups = useQuery(api.catalog.childGroupOptions, {});
   const stats = useQuery(api.stats.groupStats, {});
   const remove = useMutation(api.catalog.deleteCloset);
