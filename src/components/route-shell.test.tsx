@@ -17,7 +17,7 @@ import { PageErrorBoundary } from "@/components/PageErrorBoundary";
  *
  *   BrowserRouter
  *     └ Suspense (full-screen fallback)
- *         └ PageErrorBoundary key={location.pathname}
+ *         └ PageErrorBoundary resetKey={location.pathname}
  *             └ Routes … (all lazily loaded)
  *
  * Reproduced here because "I click a nav tab and the page does not appear
