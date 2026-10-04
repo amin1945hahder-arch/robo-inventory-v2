@@ -7,7 +7,7 @@ import { PageErrorBoundary } from "@/components/PageErrorBoundary";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import { ConvexReactClient } from "convex/react";
-import React, { StrictMode, useEffect, Suspense } from "react";
+import React, { Fragment, StrictMode, useEffect, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router";
 import "./index.css";
@@ -21,6 +21,7 @@ import {
 } from "@/lib/dev-reload";
 import { initThemeFromCache } from "@/lib/appTheme";
 import { AppThemeProvider } from "@/hooks/use-app-theme";
+import { useNavigationWatchdog } from "@/hooks/use-navigation-watchdog";
 
 // Published app theme: re-apply the cached theme synchronously BEFORE the
 // first paint so every visit opens with the admin's colors — no flash, no
@@ -189,9 +190,19 @@ function RouteSyncer() {
  *  lazily-loaded page fetches its code. */
 function RoutedBoundary({ children }: { children: React.ReactNode }) {
   const location = useLocation();
-  return <PageErrorBoundary resetKey={location.pathname}>{children}</PageErrorBoundary>;
+  // Repairs a navigation that failed to render. The key stays 0 while
+  // everything is healthy, so a normal route change is a plain React update;
+  // it only changes once the watchdog has compared the screen before and after
+  // a navigation, found them identical, and rebuilt the route tree. If even
+  // that is not enough it escalates to a reload, which is the manual browser
+  // refresh this replaces.
+  const remounts = useNavigationWatchdog();
+  return (
+    <PageErrorBoundary resetKey={location.pathname}>
+      <Fragment key={remounts}>{children}</Fragment>
+    </PageErrorBoundary>
+  );
 }
-
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -419,7 +430,7 @@ createRoot(document.getElementById("root")!).render(
                 }
               />
               <Route path="*" element={<NotFound />} />
-            </Routes>
+              </Routes>
             </RoutedBoundary>
           </Suspense>
         </BrowserRouter>
