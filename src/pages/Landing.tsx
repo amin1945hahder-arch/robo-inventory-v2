@@ -8,13 +8,21 @@ import logo from "@/assets/logo.svg";
 import {
   ArrowRight,
   Boxes,
+  CalendarClock,
   Camera,
   CheckCircle2,
+  CircleUser,
+  CloudOff,
   FolderKanban,
+  Layers,
   Mail,
+  PackageSearch,
   QrCode,
   ScanLine,
   ShieldCheck,
+  User,
+  Users,
+  WifiOff,
   Warehouse,
   Wrench,
 } from "lucide-react";
@@ -84,6 +92,7 @@ export default function Landing() {
         </Link>
         <nav className="hidden items-center gap-6 text-sm text-muted-foreground md:flex">
           <a href="#features" className="transition-colors hover:text-foreground">Features</a>
+          <a href="#modules" className="transition-colors hover:text-foreground">Everything</a>
           <a href="#how" className="transition-colors hover:text-foreground">How it works</a>
           <a href="#roles" className="transition-colors hover:text-foreground">Roles</a>
         </nav>
@@ -152,7 +161,43 @@ export default function Landing() {
           </Button>
         </motion.div>
 
-        {/* mock scan card */}
+        {/* Everything the app offers at a glance — one pass over the whole
+            platform, so the page earns its "powerful" in the first screen. */}
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.12 }}
+          className="mt-10 flex flex-wrap items-center justify-center gap-2"
+        >
+          {[
+            ["Dashboard", "LayoutDashboard"],
+            ["Inventory", "Boxes"],
+            ["Storages", "Warehouse"],
+            ["Projects", "FolderKanban"],
+            ["My rentals", "PackageSearch"],
+            ["3D printing", "Box"],
+            ["Requests", "Bell"],
+            ["People", "Users"],
+            ["Import CSV", "FileUp"],
+            ["Print labels", "QrCode"],
+            ["Export", "FileDown"],
+            ["Reports", "BarChart3"],
+            ["Settings", "Settings"],
+            ["Offline-first", "WifiOff"],
+            ["Themes", "Palette"],
+          ].map(([name, icon]) => (
+            <span
+              key={name}
+              className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background/60 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <Icon name={icon} className="size-3.5" />
+              {name}
+            </span>
+          ))}
+        </motion.div>
+      </section>
+
+      {/* features */}
         <motion.div
           initial={{ opacity: 0, y: 32, scale: 0.97 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
