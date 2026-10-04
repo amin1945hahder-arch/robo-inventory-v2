@@ -1,6 +1,5 @@
 "use node";
 
-import { createClient } from "@libsql/client/http";
 import { v } from "convex/values";
 import { action, internalAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
@@ -13,6 +12,7 @@ import {
   type SqlExecutor,
 } from "../lib/turso-migrate";
 import { MIGRATION_TABLES } from "../lib/turso-schema.generated";
+import { tursoSql } from "./tursoClient";
 
 /**
  * Convex → Turso migration tooling.
@@ -32,43 +32,13 @@ import { MIGRATION_TABLES } from "../lib/turso-schema.generated";
 
 const TABLE_NAMES = Object.keys(MIGRATION_TABLES);
 
-function config() {
-  const url = (process.env.TURSO_DATABASE_URL ?? "").trim();
-  const authToken = (process.env.TURSO_AUTH_TOKEN ?? "").trim();
-  if (!url) return { ok: false as const, problem: "TURSO_DATABASE_URL is not set" };
-  if (!authToken) return { ok: false as const, problem: "TURSO_AUTH_TOKEN is not set" };
-  if (!/^(libsql|https|wss):\/\//.test(url)) {
-    return { ok: false as const, problem: "TURSO_DATABASE_URL is not a libsql/https URL" };
-  }
-  return { ok: true as const, url, authToken };
-}
-
-/** @libsql/client -> the SqlExecutor the migration core expects. */
+/**
+ * The connection lives in tursoClient.ts now, shared with the runtime data
+ * layer, so there is exactly one place that knows how to reach Turso.
+ */
 function tursoExecutor(): { exec: SqlExecutor | null; problem: string | null } {
-  const cfg = config();
-  if (!cfg.ok) return { exec: null, problem: cfg.problem };
-  const db = createClient({
-    url: cfg.url.replace(/^libsql:\/\//, "https://"),
-    authToken: cfg.authToken,
-  });
-  return {
-    exec: {
-      async execute(sql: string, args: unknown[] = []) {
-        const res = await db.execute({ sql, args: args as never });
-        return { rows: res.rows as unknown[] };
-      },
-      // One HTTP round trip per 50 rows instead of per row — a real migration
-      // is thousands of rows and would otherwise crawl or time out.
-      async executeBatch(statements: { sql: string; args: unknown[] }[]) {
-        if (statements.length === 0) return;
-        await db.batch(
-          statements.map((s) => ({ sql: s.sql, args: s.args as never })),
-          "write",
-        );
-      },
-    },
-    problem: null,
-  };
+  const { sql, problem } = tursoSql();
+  return { exec: sql, problem };
 }
 
 async function requireAdmin(ctx: ActionCtx) {
