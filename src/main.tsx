@@ -15,6 +15,10 @@ import { LoadingGif } from "@/components/LoadingGif";
 import { PreviousLocationTracker } from "@/hooks/use-previous-location";
 import { CoverBackground } from "@/components/CoverBackground";
 import { attachOfflineGuard } from "@/lib/offline";
+import {
+  createStaleWatcher,
+  installDynamicImportRecovery,
+} from "@/lib/dev-reload";
 import { initThemeFromCache } from "@/lib/appTheme";
 import { AppThemeProvider } from "@/hooks/use-app-theme";
 
@@ -120,6 +124,28 @@ const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string);
 // mutation/action is refused with a clear message (nothing hangs or silently
 // fails); reactive reads and the IndexedDB delta cache keep working.
 attachOfflineGuard(convex);
+
+// The preview dev server must not hot-update the open page, so the browser
+// keeps running the module graph it loaded at startup. Both halves of that
+// problem used to end with "…and I'll just refresh the browser": stale routes
+// that never show your latest edit, and lazy chunks that fail against the old
+// graph. Reload for the user instead. Dev-only, fires at most once, and stays
+// quiet if the server cannot be reached.
+if (import.meta.env.DEV) {
+  const reload = () => window.location.reload();
+  installDynamicImportRecovery(reload);
+
+  createStaleWatcher({
+    load: async () => {
+      const res = await fetch(import.meta.env.BASE_URL + "src/main.tsx", {
+        cache: "no-store",
+      });
+      if (!res.ok) return null;
+      return await res.text();
+    },
+    reload,
+  }).start();
+}
 
 function RouteSyncer() {
   const location = useLocation();
