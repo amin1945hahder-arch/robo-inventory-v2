@@ -8,6 +8,7 @@ import {
   defaultColors,
   effectiveThemeId,
   endThemePreview,
+  initThemeFromCache,
   isThemeActive,
   resolveTheme,
   setThemeAwareUserMode,
@@ -203,6 +204,40 @@ describe("scheduled + default themes", () => {
       vi.useRealTimers();
       applyThemeState({ themes: [], activeId: null });
     }
+  });
+});
+
+describe("corner radius persistence (publish regression)", () => {
+  it("keeps the edited radius through preview → save & publish → editor close", () => {
+    const colors = { ...defaultColors("dark"), primary: "#abcdef" };
+    const saved = theme({ id: "saved-1", radius: 1.5, colors });
+
+    // Editing: the draft previews live across the whole app.
+    beginThemePreview(saved);
+    expect(root().style.getPropertyValue("--radius")).toBe("1.5rem");
+
+    // Save & publish happens WHILE the editor is open (previewDepth > 0).
+    applyThemeState({ themes: [saved], activeId: "saved-1" });
+
+    // Editor closes → rollback must restore the SAVED theme, radius included.
+    endThemePreview();
+    expect(root().style.getPropertyValue("--radius")).toBe("1.5rem");
+    expect(root().style.getPropertyValue("--primary")).toBe("#abcdef");
+  });
+
+  it("keeps the radius through the boot cache (save → reload → apply)", () => {
+    applyThemeState({
+      themes: [theme({ id: "cached-radius", radius: 1.25 })],
+      activeId: "cached-radius",
+    });
+    const parsed = JSON.parse(localStorage.getItem("roboShelf.appTheme.v1") as string) as ThemeState;
+    expect(parsed.themes[0].radius).toBe(1.25);
+    // Simulate a fresh boot: scrub the DOM, re-apply from the cache.
+    applyThemeToDom(null);
+    expect(root().style.getPropertyValue("--radius")).toBe("");
+    initThemeFromCache();
+    expect(root().style.getPropertyValue("--radius")).toBe("1.25rem");
+    applyThemeState({ themes: [], activeId: null });
   });
 });
 
