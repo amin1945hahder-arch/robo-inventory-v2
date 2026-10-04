@@ -7,7 +7,7 @@ import { PageErrorBoundary } from "@/components/PageErrorBoundary";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import { ConvexReactClient } from "convex/react";
-import React, { StrictMode, useEffect, lazy, Suspense } from "react";
+import React, { StrictMode, useEffect, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router";
 import "./index.css";
@@ -27,31 +27,43 @@ import { AppThemeProvider } from "@/hooks/use-app-theme";
 // network wait (the AppThemeProvider below keeps it live from Convex).
 initThemeFromCache();
 
-// Lazy load route components for better code splitting
-const Landing = lazy(() => import("./pages/Landing.tsx"));
-const AuthPage = lazy(() => import("./pages/Auth.tsx"));
-const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
-const Inventory = lazy(() => import("./pages/Inventory.tsx"));
-const GroupDetail = lazy(() => import("./pages/GroupDetail.tsx"));
-const PartDetail = lazy(() => import("./pages/PartDetail.tsx"));
-const RentScan = lazy(() => import("./pages/RentScan.tsx"));
-const QrRoute = lazy(() => import("./pages/QrRoute.tsx"));
-const MyRentals = lazy(() => import("./pages/MyRentals.tsx"));
-const Projects = lazy(() => import("./pages/Projects.tsx"));
-const ProjectDetail = lazy(() => import("./pages/ProjectDetail.tsx"));
-const Closets = lazy(() => import("./pages/Closets.tsx"));
-const ClosetDetail = lazy(() => import("./pages/ClosetDetail.tsx"));
-const AdminRequests = lazy(() => import("./pages/AdminRequests.tsx"));
-const AdminPeople = lazy(() => import("./pages/AdminPeople.tsx"));
-const ImportCSV = lazy(() => import("./pages/ImportCSV.tsx"));
-const Labels = lazy(() => import("./pages/Labels.tsx"));
-const AdminReports = lazy(() => import("./pages/AdminReports.tsx"));
-const ExportStudio = lazy(() => import("./pages/ExportStudio.tsx"));
-const AdminSettings = lazy(() => import("./pages/AdminSettings.tsx"));
-const Profile = lazy(() => import("./pages/Profile.tsx"));
-const PersonCard = lazy(() => import("./pages/PersonCard.tsx"));
-const Printing3D = lazy(() => import("./pages/Printing3D.tsx"));
-const NotFound = lazy(() => import("./pages/NotFound.tsx"));
+// Route components are imported EAGERLY, not lazily.
+//
+// Lazily-imported routes were the direct cause of the reported glitch: "I
+// click a nav link, the URL changes, but the old page stays until I refresh".
+// With <Suspense> above <Routes>, a route chunk that has not resolved yet
+// leaves React displaying the PREVIOUS tree — by design, so the transition
+// doesn't flash. One slow or stale chunk request therefore freezes the UI on
+// the old page with nothing clickable, and only a full reload recovers.
+//
+// Importing the pages up front removes the chunk fetch from navigation
+// altogether, so a route change always paints immediately. The trade is a
+// larger first load: this is a small internal tool for a single club, and
+// predictable navigation is worth more here than saving a few hundred KB.
+import Landing from "./pages/Landing";
+import AuthPage from "./pages/Auth";
+import Dashboard from "./pages/Dashboard";
+import Inventory from "./pages/Inventory";
+import GroupDetail from "./pages/GroupDetail";
+import PartDetail from "./pages/PartDetail";
+import RentScan from "./pages/RentScan";
+import QrRoute from "./pages/QrRoute";
+import MyRentals from "./pages/MyRentals";
+import Projects from "./pages/Projects";
+import ProjectDetail from "./pages/ProjectDetail";
+import Closets from "./pages/Closets";
+import ClosetDetail from "./pages/ClosetDetail";
+import AdminRequests from "./pages/AdminRequests";
+import AdminPeople from "./pages/AdminPeople";
+import ImportCSV from "./pages/ImportCSV";
+import Labels from "./pages/Labels";
+import AdminReports from "./pages/AdminReports";
+import ExportStudio from "./pages/ExportStudio";
+import AdminSettings from "./pages/AdminSettings";
+import Profile from "./pages/Profile";
+import PersonCard from "./pages/PersonCard";
+import Printing3D from "./pages/Printing3D";
+import NotFound from "./pages/NotFound";
 
 // Loading fallback for route transitions (the shared animated gif)
 function RouteLoading() {
