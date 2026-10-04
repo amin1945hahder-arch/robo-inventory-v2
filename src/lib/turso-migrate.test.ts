@@ -18,10 +18,13 @@ import {
   insertSql,
   migrationTableSql,
   stableStringify,
+  upsertRow,
   verifyDump,
+  type ConvexDoc,
   type Dump,
   type SqlExecutor,
 } from "./turso-migrate";
+import { isConvexShapedId } from "./turso-id";
 import { MIGRATION_TABLES } from "./turso-schema.generated";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -314,7 +317,46 @@ describe("offline dry run against real SQLite", () => {
     db.close();
   });
 
-  it("an empty dump is a valid, clean run", async () => {
+  it("upsertRow inserts a new row with a minted Convex-shaped id", async () => {
+  const db = freshDb();
+  const exec = sqliteExec(db);
+
+  const id = await upsertRow(exec, "closets", {
+    name: "Lab cabinet",
+    location: "A-1",
+  } as ConvexDoc);
+  expect(isConvexShapedId(id)).toBe(true);
+
+  const row = db.prepare('SELECT * FROM "closets" WHERE _id = ?').get(id) as Record<
+    string,
+    unknown
+  >;
+  expect(row.name).toBe("Lab cabinet");
+  expect(row.location).toBe("A-1");
+  db.close();
+});
+
+it("upsertRow replaces an existing row when the id is supplied", async () => {
+  const db = freshDb();
+  const exec = sqliteExec(db);
+  const id = await upsertRow(exec, "closets", { name: "Old" } as ConvexDoc);
+  await upsertRow(exec, "closets", { _id: id, name: "New" } as ConvexDoc);
+
+  const rows = db.prepare('SELECT * FROM "closets"').all() as Record<string, unknown>[];
+  expect(rows).toHaveLength(1);
+  expect(rows[0].name).toBe("New");
+  db.close();
+});
+
+it("upsertRow refuses an unknown table", async () => {
+  const db = freshDb();
+  await expect(upsertRow(sqliteExec(db), "nope", { a: 1 })).rejects.toThrow(
+    /not in the migration spec/,
+  );
+  db.close();
+});
+
+it("an empty dump is a valid, clean run", async () => {
     const db = freshDb();
     const exec = sqliteExec(db);
     const report = await importDump(exec, {}, { mode: "replace" });

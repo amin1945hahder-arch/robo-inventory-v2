@@ -21,6 +21,7 @@ import {
   MIGRATION_TABLES,
   type SqlKind,
 } from "./turso-schema.generated";
+import { newTursoId } from "./turso-id";
 
 export type { SqlKind };
 
@@ -208,6 +209,34 @@ export function insertSql(table: string): { sql: string; columns: string[] } {
       .join(", ")}) VALUES (${names.map(() => "?").join(", ")})`,
     columns: names,
   };
+}
+
+/**
+ * INSERT (or replace) one document. Used by the write path as well as the
+ * migration — an id is minted when the document does not have one yet, so
+ * callers never have to think about it.
+ */
+export async function upsertRow(
+  exec: SqlExecutor,
+  table: string,
+  doc: ConvexDoc,
+): Promise<string> {
+  const columns = MIGRATION_TABLES[table];
+  if (!columns) throw new Error(`Table "${table}" is not in the migration spec`);
+
+  for (const sql of migrationTableSql(table)) await exec.execute(sql);
+
+  const id =
+    doc._id === undefined || doc._id === null
+      ? newTursoId()
+      : String(doc._id);
+  const values = encodeRow({ ...doc, _id: id }, columns);
+  const stmt = insertSql(table);
+  await exec.execute(
+    stmt.sql,
+    stmt.columns.map((c) => values[c] ?? null),
+  );
+  return id;
 }
 
 // ===== Checksums ===========================================================
