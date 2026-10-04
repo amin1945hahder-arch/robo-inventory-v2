@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
+import { listAdmins } from "./lib";
 
 /**
  * WhatsApp notifications via Twilio's Programmable Messaging API.
@@ -74,10 +75,10 @@ export async function adminPhones(ctx: MutationCtx): Promise<string[]> {
     .map((s) => s.trim())
     .filter(Boolean);
   if (fromEnv.length > 0) return fromEnv;
-  const users = await ctx.db.query("users").collect();
-  return users
-    .filter((u) => u.role === "admin" && u.phone)
-    .map((u) => u.phone!);
+  // by_role index — notifyAdmin runs on every request, so scanning every
+  // user doc just to find the admins' phone fields was a hot-path cost.
+  const admins = await listAdmins(ctx);
+  return admins.filter((u) => u.phone).map((u) => u.phone!);
 }
 /**
  * Schedulable wrapper — Convex only allows `fetch` inside actions, so

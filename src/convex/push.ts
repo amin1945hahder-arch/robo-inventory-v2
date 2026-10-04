@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { requireAdmin, requireUser } from "./lib";
+import { listAdmins, requireAdmin, requireUser } from "./lib";
 
 /**
  * Real server push notifications over the standard Web Push protocol (VAPID).
@@ -173,12 +173,13 @@ export const pushToAdmins = internalMutation({
     url: v.optional(v.string()),
   },
   handler: async (ctx, { title, body, tag, url }) => {
-    const allUsers = await ctx.db.query("users").collect();
-    const admins = allUsers.filter((u: any) => u.role === "admin");
+    // by_role index: reads only the admin rows, not every user doc — this
+    // runs on EVERY new request, so the full scan was a hot-path cost.
+    const admins = await listAdmins(ctx);
     let scheduled = 0;
     for (const a of admins) {
       await ctx.scheduler.runAfter(0, internal.push.pushToUser, {
-        userId: a._id as any,
+        userId: a._id,
         title,
         body,
         tag,

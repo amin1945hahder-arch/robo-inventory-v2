@@ -2,7 +2,9 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
 import { requireNonStudent, safeImage } from "./lib";
+import { telegramDM } from "./notify";
 import { diffLines, diffStat, mergeLines, type RowDecision } from "../lib/lineDiff";
 
 /**
@@ -336,6 +338,22 @@ export const save = mutation({
       requestedAt: now,
       status: "pending",
     });
+    // Tell the reviewers it exists: in-app feed + OS push to every admin
+    // device (only for NEW requests — re-saving an own pending one is silent).
+    const who = access.user.name ?? access.user.email ?? "A member";
+    const body = `${who} wants to edit the ${access.project.name} README`;
+    await ctx.db.insert("notifications", {
+      forRole: "admin",
+      type: "readme_request",
+      text: body,
+      link: "/admin/requests?tab=readme",
+    });
+    await ctx.scheduler.runAfter(0, internal.push.pushToAdmins, {
+      title: "README edit request",
+      body,
+      tag: "roboshelf-readme",
+      url: "/admin/requests?tab=readme",
+    });
     return { mode: "request" as const, requestId };
   },
 });
@@ -352,6 +370,55 @@ export const cancel = mutation({
     return { ok: true };
   },
 });
+
+/**
+ * Tell the SUBMITTER how their request went: OS push always, Telegram DM
+ * when they linked the club bot (matches the other decision flows).
+ */
+async function notifyReviewOutcome(
+  ctx: MutationCtx,
+  req: { projectId: Id<"projects">; submittedBy: Id<"users"> },
+  reviewer: { name?: string; email?: string },
+  outcome: "approved" | "partial" | "denied",
+): Promise<void> {
+  const submitter = await ctx.db.get(req.submittedBy);
+  if (!submitter) return;
+  const project = await ctx.db.get(req.projectId);
+  const projectName = project?.name ?? "the project";
+  const reviewerName = reviewer.name ?? reviewer.email ?? "your lead";
+  const title =
+    outcome === "denied"
+      ? "README edits declined"
+      : outcome === "partial"
+        ? "README edits partly approved"
+        : "README edits approved";
+  const detail =
+    outcome === "denied"
+      ? `Nothing was applied — ${reviewerName} left feedback on your request.`
+      : outcome === "partial"
+        ? `Some lines are now live on the ${projectName} README — the rest have feedback.`
+        : `Your changes are now live on the ${projectName} README.`;
+  await ctx.scheduler.runAfter(0, internal.push.pushToUser, {
+    userId: submitter._id,
+    title,
+    body: detail,
+    tag: "roboshelf-readme",
+    url: `/projects/${req.projectId}?tab=readme`,
+  });
+  if (submitter.telegramChatId || submitter.telegramUsername) {
+    await telegramDM(
+      ctx,
+      {
+        name: submitter.name ?? submitter.email,
+        telegramChatId: submitter.telegramChatId,
+        telegramUsername: submitter.telegramUsername,
+      },
+      `📝 ${title}: ${detail}`,
+      { name: reviewer.name ?? reviewer.email },
+      "projects",
+    );
+  }
+}
 
 /**
  * Review an edit request with per-line decisions. The server recomputes the
@@ -412,6 +479,7 @@ export const review = mutation({
         changed: 0,
         rejectNotes,
       });
+      await notifyReviewOutcome(ctx, req, access.user, "denied");
       return { outcome: "denied" as const };
     }
 
@@ -457,6 +525,7 @@ export const review = mutation({
       changed: stat.changed,
       rejectNotes,
     });
+    await notifyReviewOutcome(ctx, req, access.user, outcome);
     return { outcome };
   },
 });

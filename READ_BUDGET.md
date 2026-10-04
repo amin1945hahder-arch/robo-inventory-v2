@@ -153,6 +153,19 @@ no-change cycle reads a single indexed head + an empty delta.
 1 reactive head read (2 indexed `.first()` docs) + 1 empty delta page + 1
 empty tombstone page ≈ **~4 docs**, versus "all tombstones of all tables" before.
 
+### P1 — hot-path notification + package reads (batch 2)
+
+| File:line | Change | Why | Est. reads saved/day |
+|---|---|---|---|
+| `src/convex/parts.ts` (5 request paths: 691/772/804/852/2293) | `users.collect()` → `listAdmins(ctx)` (`by_role` index) | Every rental/package request collected ALL user docs just to tag the admins in Telegram | Per request: `N_users` → `N_admins` docs |
+| `src/convex/push.ts` (`pushToAdmins`) | Full user scan + filter → `by_role` index | Scheduled on EVERY new request, so the full scan was one of the hottest reads in the app | `N_users` → `N_admins` per push |
+| `src/convex/whatsapp.ts` (`adminPhones`) | Full user scan → `listAdmins` (`by_role`) | `notifyAdmin` runs on every request/decision (ADMIN_PHONES fallback path) | `N_users` → `N_admins` per notify |
+| `src/convex/notifications.ts` (`unreadCount`) | Full-table `.filter().collect()` → `order("desc").take(50)` | The admin-shell badge re-counted the whole (forever-growing) table on every notification write — but only the newest 50 are ever rendered | `N_notif` → ≤50 docs per write |
+| `src/convex/notifications.ts` (`markAllRead`) | Full-table scan → `order("desc").take(200)` | Same visible window as the feed + badge | `N_notif` → ≤200 docs |
+| `src/convex/schema.ts` (`rentals`) | **New index `by_package`** (`packageId`) | Enables every lookup below | — |
+| `src/convex/parts.ts` (`listPackages`, `getPackage`) | `by_user` history collect + filter → `by_package` index | The package console read the requester's ENTIRE rental history once per package (N+1) | Per package: `N_user_rentals` → `N_pkg_rows` |
+| `src/convex/parts.ts` (`returnPackage`, `editPackage`, package pickup) + `src/convex/bulk.ts` (×3, in loops) | Same `by_package` conversion | These run inside per-package loops, multiplying the history scans | same pattern |
+
 ## 7. Deliberately NOT changed (and why)
 
 - **`stats.groupStats` / `stats.overview` full scans** — the correct fix is to
@@ -162,9 +175,9 @@ empty tombstone page ≈ **~4 docs**, versus "all tombstones of all tables" befo
 - **`parts.listAllRentals` / `pendingRentalRows`** — bounded by `by_status`
   already and genuinely real-time (the "currently rented" board). Left reactive
   on purpose; they need index+projection work, not de-reactivity.
-- **`notifications.unreadCount`** — counting unread requires reading the rows.
-  A denormalized counter (or moving `read` out of a sparse index) is the right
-  fix but is a schema/migration change.
+- **`notifications.unreadCount` denormalized counter** — the scan is now
+  bounded to the 50 rows the feed renders (batch 2); a denormalized counter is
+  still the "exact number forever" fix but needs a schema/migration change.
 - **`consumptionLog` on `parts`** — moving it to its own table would shrink
   every part read, but it is an invasive migration across many call sites.
 - **Migrating `listGroups`/`listClosets`/`listCategories`/`listProjects`/

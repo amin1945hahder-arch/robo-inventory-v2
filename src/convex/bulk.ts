@@ -76,12 +76,10 @@ export const bulkDeleteRentalRecords = mutation({
     for (const packageId of packagesTouched) {
       const pkg = await ctx.db.get(packageId as any);
       if (!pkg) continue;
-      const left = (
-        await ctx.db
-          .query("rentals")
-          .withIndex("by_user", (q) => q.eq("userId", (pkg as any).userId))
-          .collect()
-      ).filter((r) => r.packageId === packageId);
+      const left = await ctx.db
+        .query("rentals")
+        .withIndex("by_package", (q) => q.eq("packageId", packageId as any))
+        .collect();
       if (left.length > 0) continue;
       await ctx.db.delete(packageId as any);
       await recordTombstone(ctx, "rentalPackages", packageId);
@@ -115,11 +113,11 @@ export const deletePackageRecord = mutation({
     await requireAdmin(ctx);
     const pkg = await ctx.db.get(packageId);
     if (!pkg) return { ok: true, deleted: 0, released: 0, skipped: [] };
-    const mine = await ctx.db
+    // by_package index: only this bundle's unit records.
+    const unitRecords = await ctx.db
       .query("rentals")
-      .withIndex("by_user", (q) => q.eq("userId", pkg.userId))
+      .withIndex("by_package", (q) => q.eq("packageId", packageId))
       .collect();
-    const unitRecords = mine.filter((r) => r.packageId === packageId);
     let deleted = 0;
     let released = 0;
     for (const r of unitRecords) {
@@ -223,12 +221,10 @@ export const clearRentalHistory = mutation({
     for (const packageId of packagesTouched) {
       const pkg = await ctx.db.get(packageId as any);
       if (!pkg) continue;
-      const left = (
-        await ctx.db
-          .query("rentals")
-          .withIndex("by_user", (q) => q.eq("userId", (pkg as any).userId))
-          .collect()
-      ).filter((x) => x.packageId === packageId);
+      const left = await ctx.db
+        .query("rentals")
+        .withIndex("by_package", (q) => q.eq("packageId", packageId as any))
+        .collect();
       if (left.length > 0) continue;
       await ctx.db.delete(packageId as any);
       await recordTombstone(ctx, "rentalPackages", packageId);

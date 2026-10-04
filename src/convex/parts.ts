@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { api } from "./_generated/api";
-import { requireAdmin, requireInventory, requireNonGuest, requireInteractingMember, requireUser, safeImage } from "./lib";
+import { listAdmins, requireAdmin, requireInventory, requireNonGuest, requireInteractingMember, requireUser, safeImage } from "./lib";
 import { adminPhones } from "./whatsapp";
 import { telegramDM, telegramGroup, notifyTelegram } from "./notify";
 import { internal } from "./_generated/api";
@@ -688,7 +688,7 @@ export const requestRental = mutation({
     }
     // Telegram: post to the club group, tagging the admins who must act
     // (no-op until a bot token is configured in Settings or env).
-    const admins = await ctx.db.query("users").collect();
+    const admins = await listAdmins(ctx); // by_role index — not every user
     await telegramGroup(
       ctx,
       `📥 ${studentLabel} requested to rent ${group?.name ?? "a part"} (${part.tag})${note ? `\n📝 ${note}` : ""}\n→ approve in the Requests console`,
@@ -769,7 +769,7 @@ export const requestRentalQuantity = mutation({
         tag: "roboshelf-request",
         url: "/admin/requests",
       });
-      const admins = await ctx.db.query("users").collect();
+      const admins = await listAdmins(ctx); // by_role index — not every user
       await telegramGroup(
         ctx,
         `📦 ${label} requested a package rental: ${summary}${note ? `\n📝 ${note}` : ""}\n→ approve in the Requests console`,
@@ -801,7 +801,7 @@ export const requestRentalQuantity = mutation({
       `${label} requested ${wanted}× ${group.name}`,
       `/admin/requests`,
     );
-    const admins = await ctx.db.query("users").collect();
+    const admins = await listAdmins(ctx); // by_role index — not every user
     await telegramGroup(
       ctx,
       `📥 ${label} requested ${wanted}× ${group.name}${note ? `\n📝 ${note}` : ""}\n→ approve in the Requests console`,
@@ -849,7 +849,7 @@ export const rentBrokenPart = mutation({
       `${label} requested the BROKEN unit ${group?.name ?? "part"} (${part.tag})`,
       `/admin/requests`,
     );
-    const admins = await ctx.db.query("users").collect();
+    const admins = await listAdmins(ctx); // by_role index — not every user
     await telegramGroup(
       ctx,
       `⚠️ ${label} requested the BROKEN-unit rental ${group?.name ?? "part"} (${part.tag})${note ? `\n📝 ${note}` : ""} — for repair/refurb. Approve carefully.`,
@@ -1257,9 +1257,9 @@ export const adminRentalAction = mutation({
           const stillWaiting = (
             await ctx.db
               .query("rentals")
-              .withIndex("by_user", (q) => q.eq("userId", pkg.userId))
+              .withIndex("by_package", (q) => q.eq("packageId", pkg._id))
               .collect()
-          ).some((x) => x.packageId === pkg._id && x.status === "approved" && x._id !== rentalId);
+          ).some((x) => x.status === "approved" && x._id !== rentalId);
           if (!stillWaiting) await touchPatch(ctx, pkg._id, { pickedUpAt: now });
         }
       }
@@ -1540,11 +1540,14 @@ export const returnWholePackage = mutation({
     const admin = await requireAdmin(ctx);
     const pkg = await ctx.db.get(packageId);
     if (!pkg) throw new ConvexError("Package not found");
-    const mine = await ctx.db
-      .query("rentals")
-      .withIndex("by_user", (q) => q.eq("userId", pkg.userId))
-      .collect();
-    const active = mine.filter((r) => r.packageId === packageId && r.status === "active");
+    // by_package index: this bundle's units only — not the member's whole
+    // rental history filtered afterwards.
+    const active = (
+      await ctx.db
+        .query("rentals")
+        .withIndex("by_package", (q) => q.eq("packageId", packageId))
+        .collect()
+    ).filter((r) => r.status === "active");
     if (active.length === 0) throw new ConvexError("No active units left in this package");
 
     let project: any = null;
@@ -1997,11 +2000,12 @@ export const listPackages = query({
     const cache = docCache();
     const out = [];
     for (const pkg of rows.sort((a, b) => b.requestedAt - a.requestedAt)) {
-      const rentals = await ctx.db
+      // by_package index: only THIS bundle's units — the old by_user query
+      // re-read the requester's whole rental history once per package (N+1).
+      const pkgRentals = await ctx.db
         .query("rentals")
-        .withIndex("by_user", (q) => q.eq("userId", pkg.userId))
+        .withIndex("by_package", (q) => q.eq("packageId", pkg._id))
         .collect();
-      const pkgRentals = rentals.filter((r) => r.packageId === pkg._id);
       const requester = await cache.get(ctx, pkg.userId);
       const lines = [];
       for (const line of pkg.lines) {
@@ -2117,11 +2121,11 @@ export const getPackage = query({
       throw new ConvexError("Not your package");
     }
     const requester = await ctx.db.get(pkg.userId);
-    const rentals = await ctx.db
+    // by_package index: this bundle's rows only, not the member's history.
+    const pkgRentals = await ctx.db
       .query("rentals")
-      .withIndex("by_user", (q) => q.eq("userId", pkg.userId))
+      .withIndex("by_package", (q) => q.eq("packageId", id))
       .collect();
-    const pkgRentals = rentals.filter((r) => r.packageId === id);
     const lines = [];
     for (const line of pkg.lines) {
       const group = await ctx.db.get(line.groupId);
@@ -2290,7 +2294,7 @@ export const createPackage = mutation({
       tag: "roboshelf-request",
       url: "/admin/requests",
     });
-    const admins = await ctx.db.query("users").collect();
+    const admins = await listAdmins(ctx); // by_role index — not every user
     await telegramGroup(
       ctx,
       `📦 ${label} requested a package rental: ${summary}${note ? `\n📝 ${note}` : ""}\n→ approve in the Requests console`,
@@ -2326,9 +2330,11 @@ export const editPackage = mutation({
     // lines are never deleted — a removed line's amount record is canceled
     // and a kept line's amount is adjusted in place, so the admin always
     // sees the real request amount (and history keeps its allocation link).
+    // by_package index: only this bundle's rows matter below (both consumers
+    // filter on packageId) — was: the member's entire rental history.
     const oldRentals = await ctx.db
       .query("rentals")
-      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .withIndex("by_package", (q) => q.eq("packageId", packageId))
       .collect();
     const bulkGroupIds = new Set<string>();
     for (const line of lines) {

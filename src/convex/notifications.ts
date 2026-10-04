@@ -22,11 +22,12 @@ export const markAllRead = mutation({
   args: {},
   handler: async (ctx) => {
     await requireAdmin(ctx);
-    const rows = await ctx.db
-      .query("notifications")
-      .filter((q) => q.neq(q.field("read"), true))
-      .collect();
-    for (const r of rows) await ctx.db.patch(r._id, { read: true });
+    // The feed only ever renders the newest 50 (listNotifications.take(50))
+    // and unreadCount counts inside that same window — so bound this scan
+    // instead of collecting the whole (unbounded, forever-growing) table on
+    // every "mark all read".
+    const rows = await ctx.db.query("notifications").order("desc").take(200);
+    for (const r of rows) if (r.read !== true) await ctx.db.patch(r._id, { read: true });
   },
 });
 
@@ -59,11 +60,11 @@ export const unreadCount = query({
   args: {},
   handler: async (ctx) => {
     await requireAdmin(ctx);
-    const rows = await ctx.db
-      .query("notifications")
-      .filter((q) => q.neq(q.field("read"), true))
-      .collect();
-    return rows.length;
+    // Count inside the same 50-row window the feed renders: rows older than
+    // that are invisible, so a whole-table scan only bought a bigger number
+    // — re-run on EVERY notification write, forever.
+    const rows = await ctx.db.query("notifications").order("desc").take(50);
+    return rows.filter((r) => r.read !== true).length;
   },
 });
 

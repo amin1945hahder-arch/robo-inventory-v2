@@ -510,6 +510,9 @@ const schema = defineSchema(
       .index("by_user", ["userId"])
       .index("by_part", ["partId"])
       .index("by_status", ["status"])
+      // Package lookups read a bundle's OWN rows only — without this, every
+      // package view collected the requester's entire rental history first.
+      .index("by_package", ["packageId"])
       .index("by_updatedAt", ["updatedAt"]),
 
     notifications: defineTable({
