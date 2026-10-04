@@ -569,10 +569,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </button>
             )}
             {/* The strip's whole job is the one visible "ask" for pinning data
-                as persistent — it only makes sense where the StorageManager
-                exists. Where it doesn't (webview APK wrappers), storage still
-                works and there is simply nothing to ask. */}
-            {storagePerm.status === "prompt" && !askedStorage && typeof navigator.storage?.persisted === "function" && (
+                as persistent. It shows whenever storage is still "prompt" —
+                which now only happens where a StorageManager actually exists
+                to grant it (webview shells without one report the working
+                truth as granted instead of a stuck "Not set"). */}
+            {storagePerm.status === "prompt" && !askedStorage && (
               <button
                 type="button"
                 onClick={askStorage}

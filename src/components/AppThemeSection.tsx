@@ -18,13 +18,24 @@ import {
   createThemeFrom,
   defaultColors,
   DEFAULT_RADIUS,
+  effectiveThemeId,
   endThemePreview,
   resolveTheme,
   swatchColors,
   updateThemePreview,
   type AppTheme,
 } from "@/lib/appTheme";
+import { THEME_ICON_NAMES, resolveThemeIcon } from "@/lib/theme-icons";
+import { categoryIconSlot, navIconSlot } from "@/lib/custom-icons";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  CalendarClock,
   Check,
   Copy,
   Globe,
@@ -35,6 +46,7 @@ import {
   RotateCcw,
   Save,
   Sparkles,
+  Star,
   Sun,
   Trash2,
   X,
@@ -168,6 +180,145 @@ function ColorField({
 }
 
 /* ========================================================================= */
+/* Per-theme icon picker — one choice per app icon slot                       */
+/* ========================================================================= */
+
+/** Sidebar slots (keep in sync with NAV / ADMIN_LINKS in AppShell). */
+const NAV_ICON_SLOTS: Array<[route: string, label: string]> = [
+  ["/dashboard", "Dashboard"],
+  ["/inventory", "Inventory"],
+  ["/closets", "Storages"],
+  ["/projects", "Projects"],
+  ["/rentals", "My rentals"],
+  ["/3d-printing", "3D printing"],
+  ["/admin/requests", "Requests"],
+  ["/people", "People"],
+  ["/import", "Import CSV"],
+  ["/labels", "Print labels"],
+  ["/export", "Export"],
+  ["/admin/reports", "Reports"],
+  ["/settings", "Settings"],
+];
+
+function IconSlotField({
+  label,
+  value,
+  published,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: string | undefined;
+  /** The live (published) override — previewed when the draft has none. */
+  published?: string;
+  disabled?: boolean;
+  onChange: (name: string | undefined) => void;
+}) {
+  const Current = resolveThemeIcon(value ?? published);
+  return (
+    <div className="flex items-center gap-2 rounded-md border bg-card/50 px-2.5 py-1.5">
+      <span className="flex size-7 shrink-0 items-center justify-center rounded-md border bg-background/60">
+        {Current ? (
+          <Current className="size-4" />
+        ) : (
+          <span className="text-[9px] font-semibold text-muted-foreground">auto</span>
+        )}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-xs font-medium" title={label}>
+        {label}
+      </span>
+      <Select
+        value={value ?? "__default__"}
+        onValueChange={(v) => onChange(v === "__default__" ? undefined : v)}
+        disabled={disabled}
+      >
+        <SelectTrigger className="h-7 w-36 shrink-0 text-xs" aria-label={`${label} icon`}>
+          <SelectValue placeholder="Default" />
+        </SelectTrigger>
+        <SelectContent className="max-h-80">
+          <SelectItem value="__default__">Default (current)</SelectItem>
+          {THEME_ICON_NAMES.map((name) => (
+            <SelectItem key={name} value={name}>
+              {name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+function IconPicker({
+  icons,
+  published,
+  categories,
+  disabled,
+  onChange,
+}: {
+  icons: Record<string, string>;
+  published?: Record<string, string> | null;
+  categories: string[];
+  disabled?: boolean;
+  onChange: (icons: Record<string, string>) => void;
+}) {
+  const set = (slot: string, name: string | undefined) => {
+    const next = { ...icons };
+    if (name) next[slot] = name;
+    else delete next[slot];
+    onChange(next);
+  };
+  const count = Object.keys(icons).length;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-baseline justify-between gap-2 border-b pb-1.5">
+        <p className="text-xs font-semibold uppercase tracking-wide text-primary">
+          App icons
+        </p>
+        <p className="text-[11px] text-muted-foreground">
+          {count > 0
+            ? `${count} slot${count === 1 ? "" : "s"} overridden`
+            : "every slot keeps its current icon"}
+        </p>
+      </div>
+      <div className="grid gap-1.5 xl:grid-cols-2">
+        {NAV_ICON_SLOTS.map(([route, label]) => {
+          const slot = navIconSlot(route);
+          return (
+            <IconSlotField
+              key={slot}
+              label={label}
+              value={icons[slot]}
+              published={published?.[slot]}
+              disabled={disabled}
+              onChange={(name) => set(slot, name)}
+            />
+          );
+        })}
+        {categories.map((name) => {
+          const slot = categoryIconSlot(name);
+          return (
+            <IconSlotField
+              key={slot}
+              label={`Category · ${name}`}
+              value={icons[slot]}
+              published={published?.[slot]}
+              disabled={disabled}
+              onChange={(name2) => set(slot, name2)}
+            />
+          );
+        })}
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        <b className="text-foreground">Default (current)</b> keeps whatever the slot uses today
+        (custom .svg, else the built-in icon). Overrides publish with the theme — every member
+        sees them.
+      </p>
+    </div>
+  );
+}
+
+/* ========================================================================= */
 /* Theme card — mini live preview + actions                                   */
 /* ========================================================================= */
 
@@ -176,19 +327,28 @@ function ThemeCard({
   active,
   disabled,
   isDefault,
+  isClubDefault,
+  defaultTitle,
   onActivate,
   onEdit,
   onDuplicate,
   onDelete,
+  onSetDefault,
 }: {
   theme: AppTheme;
   active: boolean;
   disabled: boolean;
   isDefault?: boolean;
+  /** The theme chosen as the club-wide DEFAULT (starred). */
+  isClubDefault?: boolean;
+  /** Star tooltip (defaults to "Set as the default theme"). */
+  defaultTitle?: string;
   onActivate: () => void;
   onEdit: () => void;
   onDuplicate?: () => void;
   onDelete?: () => void;
+  /** Star click — makes this the default theme (or clears it). */
+  onSetDefault?: () => void;
 }) {
   const c = theme.colors;
   const strip = swatchColors(theme);
@@ -268,7 +428,15 @@ function ThemeCard({
               : "border-border text-muted-foreground",
           )}
         >
-          {active ? "Live" : isDefault ? "Default" : theme.builtin ? "Preset" : "Custom"}
+          {active
+            ? "Live"
+            : isClubDefault
+              ? "Default"
+              : isDefault
+                ? "Shipped"
+                : theme.builtin
+                  ? "Preset"
+                  : "Custom"}
         </span>
       </div>
 
@@ -311,6 +479,18 @@ function ThemeCard({
             <Copy className="size-3.5" />
           </Button>
         )}
+        {onSetDefault && (
+          <Button
+            size="icon"
+            variant="ghost"
+            className={cn("size-7", isClubDefault && "text-primary")}
+            title={defaultTitle ?? "Set as the default theme"}
+            disabled={disabled}
+            onClick={onSetDefault}
+          >
+            <Star className={cn("size-3.5", isClubDefault && "fill-current")} />
+          </Button>
+        )}
         {onDelete && (
           <Button
             size="icon"
@@ -337,11 +517,21 @@ export function AppThemeSection() {
   const saveTheme = useMutation(api.appThemes.save);
   const removeTheme = useMutation(api.appThemes.remove);
   const setActiveTheme = useMutation(api.appThemes.setActive);
+  const setDefaultTheme = useMutation(api.appThemes.setDefault);
+  const setScheduleTheme = useMutation(api.appThemes.setSchedule);
+  // Category names → their icon slots in the picker.
+  const categories = useQuery(api.catalog.listCategories, {});
 
   const [editor, setEditor] = useState<{ theme: AppTheme; isNew: boolean } | null>(null);
   // Optimistic "who is live" while the publish round-trip is in flight.
   const [pendingActiveId, setPendingActiveId] = useState<string | null | undefined>(undefined);
   const [busy, setBusy] = useState(false);
+  // Schedule draft: theme id + datetime-local strings (local time).
+  const [sched, setSched] = useState<{ themeId: string; from: string; to: string }>({
+    themeId: "",
+    from: "",
+    to: "",
+  });
 
   // ---- live preview: draft edits repaint the whole app, cancel restores ---
   const editing = editor !== null;
@@ -360,6 +550,35 @@ export function AppThemeSection() {
   }, [state, pendingActiveId]);
 
   const activeId = pendingActiveId !== undefined ? pendingActiveId : (state?.activeId ?? null);
+  const defaultId = state?.defaultId ?? null;
+  const schedule = state?.schedule ?? null;
+  // What members actually see right now (schedule window > published > default).
+  const liveId = state
+    ? effectiveThemeId({
+        themes: state.themes,
+        activeId,
+        defaultId,
+        schedule,
+      })
+    : null;
+
+  const toLocalInput = (ms: number) => {
+    const d = new Date(ms);
+    return new Date(ms - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  };
+  // Keep the schedule form in sync with the stored schedule (structural sharing
+  // keeps the object identity stable while it is unchanged).
+  useEffect(() => {
+    if (schedule) {
+      setSched({
+        themeId: schedule.themeId,
+        from: toLocalInput(schedule.from),
+        to: toLocalInput(schedule.to),
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schedule]);
+
   const defaultPreview: AppTheme = {
     id: "default",
     name: "App default",
@@ -368,7 +587,8 @@ export function AppThemeSection() {
     colors: defaultColors("dark"),
   };
   const publishedTheme = state
-    ? (resolveTheme({ themes: state.themes, activeId }) ?? (activeId === null ? defaultPreview : null))
+    ? (resolveTheme({ themes: state.themes, activeId, defaultId, schedule }) ??
+      (liveId === null ? defaultPreview : null))
     : null;
 
   // ---- actions ------------------------------------------------------------
@@ -398,7 +618,13 @@ export function AppThemeSection() {
     const id = theme?.id === "default" ? null : (theme?.id ?? null);
     setPendingActiveId(id);
     // Paint + cache instantly; the subscription confirms it for everyone.
-    if (state) applyThemeState({ themes: state.themes, activeId: id });
+    if (state)
+      applyThemeState({
+        themes: state.themes,
+        activeId: id,
+        defaultId: state.defaultId ?? null,
+        schedule: state.schedule ?? null,
+      });
     setBusy(true);
     try {
       await setActiveTheme({ id });
@@ -416,6 +642,59 @@ export function AppThemeSection() {
     }
   };
 
+  /** Star: choose (or clear) the club-wide default theme. */
+  const makeDefault = async (theme: AppTheme | null) => {
+    if (busy || editing) return;
+    const id = theme?.id === "default" ? null : (theme?.id ?? null);
+    setBusy(true);
+    try {
+      await setDefaultTheme({ id });
+      toast.success(
+        id === null
+          ? "Back to the shipped app default theme"
+          : `“${theme?.name}” is now the default — it applies whenever no theme is published`,
+      );
+    } catch (e) {
+      toast.error(asMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveSchedule = async () => {
+    if (!sched.themeId || !sched.from || !sched.to) {
+      toast.error("Pick a theme, a start and an end time for the schedule");
+      return;
+    }
+    const from = new Date(sched.from).getTime();
+    const to = new Date(sched.to).getTime();
+    if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) {
+      toast.error("The end time must be after the start time");
+      return;
+    }
+    setBusy(true);
+    try {
+      await setScheduleTheme({ themeId: sched.themeId, from, to });
+      toast.success("Theme scheduled — it applies automatically inside the window");
+    } catch (e) {
+      toast.error(asMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const clearSchedule = async () => {
+    setBusy(true);
+    try {
+      await setScheduleTheme({ themeId: null });
+      toast.success("Schedule cleared");
+    } catch (e) {
+      toast.error(asMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const save = async (publish: boolean) => {
     if (!editor) return;
     setBusy(true);
@@ -427,6 +706,7 @@ export function AppThemeSection() {
         mode: t.mode,
         colors: t.colors,
         radius: t.radius,
+        icons: t.icons,
       });
       const baseThemes = state?.themes ?? [];
       const upserted = editor.isNew
@@ -435,7 +715,12 @@ export function AppThemeSection() {
       const nextActive = publish ? saved.id : (state?.activeId ?? null);
       // Update the source of truth BEFORE the editor unmounts so the
       // preview rollback restores the just-saved theme, not the old one.
-      applyThemeState({ themes: upserted, activeId: nextActive });
+      applyThemeState({
+        themes: upserted,
+        activeId: nextActive,
+        defaultId: state?.defaultId ?? null,
+        schedule: state?.schedule ?? null,
+      });
       if (publish) setPendingActiveId(saved.id);
       setEditor(null);
       toast.success(
@@ -458,6 +743,7 @@ export function AppThemeSection() {
         mode: theme.mode,
         colors: theme.colors,
         radius: theme.radius,
+        icons: theme.icons,
       });
       toast.success(`“${copy.name}” created`);
     } catch (e) {
@@ -596,6 +882,15 @@ export function AppThemeSection() {
             </div>
           </div>
 
+          {/* per-theme app icons */}
+          <IconPicker
+            icons={editor.theme.icons ?? {}}
+            published={publishedTheme?.icons ?? null}
+            categories={(categories ?? []).map((c) => c.name)}
+            disabled={busy}
+            onChange={(icons) => patch({ ...editor.theme, icons })}
+          />
+
           {/* token groups */}
           {TOKEN_GROUPS.map((group) => (
             <div key={group.id} className="flex flex-col gap-2">
@@ -655,12 +950,117 @@ export function AppThemeSection() {
           <div className="flex flex-wrap items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs">
             <Palette className="size-3.5 shrink-0 text-primary" />
             <span>
-              Currently published:{" "}
+              Currently live:{" "}
               <b className="text-foreground">{publishedTheme?.name ?? "App default"}</b>
             </span>
             <span className="text-muted-foreground">
               — applies to all members, cached on each device.
             </span>
+            {state?.defaultId && (
+              <span className="text-muted-foreground">
+                Default when nothing is published:{" "}
+                <b className="text-foreground">
+                  {BUILTIN_THEMES.find((t) => t.id === state.defaultId)?.name ??
+                    state.themes.find((t) => t.id === state.defaultId)?.name ??
+                    "App default"}
+                </b>
+              </span>
+            )}
+            {schedule && (
+              <span className="rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                <CalendarClock className="mr-1 inline size-3" />
+                {new Date(schedule.from).toLocaleDateString()} →{" "}
+                {new Date(schedule.to).toLocaleDateString()}
+                {Date.now() >= schedule.from && Date.now() < schedule.to
+                  ? " · live now"
+                  : ""}
+              </span>
+            )}
+          </div>
+
+          {/* ===== scheduled theme: start → end auto-apply ===== */}
+          <div className="flex flex-col gap-2 rounded-md border border-dashed px-3 py-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="flex items-center gap-1.5 text-xs font-semibold">
+                <CalendarClock className="size-3.5 text-primary" /> Schedule a theme
+                <span className="font-normal text-muted-foreground">
+                  — e.g. Christmas colors from Dec 15 → Jan 6, then it reverts automatically
+                </span>
+              </p>
+              {schedule && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-destructive"
+                  disabled={busy}
+                  onClick={() => void clearSchedule()}
+                >
+                  <X className="size-3.5" /> Clear schedule
+                </Button>
+              )}
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="grid min-w-44 gap-1">
+                <Label className="text-[11px]">Theme</Label>
+                <Select
+                  value={sched.themeId}
+                  onValueChange={(v) => setSched((s) => ({ ...s, themeId: v }))}
+                  disabled={busy}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Pick a theme…" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-72">
+                    {BUILTIN_THEMES.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name} (preset)
+                      </SelectItem>
+                    ))}
+                    {state?.themes.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-1">
+                <Label className="text-[11px]" htmlFor="sched-from">
+                  Starts
+                </Label>
+                <Input
+                  id="sched-from"
+                  type="datetime-local"
+                  className="h-8 w-44 text-xs"
+                  value={sched.from}
+                  onChange={(e) => setSched((s) => ({ ...s, from: e.target.value }))}
+                />
+              </div>
+              <div className="grid gap-1">
+                <Label className="text-[11px]" htmlFor="sched-to">
+                  Ends
+                </Label>
+                <Input
+                  id="sched-to"
+                  type="datetime-local"
+                  className="h-8 w-44 text-xs"
+                  value={sched.to}
+                  onChange={(e) => setSched((s) => ({ ...s, to: e.target.value }))}
+                />
+              </div>
+              <Button
+                size="sm"
+                className="h-8 gap-1.5 px-3 text-xs"
+                disabled={busy}
+                onClick={() => void saveSchedule()}
+              >
+                <CalendarClock className="size-3.5" /> {schedule ? "Update" : "Schedule"}
+              </Button>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Inside the window the scheduled theme wins for every member; outside it the
+              published (or default) theme returns on its own — no re-publish needed.
+            </p>
           </div>
 
           {/* ===== horizontal theme list ===== */}
@@ -673,32 +1073,39 @@ export function AppThemeSection() {
               <ThemeCard
                 theme={defaultPreview}
                 isDefault
-                active={activeId === null}
+                active={liveId === null}
                 disabled={busy}
                 onActivate={() => void activate(defaultPreview)}
                 onEdit={() => openEditor(defaultPreview)}
+                onSetDefault={defaultId !== null ? () => void makeDefault(null) : undefined}
+                defaultTitle="Back to the shipped app default"
+                isClubDefault={defaultId === null}
               />
               {BUILTIN_THEMES.map((t) => (
                 <ThemeCard
                   key={t.id}
                   theme={t}
-                  active={activeId === t.id}
+                  active={liveId === t.id}
+                  isClubDefault={defaultId === t.id}
                   disabled={busy}
                   onActivate={() => void activate(t)}
                   onEdit={() => openEditor(t)}
                   onDuplicate={() => void duplicate(t)}
+                  onSetDefault={() => void makeDefault(t)}
                 />
               ))}
               {state.themes.map((t) => (
                 <ThemeCard
                   key={t.id}
                   theme={t}
-                  active={activeId === t.id}
+                  active={liveId === t.id}
+                  isClubDefault={defaultId === t.id}
                   disabled={busy}
                   onActivate={() => void activate(t)}
                   onEdit={() => openEditor(t)}
                   onDuplicate={() => void duplicate(t)}
                   onDelete={() => void del(t)}
+                  onSetDefault={() => void makeDefault(t)}
                 />
               ))}
               {/* create-new tile */}
@@ -722,9 +1129,12 @@ export function AppThemeSection() {
             <Sparkles className="mt-0.5 size-3.5 shrink-0 text-primary" />
             <span>
               <b className="text-foreground">How it works:</b> the published theme overrides the
-              built-in colors for everyone — members keep their own dark/light preference only
-              while no theme is published. Custom themes are stored in the club database, so
-              they sync across every admin account and device.
+              built-in colors for everyone — members keep their own dark/light preference even
+              while a theme is live (the theme owns the colors, you own dark/light). Star a
+              theme to make it the club <b className="text-foreground">default</b>, and use{' "'}
+              Schedule a theme{' "'}
+              for holidays: it turns itself on and off between the two times. Custom themes are
+              stored in the club database, so they sync across every admin account and device.
             </span>
           </div>
         </>

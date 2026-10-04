@@ -18,6 +18,9 @@ import { requireAdmin } from "./lib";
 const KEY = "app_themes";
 const MAX_THEMES = 60;
 const HEX_RE = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/;
+const ICON_SLOT_RE = /^(nav|category):[a-z0-9:/-]{1,80}$/;
+const ICON_NAME_RE = /^[A-Za-z0-9-]{1,64}$/;
+const MAX_ICON_OVERRIDES = 120;
 
 export type AppTheme = {
   id: string;
@@ -25,26 +28,54 @@ export type AppTheme = {
   mode: ThemeMode;
   colors: Record<string, string>;
   radius: number;
+  /** Icon-slot overrides ("nav:/inventory" → "Boxes"). Optional. */
+  icons?: Record<string, string>;
   createdAt: number;
   updatedAt: number;
 };
 
-type ThemesDoc = { themes: AppTheme[]; activeId: string | null };
+/** Auto-applied window (ms epoch): themeId is live from → to. */
+export type ThemeSchedule = { themeId: string; from: number; to: number };
+
+type ThemesDoc = {
+  themes: AppTheme[];
+  activeId: string | null;
+  defaultId: string | null;
+  schedule: ThemeSchedule | null;
+};
+
+function parseSchedule(raw: unknown): ThemeSchedule | null {
+  if (!raw || typeof raw !== "object") return null;
+  const s = raw as Partial<ThemeSchedule>;
+  if (
+    typeof s.themeId === "string" &&
+    typeof s.from === "number" &&
+    typeof s.to === "number" &&
+    Number.isFinite(s.from) &&
+    Number.isFinite(s.to) &&
+    s.to > s.from
+  ) {
+    return { themeId: s.themeId, from: s.from, to: s.to };
+  }
+  return null;
+}
 
 async function readState(ctx: QueryCtx): Promise<ThemesDoc> {
   const row = await ctx.db
     .query("settings")
     .withIndex("by_key", (q) => q.eq("key", KEY))
     .unique();
-  if (!row?.value) return { themes: [], activeId: null };
+  if (!row?.value) return { themes: [], activeId: null, defaultId: null, schedule: null };
   try {
     const parsed = JSON.parse(row.value) as Partial<ThemesDoc>;
     return {
       themes: Array.isArray(parsed.themes) ? (parsed.themes as AppTheme[]) : [],
       activeId: typeof parsed.activeId === "string" ? parsed.activeId : null,
+      defaultId: typeof parsed.defaultId === "string" ? parsed.defaultId : null,
+      schedule: parseSchedule(parsed.schedule),
     };
   } catch {
-    return { themes: [], activeId: null };
+    return { themes: [], activeId: null, defaultId: null, schedule: null };
   }
 }
 
@@ -64,9 +95,21 @@ async function writeState(ctx: MutationCtx, state: ThemesDoc): Promise<void> {
  */
 export const get = query({
   args: {},
-  handler: async (ctx): Promise<{ themes: AppTheme[]; activeId: string | null }> => {
+  handler: async (
+    ctx,
+  ): Promise<{
+    themes: AppTheme[];
+    activeId: string | null;
+    defaultId: string | null;
+    schedule: ThemeSchedule | null;
+  }> => {
     const state = await readState(ctx);
-    return { themes: state.themes, activeId: state.activeId };
+    return {
+      themes: state.themes,
+      activeId: state.activeId,
+      defaultId: state.defaultId,
+      schedule: state.schedule,
+    };
   },
 });
 
@@ -78,8 +121,9 @@ export const save = mutation({
     mode: v.union(v.literal("dark"), v.literal("light")),
     colors: v.record(v.string(), v.string()),
     radius: v.number(),
+    icons: v.optional(v.record(v.string(), v.string())),
   },
-  handler: async (ctx, { id, name, mode, colors, radius }): Promise<AppTheme> => {
+  handler: async (ctx, { id, name, mode, colors, radius, icons }): Promise<AppTheme> => {
     await requireAdmin(ctx);
     const cleanName = name.trim().slice(0, 40);
     if (!cleanName) throw new ConvexError("A theme name is required");
@@ -95,6 +139,23 @@ export const save = mutation({
       merged[key] = value.toLowerCase();
     }
 
+    // Icon overrides: slot keys ("nav:/inventory" / "category:arduino") →
+    // catalog icon names. Empty → undefined (slot keeps its current icon).
+    let cleanIcons: Record<string, string> | undefined;
+    if (icons && Object.keys(icons).length > 0) {
+      if (Object.keys(icons).length > MAX_ICON_OVERRIDES) {
+        throw new ConvexError(`Too many icon overrides (max ${MAX_ICON_OVERRIDES})`);
+      }
+      cleanIcons = {};
+      for (const [slot, name] of Object.entries(icons)) {
+        if (!ICON_SLOT_RE.test(slot)) throw new ConvexError(`Invalid icon slot: ${slot}`);
+        if (!ICON_NAME_RE.test(name)) {
+          throw new ConvexError(`Invalid icon name for ${slot}: ${name}`);
+        }
+        cleanIcons[slot] = name;
+      }
+    }
+
     const cleanRadius = Math.min(4, Math.max(0, Number.isFinite(radius) ? radius : 0.625));
     const state = await readState(ctx);
     const now = Date.now();
@@ -108,6 +169,7 @@ export const save = mutation({
         mode,
         colors: merged,
         radius: cleanRadius,
+        icons: cleanIcons,
         updatedAt: now,
       };
       state.themes = state.themes.map((t, i) => (i === existingIndex ? next : t));
@@ -124,6 +186,7 @@ export const save = mutation({
       mode,
       colors: merged,
       radius: cleanRadius,
+      icons: cleanIcons,
       createdAt: now,
       updatedAt: now,
     };
@@ -144,6 +207,8 @@ export const remove = mutation({
     await writeState(ctx, {
       themes: next,
       activeId: state.activeId === id ? null : state.activeId,
+      defaultId: state.defaultId === id ? null : state.defaultId,
+      schedule: state.schedule?.themeId === id ? null : state.schedule,
     });
     return { ok: true };
   },
@@ -160,12 +225,67 @@ export const setActive = mutation({
   handler: async (ctx, { id }) => {
     await requireAdmin(ctx);
     const state = await readState(ctx);
-    if (id !== null && !id.startsWith("preset-")) {
-      if (!state.themes.some((t) => t.id === id)) {
-        throw new ConvexError("That theme no longer exists");
-      }
+    assertThemeExists(state, id);
+    await writeState(ctx, { ...state, activeId: id });
+    return { ok: true };
+  },
+});
+
+function assertThemeExists(state: ThemesDoc, id: string | null): void {
+  if (id !== null && !id.startsWith("preset-")) {
+    if (!state.themes.some((t) => t.id === id)) {
+      throw new ConvexError("That theme no longer exists");
     }
-    await writeState(ctx, { themes: state.themes, activeId: id });
+  }
+}
+
+/**
+ * The club's DEFAULT theme: applied whenever no theme is explicitly
+ * published (activeId null) and no schedule window is running.
+ * `id` = null → back to the shipped app default.
+ */
+export const setDefault = mutation({
+  args: { id: v.union(v.string(), v.null()) },
+  handler: async (ctx, { id }) => {
+    await requireAdmin(ctx);
+    const state = await readState(ctx);
+    assertThemeExists(state, id);
+    await writeState(ctx, { ...state, defaultId: id });
+    return { ok: true };
+  },
+});
+
+/**
+ * Schedule a theme to auto-apply between two timestamps (ms epoch), e.g.
+ * Christmas theme Dec 15 → Jan 6. Inside the window it wins over activeId /
+ * defaultId; when it ends the previous theme returns automatically (each
+ * client flips itself at the boundary — no re-publish needed).
+ * `themeId` = null → clear the schedule.
+ */
+export const setSchedule = mutation({
+  args: {
+    themeId: v.union(v.string(), v.null()),
+    from: v.optional(v.number()),
+    to: v.optional(v.number()),
+  },
+  handler: async (ctx, { themeId, from, to }) => {
+    await requireAdmin(ctx);
+    const state = await readState(ctx);
+    if (themeId === null) {
+      await writeState(ctx, { ...state, schedule: null });
+      return { ok: true };
+    }
+    assertThemeExists(state, themeId);
+    if (
+      typeof from !== "number" ||
+      typeof to !== "number" ||
+      !Number.isFinite(from) ||
+      !Number.isFinite(to) ||
+      to <= from
+    ) {
+      throw new ConvexError("Schedule needs an end time after its start time");
+    }
+    await writeState(ctx, { ...state, schedule: { themeId, from, to } });
     return { ok: true };
   },
 });

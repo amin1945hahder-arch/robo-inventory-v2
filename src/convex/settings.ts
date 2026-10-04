@@ -146,22 +146,19 @@ export const setCardLayout = mutation({
 // ---- Per-user notification sounds ----------------------------------------
 // Every member owns their sound settings (stored on their user row); the
 // DEFAULTS seed the tone list. There is no app-wide sound setting anymore.
+// Specs are melodies (or single tones) defined in lib/sound-engine — the
+// shared, testable core imported by both this backend and the client player.
 
-export type SoundSpec = { freq: number; dur: number; vol?: number };
-export type SoundSettings = { enabled: boolean; sounds: Record<string, SoundSpec> };
+import {
+  DEFAULT_SOUNDS,
+  sanitizeSounds,
+  type SoundSettings,
+  type SoundSpec,
+  type SoundSpecInput,
+} from "../lib/sound-engine";
 
-export const DEFAULT_SOUNDS: SoundSettings = {
-  enabled: true,
-  sounds: {
-    scan: { freq: 880, dur: 0.08 },
-    rental_request: { freq: 660, dur: 0.12 },
-    approved: { freq: 988, dur: 0.15 },
-    denied: { freq: 220, dur: 0.25 },
-    returned: { freq: 523, dur: 0.18 },
-    assigned: { freq: 784, dur: 0.12 },
-    notification: { freq: 740, dur: 0.1 },
-  },
-};
+export { DEFAULT_SOUNDS };
+export type { SoundSettings, SoundSpec };
 
 const SOUNDS_KEY = "notification_sounds"; // legacy global key (no longer written)
 
@@ -181,17 +178,39 @@ export const getMySounds = query({
 });
 
 // Save MY OWN sound settings — each member controls their own tones.
+// The spec shape comes from lib/sound-engine (freq/dur/vol + optional wave
+// and melody notes); everything is clamped server-side before persisting.
 export const setMySounds = mutation({
   args: {
     enabled: v.boolean(),
     sounds: v.record(
       v.string(),
-      v.object({ freq: v.number(), dur: v.number(), vol: v.optional(v.number()) }),
+      v.object({
+        freq: v.number(),
+        dur: v.number(),
+        vol: v.optional(v.number()),
+        wave: v.optional(v.string()),
+        notes: v.optional(
+          v.array(
+            v.object({
+              freq: v.number(),
+              dur: v.number(),
+              gap: v.optional(v.number()),
+            }),
+          ),
+        ),
+      }),
     ),
   },
   handler: async (ctx, { enabled, sounds }) => {
     const me = await requireUser(ctx);
-    const value = JSON.stringify({ enabled, sounds });
+    // The validator yields the loose `wave?: string` shape; the sanitizer
+    // whitelists it into the SoundWave union (SoundSpecInput accepts the
+    // loose shape and returns the strict SoundSpec).
+    const value = JSON.stringify({
+      enabled,
+      sounds: sanitizeSounds(sounds as Record<string, SoundSpecInput>),
+    });
     await ctx.db.patch(me._id, { soundSettings: value });
     return { ok: true };
   },

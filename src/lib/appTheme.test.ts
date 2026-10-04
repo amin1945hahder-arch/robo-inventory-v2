@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyThemeState,
   applyThemeToDom,
@@ -6,6 +6,7 @@ import {
   BUILTIN_THEMES,
   createThemeFrom,
   defaultColors,
+  effectiveThemeId,
   endThemePreview,
   isThemeActive,
   resolveTheme,
@@ -13,6 +14,7 @@ import {
   type AppTheme,
   type ThemeState,
 } from "./appTheme";
+import { getThemeIconOverrides } from "./custom-icons";
 
 const root = () => document.documentElement;
 
@@ -122,6 +124,122 @@ describe("published-state + preview protocol", () => {
   });
 });
 
+describe("scheduled + default themes", () => {
+  it("prefers the schedule window, then activeId, then defaultId", () => {
+    const a = theme({ id: "a" });
+    const b = theme({ id: "b" });
+    const base = { themes: [a, b] };
+    const now = Date.now();
+
+    // Published wins over the default; default fills an empty publish slot.
+    expect(effectiveThemeId({ ...base, activeId: "a", defaultId: "b" })).toBe("a");
+    expect(effectiveThemeId({ ...base, activeId: null, defaultId: "b" })).toBe("b");
+    expect(effectiveThemeId({ ...base, activeId: null, defaultId: null })).toBeNull();
+
+    // Inside the window the scheduled theme wins over the published one…
+    expect(
+      effectiveThemeId({
+        ...base,
+        activeId: "a",
+        defaultId: "b",
+        schedule: { themeId: "b", from: now - 1_000, to: now + 60_000 },
+      }),
+    ).toBe("b");
+    // …before and after it, the published theme stays live.
+    expect(
+      effectiveThemeId({
+        ...base,
+        activeId: "a",
+        schedule: { themeId: "b", from: now + 1_000, to: now + 60_000 },
+      }),
+    ).toBe("a");
+    expect(
+      effectiveThemeId({
+        ...base,
+        activeId: "a",
+        schedule: { themeId: "b", from: now - 60_000, to: now - 1_000 },
+      }),
+    ).toBe("a");
+  });
+
+  it("resolveTheme follows the same order", () => {
+    const a = theme({ id: "a" });
+    const b = theme({ id: "b" });
+    const now = Date.now();
+    const state: ThemeState = {
+      themes: [a, b],
+      activeId: "a",
+      defaultId: "b",
+      schedule: { themeId: "b", from: now - 1_000, to: now + 60_000 },
+    };
+    expect(resolveTheme(state)?.id).toBe("b");
+    expect(resolveTheme({ ...state, schedule: null })?.id).toBe("a");
+    expect(resolveTheme({ ...state, activeId: null, schedule: null })?.id).toBe("b");
+  });
+
+  it("auto-flips at the schedule window boundaries", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000_000);
+      const a = theme({ id: "a", colors: { ...defaultColors("dark"), primary: "#aaaaaa" } });
+      const x = theme({ id: "x", colors: { ...defaultColors("dark"), primary: "#ff00ff" } });
+
+      applyThemeState({
+        themes: [a, x],
+        activeId: "a",
+        schedule: { themeId: "x", from: 1_000_000 + 1_000, to: 1_000_000 + 60_000 },
+      });
+      // Window not open yet → the published theme is live.
+      expect(root().style.getPropertyValue("--primary")).toBe("#aaaaaa");
+
+      // Crossing the start boundary applies the scheduled theme…
+      vi.advanceTimersByTime(1_300);
+      expect(root().style.getPropertyValue("--primary")).toBe("#ff00ff");
+
+      // …and crossing the end boundary reverts to the published theme.
+      vi.advanceTimersByTime(60_000);
+      expect(root().style.getPropertyValue("--primary")).toBe("#aaaaaa");
+    } finally {
+      vi.useRealTimers();
+      applyThemeState({ themes: [], activeId: null });
+    }
+  });
+});
+
+describe("per-theme icon overrides", () => {
+  it("applies icons with the theme and clears them when it is switched off", () => {
+    expect(getThemeIconOverrides()).toBeNull();
+    applyThemeToDom(theme({ icons: { "nav:/inventory": "Gift", "category:arduino": "Cpu" } }));
+    expect(getThemeIconOverrides()).toEqual({
+      "nav:/inventory": "Gift",
+      "category:arduino": "Cpu",
+    });
+    applyThemeToDom(theme()); // theme without icons → slots keep their current icon
+    expect(getThemeIconOverrides()).toBeNull();
+    applyThemeToDom(null);
+    expect(getThemeIconOverrides()).toBeNull();
+  });
+
+  it("round-trips icons, defaultId and schedule through the boot cache", () => {
+    const t = theme({ id: "cached-icons", icons: { "nav:/settings": "Wrench" } });
+    const now = Date.now();
+    applyThemeState({
+      themes: [t],
+      activeId: "cached-icons",
+      defaultId: "preset-christmas-eve",
+      schedule: { themeId: "preset-ramadan-crescent", from: now, to: now + 5_000 },
+    });
+    const parsed = JSON.parse(localStorage.getItem("roboShelf.appTheme.v1") as string) as ThemeState;
+    expect(parsed.defaultId).toBe("preset-christmas-eve");
+    expect(parsed.schedule).toEqual({
+      themeId: "preset-ramadan-crescent",
+      from: now,
+      to: now + 5_000,
+    });
+    expect(parsed.themes[0].icons).toEqual({ "nav:/settings": "Wrench" });
+  });
+});
+
 describe("dark-class placement (theme shadowing regression)", () => {
   // A `.dark` class on <body> re-declares every --* token on the body
   // element. Custom properties resolve to the NEAREST declaration, so body's
@@ -168,7 +286,18 @@ describe("helpers", () => {
   });
 
   it("ships presets with complete, valid palettes", () => {
-    expect(BUILTIN_THEMES.length).toBeGreaterThanOrEqual(5);
+    expect(BUILTIN_THEMES.length).toBeGreaterThanOrEqual(15);
+    for (const id of [
+      "preset-christmas-eve",
+      "preset-ramadan-crescent",
+      "preset-halloween-night",
+      "preset-diwali-glow",
+      "preset-valentines-blush",
+      "preset-northern-lights",
+      "preset-cyber-neon",
+    ]) {
+      expect(BUILTIN_THEMES.some((t) => t.id === id), id).toBe(true);
+    }
     for (const preset of BUILTIN_THEMES) {
       for (const key of Object.keys(defaultColors(preset.mode))) {
         expect(preset.colors[key], `${preset.id}.${key}`).toMatch(

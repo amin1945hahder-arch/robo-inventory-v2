@@ -18,6 +18,7 @@
  */
 
 import { clamp, parseHex, rgbaToHex } from "./color";
+import { setThemeIconOverrides } from "./custom-icons";
 import {
   defaultColors,
   TOKEN_KEYS,
@@ -36,15 +37,25 @@ export type AppTheme = {
   colors: Record<string, string>;
   /** Corner radius in rem (maps to --radius). */
   radius: number;
+  /** Icon-slot overrides: "nav:/inventory" → "Boxes" (see lib/theme-icons). */
+  icons?: Record<string, string>;
   /** Built-in presets ship with the app and cannot be deleted. */
   builtin?: boolean;
   createdAt?: number;
   updatedAt?: number;
 };
 
+/** Auto-applied window: `themeId` is live from `from` until `to` (ms epoch). */
+export type ThemeSchedule = { themeId: string; from: number; to: number };
+
 export type ThemeState = {
   themes: AppTheme[];
+  /** Explicitly published theme (null → fall back to defaultId / shipped default). */
   activeId: string | null;
+  /** The club's default theme, applied whenever nothing is explicitly published. */
+  defaultId?: string | null;
+  /** Scheduled holiday theme: wins while now ∈ [from, to). */
+  schedule?: ThemeSchedule | null;
 };
 
 export const DEFAULT_RADIUS = 0.625; // rem — matches src/index.css
@@ -180,14 +191,180 @@ export const BUILTIN_THEMES: AppTheme[] = [
     "chart-4": "#10b981",
     "chart-5": "#f43f5e",
   }),
+
+  // ---- Holiday presets: schedule them for the season (see the Schedule
+  // panel in the theme editor) or publish them straight away. ---------------
+  preset("preset-christmas-eve", "Christmas Eve", "dark", {
+    primary: "#ef4444",
+    "primary-foreground": "#450a0a",
+    ring: "#fca5a5",
+    secondary: "#14532d",
+    "secondary-foreground": "#dcfce7",
+    accent: "#166534",
+    "accent-foreground": "#bbf7d0",
+    sidebar: "#0f1c13",
+    "sidebar-primary": "#ef4444",
+    "sidebar-accent": "#14532d",
+    "sidebar-accent-foreground": "#dcfce7",
+    "chart-1": "#ef4444",
+    "chart-2": "#22c55e",
+    "chart-3": "#facc15",
+    "chart-4": "#f87171",
+    "chart-5": "#38bdf8",
+  }),
+  preset("preset-ramadan-crescent", "Ramadan Crescent", "dark", {
+    primary: "#fcd34d",
+    "primary-foreground": "#1e1b4b",
+    ring: "#fde68a",
+    secondary: "#164e63",
+    "secondary-foreground": "#cffafe",
+    accent: "#0c4a6e",
+    "accent-foreground": "#bae6fd",
+    sidebar: "#0b1a33",
+    "sidebar-primary": "#fcd34d",
+    "sidebar-accent": "#164e63",
+    "sidebar-accent-foreground": "#cffafe",
+    "chart-1": "#fcd34d",
+    "chart-2": "#38bdf8",
+    "chart-3": "#34d399",
+    "chart-4": "#a78bfa",
+    "chart-5": "#f472b6",
+  }),
+  preset("preset-halloween-night", "Halloween Night", "dark", {
+    primary: "#fb923c",
+    "primary-foreground": "#431407",
+    ring: "#fdba74",
+    secondary: "#4c1d95",
+    "secondary-foreground": "#ede9fe",
+    accent: "#581c87",
+    "accent-foreground": "#e9d5ff",
+    sidebar: "#2e1065",
+    "sidebar-primary": "#fb923c",
+    "sidebar-accent": "#4c1d95",
+    "sidebar-accent-foreground": "#ede9fe",
+    "chart-1": "#fb923c",
+    "chart-2": "#a855f7",
+    "chart-3": "#facc15",
+    "chart-4": "#f472b6",
+    "chart-5": "#34d399",
+  }),
+  preset("preset-diwali-glow", "Diwali Glow", "dark", {
+    primary: "#f59e0b",
+    "primary-foreground": "#451a03",
+    ring: "#fbbf24",
+    secondary: "#7c2d12",
+    "secondary-foreground": "#ffedd5",
+    accent: "#713f12",
+    "accent-foreground": "#fde68a",
+    sidebar: "#2e1065",
+    "sidebar-primary": "#f59e0b",
+    "sidebar-accent": "#7c2d12",
+    "sidebar-accent-foreground": "#ffedd5",
+    "chart-1": "#f59e0b",
+    "chart-2": "#f43f5e",
+    "chart-3": "#a855f7",
+    "chart-4": "#22d3ee",
+    "chart-5": "#a3e635",
+  }),
+  preset("preset-valentines-blush", "Valentines Blush", "light", {
+    primary: "#e11d48",
+    "primary-foreground": "#fff1f2",
+    ring: "#fb7185",
+    secondary: "#ffe4e6",
+    "secondary-foreground": "#9f1239",
+    accent: "#ffe4e6",
+    "accent-foreground": "#9f1239",
+    sidebar: "#fff1f2",
+    "sidebar-primary": "#e11d48",
+    "sidebar-accent": "#ffe4e6",
+    "sidebar-accent-foreground": "#9f1239",
+    "chart-1": "#e11d48",
+    "chart-2": "#fb7185",
+    "chart-3": "#f472b6",
+    "chart-4": "#a78bfa",
+    "chart-5": "#fbbf24",
+  }),
+  preset("preset-easter-bloom", "Easter Bloom", "light", {
+    primary: "#8b5cf6",
+    "primary-foreground": "#f5f3ff",
+    ring: "#a78bfa",
+    accent: "#d1fae5",
+    "accent-foreground": "#065f46",
+    sidebar: "#f5f3ff",
+    "sidebar-primary": "#8b5cf6",
+    "sidebar-accent": "#d1fae5",
+    "sidebar-accent-foreground": "#065f46",
+    "chart-1": "#8b5cf6",
+    "chart-2": "#34d399",
+    "chart-3": "#f472b6",
+    "chart-4": "#fbbf24",
+    "chart-5": "#38bdf8",
+  }),
+
+  // ---- Cool presets ---------------------------------------------------------
+  preset("preset-northern-lights", "Northern Lights", "dark", {
+    background: "#04111a",
+    card: "#071a26",
+    popover: "#082230",
+    primary: "#2dd4bf",
+    "primary-foreground": "#042f2e",
+    ring: "#5eead4",
+    secondary: "#134e4a",
+    "secondary-foreground": "#ccfbf1",
+    accent: "#115e59",
+    "accent-foreground": "#99f6e4",
+    sidebar: "#04111a",
+    "sidebar-primary": "#2dd4bf",
+    "sidebar-accent": "#134e4a",
+    "sidebar-accent-foreground": "#ccfbf1",
+    "chart-1": "#2dd4bf",
+    "chart-2": "#a3e635",
+    "chart-3": "#818cf8",
+    "chart-4": "#f472b6",
+    "chart-5": "#facc15",
+  }),
+  preset("preset-cyber-neon", "Cyber Neon", "dark", {
+    primary: "#22d3ee",
+    "primary-foreground": "#083344",
+    ring: "#67e8f9",
+    secondary: "#3b0764",
+    "secondary-foreground": "#f0abfc",
+    accent: "#86198f",
+    "accent-foreground": "#f5d0fe",
+    sidebar: "#120226",
+    "sidebar-primary": "#22d3ee",
+    "sidebar-accent": "#3b0764",
+    "sidebar-accent-foreground": "#f0abfc",
+    "chart-1": "#22d3ee",
+    "chart-2": "#f0abfc",
+    "chart-3": "#a3e635",
+    "chart-4": "#facc15",
+    "chart-5": "#fb7185",
+  }),
 ];
 
-/** Resolve a theme id (built-in preset or stored custom theme) → theme. */
+/**
+ * Which theme id is live right now:
+ *   scheduled window → schedule.themeId, else activeId, else defaultId.
+ */
+export function effectiveThemeId(
+  state: ThemeState | null | undefined,
+  now = Date.now(),
+): string | null {
+  if (!state) return null;
+  const s = state.schedule;
+  if (s && now >= s.from && now < s.to && s.themeId) return s.themeId;
+  if (state.activeId) return state.activeId;
+  return state.defaultId ?? null;
+}
+
+/** Resolve the live theme (built-in preset or stored custom theme) → theme. */
 export function resolveTheme(state: ThemeState | null | undefined): AppTheme | null {
-  if (!state?.activeId) return null;
+  const id = effectiveThemeId(state);
+  if (!id || !state) return null;
   return (
-    BUILTIN_THEMES.find((t) => t.id === state.activeId) ??
-    state.themes.find((t) => t.id === state.activeId) ??
+    BUILTIN_THEMES.find((t) => t.id === id) ??
+    state.themes.find((t) => t.id === id) ??
     null
   );
 }
@@ -278,9 +455,13 @@ export function applyThemeToDom(theme: AppTheme | null): void {
 
   if (!theme) {
     appliedThemeId = null;
+    setThemeIconOverrides(null);
     applyModeClass(lastUserMode);
     return;
   }
+
+  // Per-theme icon choices (nav + category slots) repaint alongside colors.
+  setThemeIconOverrides(theme.icons ?? null);
 
   for (const [key, value] of Object.entries(theme.colors)) {
     if (!TOKEN_KEYS.includes(key as ThemeTokenKey)) continue;
@@ -308,12 +489,55 @@ const CACHE_KEY = "roboShelf.appTheme.v1";
 let lastState: ThemeState | null = null;
 let previewDepth = 0;
 
+// ---- Schedule timer ---------------------------------------------------------
+// The Convex state tells us the window; each client flips itself at the
+// boundary (start AND end) without waiting for a server round-trip.
+
+let scheduleTimer: ReturnType<typeof setTimeout> | null = null;
+const MAX_TIMEOUT = 0x7fffffff; // setTimeout delay is a 32-bit signed int
+
+function clearScheduleTimer(): void {
+  if (scheduleTimer !== null) {
+    clearTimeout(scheduleTimer);
+    scheduleTimer = null;
+  }
+}
+
+function armScheduleTimer(state: ThemeState): void {
+  clearScheduleTimer();
+  const s = state.schedule;
+  if (!s) return;
+  const now = Date.now();
+  const boundary = now < s.from ? s.from : now < s.to ? s.to : null;
+  if (boundary === null) return;
+  const delay = Math.min(MAX_TIMEOUT, Math.max(50, boundary - now + 250));
+  scheduleTimer = setTimeout(() => {
+    scheduleTimer = null;
+    if (previewDepth > 0) return; // endThemePreview re-resolves anyway
+    if (lastState) {
+      applyThemeToDom(resolveTheme(lastState));
+      armScheduleTimer(lastState);
+    }
+  }, delay);
+}
+
 export function loadThemeCache(): ThemeState | null {
   try {
     const raw = localStorage.getItem(CACHE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<ThemeState>;
     if (!Array.isArray(parsed.themes)) return null;
+    const schedule =
+      parsed.schedule &&
+      typeof parsed.schedule.themeId === "string" &&
+      Number.isFinite(parsed.schedule.from) &&
+      Number.isFinite(parsed.schedule.to)
+        ? {
+            themeId: parsed.schedule.themeId,
+            from: parsed.schedule.from,
+            to: parsed.schedule.to,
+          }
+        : null;
     return {
       themes: parsed.themes.filter(
         (t): t is AppTheme =>
@@ -325,6 +549,8 @@ export function loadThemeCache(): ThemeState | null {
           t.colors !== null,
       ),
       activeId: typeof parsed.activeId === "string" ? parsed.activeId : null,
+      defaultId: typeof parsed.defaultId === "string" ? parsed.defaultId : null,
+      schedule,
     };
   } catch {
     return null;
@@ -346,6 +572,7 @@ export function initThemeFromCache(): void {
   lastState = cached;
   const theme = resolveTheme(cached);
   if (theme) applyThemeToDom(theme);
+  armScheduleTimer(cached);
 }
 
 /**
@@ -356,6 +583,7 @@ export function initThemeFromCache(): void {
 export function applyThemeState(state: ThemeState): void {
   lastState = state;
   saveThemeCache(state);
+  armScheduleTimer(state);
   if (previewDepth > 0) return;
   applyThemeToDom(resolveTheme(state));
 }
@@ -395,6 +623,7 @@ export function createThemeFrom(base?: AppTheme | null, name = "New theme"): App
     mode,
     radius: base?.radius ?? DEFAULT_RADIUS,
     colors: base ? { ...base.colors } : defaultColors(mode),
+    icons: base?.icons ? { ...base.icons } : undefined,
   };
 }
 

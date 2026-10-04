@@ -8,6 +8,8 @@ import { AppThemeSection } from "@/components/AppThemeSection";
 import { CardLayoutSection } from "@/components/CardLayoutSection";
 import { setThemeModeOverride } from "@/lib/appTheme";
 import { FontPicker } from "@/components/FontPicker";
+import { previewSound } from "@/hooks/use-sound";
+import { SOUND_WAVES, type SoundSpec } from "@/lib/sound-engine";
 import { PermissionsManager } from "@/components/PermissionsManager";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -764,29 +766,6 @@ function MySoundsSection() {
     if (cfg !== undefined) setEnabled(cfg.enabled);
   }, [cfg]);
 
-  const previewTone = (freq: number, dur: number, vol?: number) => {
-    try {
-      const w = window as unknown as { webkitAudioContext?: typeof AudioContext };
-      const Ctor = window.AudioContext ?? w.webkitAudioContext;
-      if (!Ctor) return;
-      const ctx = new Ctor();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "sine";
-      osc.frequency.value = freq;
-      const peak = Math.min(1, Math.max(0, (vol ?? 18) / 100));
-      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), ctx.currentTime + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
-      osc.connect(gain).connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + dur + 0.02);
-      osc.onended = () => void ctx.close();
-    } catch {
-      /* autoplay policy before first interaction */
-    }
-  };
-
   const LABELS: Record<string, { label: string; hint: string; icon: React.ComponentType<{ className?: string }> }> = {
     scan: { label: "Scan", hint: "Successful QR/barcode scan", icon: ScanLine },
     rental_request: { label: "Rental request", hint: "You submit a new request", icon: ClipboardList },
@@ -798,7 +777,7 @@ function MySoundsSection() {
   };
 
   // One save per slider drag batch — local state keeps the drag smooth.
-  const patch = async (key: string, nextSpec: { freq: number; dur: number; vol?: number }) => {
+  const patch = async (key: string, nextSpec: SoundSpec) => {
     if (!cfg) return;
     const next = { ...cfg.sounds, [key]: nextSpec };
     try {
@@ -828,7 +807,7 @@ function MySoundsSection() {
             try {
               await saveSounds({ enabled: v, sounds: cfg.sounds });
               toast.success(v ? "Sounds on for you" : "You muted all sounds");
-              if (v) previewTone(cfg.sounds.notification?.freq ?? 740, 0.1, cfg.sounds.notification?.vol);
+              if (v) previewSound(cfg.sounds.notification ?? { freq: 740, dur: 0.1 });
             } catch (e) {
               toast.error(asMessage(e));
               setEnabled(!v);
@@ -865,7 +844,7 @@ function MySoundsSection() {
                     variant="ghost"
                     className="size-8 shrink-0"
                     title="Preview tone"
-                    onClick={() => previewTone(spec.freq, spec.dur, spec.vol)}
+                    onClick={() => previewSound(spec)}
                   >
                     <Volume2 className="size-4" />
                   </Button>
@@ -880,7 +859,7 @@ function MySoundsSection() {
                       step={10}
                       value={[spec.freq]}
                       onValueChange={([freq]) => void patch(key, { ...spec, freq })}
-                      onValueCommit={() => previewTone(spec.freq, spec.dur, spec.vol)}
+                      onValueCommit={() => previewSound(spec)}
                       className="flex-1"
                     />
                     <span className="w-16 shrink-0 text-right font-mono text-xs tabular-nums text-muted-foreground">{spec.freq} Hz</span>
@@ -893,7 +872,7 @@ function MySoundsSection() {
                       step={0.01}
                       value={[spec.dur]}
                       onValueChange={([dur]) => void patch(key, { ...spec, dur })}
-                      onValueCommit={() => previewTone(spec.freq, spec.dur, spec.vol)}
+                      onValueCommit={() => previewSound(spec)}
                       className="flex-1"
                     />
                     <span className="w-16 shrink-0 text-right font-mono text-xs tabular-nums text-muted-foreground">{spec.dur.toFixed(2)} s</span>
@@ -906,11 +885,38 @@ function MySoundsSection() {
                       step={1}
                       value={[spec.vol ?? 18]}
                       onValueChange={([vol]) => void patch(key, { ...spec, vol })}
-                      onValueCommit={() => previewTone(spec.freq, spec.dur, spec.vol)}
+                      onValueCommit={() => previewSound(spec)}
                       className="flex-1"
                     />
                     <span className="w-16 shrink-0 text-right font-mono text-xs tabular-nums text-muted-foreground">{spec.vol ?? 18}%</span>
                   </div>
+                  {/* Oscillator character — sine chimes, triangle is warm,
+                      square buzzes (great for denials), sawtooth is edgy. */}
+                  <div className="flex items-center gap-3">
+                    <span className="w-12 shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Wave</span>
+                    <div className="flex flex-1 gap-1">
+                      {SOUND_WAVES.map((w) => (
+                        <Button
+                          key={w}
+                          size="sm"
+                          variant={(spec.wave ?? "sine") === w ? "default" : "outline"}
+                          className="h-6 flex-1 px-1 text-[10px] capitalize"
+                          onClick={() => {
+                            void patch(key, { ...spec, wave: w });
+                            previewSound({ ...spec, wave: w });
+                          }}
+                        >
+                          {w}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                  {spec.notes && spec.notes.length > 1 && (
+                    <p className="text-[11px] text-muted-foreground">
+                      🎵 Melody — {spec.notes.length} notes. Pitch and Length
+                      transpose/stretch the whole sequence.
+                    </p>
+                  )}
                 </div>
               </div>
             );
