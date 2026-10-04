@@ -491,6 +491,139 @@ html:not(.dark) .neon-glow {
   }
 }
 
+/* =========================================================================
+   MOTION SYSTEM — ambient animation for the landing page
+   Keyframes live here; the @theme tokens below expose them as Tailwind
+   `animate-*` utilities. Every one is decorative and wrapped by the page
+   in <MotionConfig reducedMotion="user">, so members who ask the OS to
+   reduce motion get a still page instead.
+   ========================================================================= */
+
+@theme {
+  --animate-marquee: marquee-x 38s linear infinite;
+  --animate-marquee-rev: marquee-x 44s linear infinite reverse;
+  --animate-aurora: aurora-drift 20s ease-in-out infinite;
+  --animate-float-soft: float-soft 7s ease-in-out infinite;
+  --animate-ping-ring: ping-ring 2.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+  --animate-grid-pan: grid-pan 26s linear infinite;
+  --animate-sweep: sweep-x 2.4s ease-in-out infinite;
+  --animate-breathe: breathe 5s ease-in-out infinite;
+  --animate-orbit: orbit 18s linear infinite;
+}
+
+@keyframes marquee-x {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes aurora-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.75;
+  }
+  33% {
+    transform: translate3d(6%, -8%, 0) scale(1.15);
+    opacity: 1;
+  }
+  66% {
+    transform: translate3d(-7%, 6%, 0) scale(0.92);
+    opacity: 0.6;
+  }
+}
+
+@keyframes float-soft {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes ping-ring {
+  0% {
+    transform: scale(0.85);
+    opacity: 0.75;
+  }
+  80%,
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+@keyframes grid-pan {
+  from {
+    background-position: 0 0, 0 0;
+  }
+  to {
+    background-position: 88px 88px, 88px 88px;
+  }
+}
+
+@keyframes sweep-x {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(220%);
+  }
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Respect the OS "reduce motion" setting. framer-motion animations are
+   already covered by <MotionConfig reducedMotion="user">; these are the
+   pure-CSS ones (tickers, aurora, pulses). */
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee,
+  .animate-marquee-rev,
+  .animate-aurora,
+  .animate-float-soft,
+  .animate-ping-ring,
+  .animate-grid-pan,
+  .animate-sweep,
+  .animate-breathe {
+    animation: none !important;
+  }
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+/* Edge fade so a scrolling ticker dissolves into the page instead of
+   being chopped off by the viewport. */
+.mask-fade-x {
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    #000 12%,
+    #000 88%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    #000 12%,
+    #000 88%,
+    transparent 100%
+  );
+}
+
 /* Print only the open QR label dialog when printing labels.
    Global page margins keep the printed sheet centered on every printer. */
 @media print {
