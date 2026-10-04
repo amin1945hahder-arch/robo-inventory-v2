@@ -134,6 +134,29 @@ export async function deleteById(table: string, id: string): Promise<boolean> {
 
 // ===== Entry points ========================================================
 
+/**
+ * The generic read used by the app. Admin-only: it exposes whatever tables the
+ * migration brought across, and that is club data (members, rentals), so it is
+ * never public.
+ */
+export const query = action({
+  args: {
+    table: v.string(),
+    filter: v.optional(v.record(v.string(), v.union(v.string(), v.number(), v.boolean()))),
+    orderBy: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const me = await ctx.runQuery(internal.users.currentInternalUser, {});
+    if (!me || me.role !== "admin") throw new Error("Admin access required");
+    return selectRows(args.table, {
+      filter: args.filter,
+      orderBy: args.orderBy,
+      limit: args.limit,
+    });
+  },
+});
+
 /** Server/CLI only: proves the node → Turso read path with real data. */
 export const peekInternal = internalAction({
   args: { table: v.string(), limit: v.optional(v.number()) },
