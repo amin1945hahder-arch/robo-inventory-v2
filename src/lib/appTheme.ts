@@ -470,7 +470,13 @@ export function applyThemeToDom(theme: AppTheme | null): void {
     root.style.setProperty(name, value);
     appliedVars.add(name);
   }
-  const radius = clamp(Number(theme.radius) || 0, 0, 4);
+  // Never let a missing/invalid radius paint `0rem` (sharp corners): a
+  // legacy cached theme without the field used to silently zero the radius
+  // while every color looked fine — "the radius doesn't stick".
+  const parsedRadius = Number(theme.radius);
+  const radius = Number.isFinite(parsedRadius)
+    ? clamp(parsedRadius, 0, 4)
+    : DEFAULT_RADIUS;
   root.style.setProperty("--radius", `${radius}rem`);
   appliedVars.add("--radius");
 
@@ -539,15 +545,22 @@ export function loadThemeCache(): ThemeState | null {
           }
         : null;
     return {
-      themes: parsed.themes.filter(
-        (t): t is AppTheme =>
-          Boolean(t) &&
-          typeof t.id === "string" &&
-          typeof t.name === "string" &&
-          (t.mode === "dark" || t.mode === "light") &&
-          typeof t.colors === "object" &&
-          t.colors !== null,
-      ),
+      themes: parsed.themes
+        .filter(
+          (t): t is AppTheme =>
+            Boolean(t) &&
+            typeof t.id === "string" &&
+            typeof t.name === "string" &&
+            (t.mode === "dark" || t.mode === "light") &&
+            typeof t.colors === "object" &&
+            t.colors !== null,
+        )
+        // Normalize on load: an old cache row without a usable radius would
+        // otherwise paint `0rem` until the next server sync.
+        .map((t) => ({
+          ...t,
+          radius: Number.isFinite(Number(t.radius)) ? Number(t.radius) : DEFAULT_RADIUS,
+        })),
       activeId: typeof parsed.activeId === "string" ? parsed.activeId : null,
       defaultId: typeof parsed.defaultId === "string" ? parsed.defaultId : null,
       schedule,

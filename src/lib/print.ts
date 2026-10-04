@@ -25,9 +25,15 @@
  * `sheetPrintCss()` also:
  *  1. removes everything except #print-area from the print flow (the app
  *     shell stops contributing pages entirely);
- *  2. forces `--mm: 1mm` inside #print-area and drops the scaled-cell
+ *  2. unclips EVERY ancestor of #print-area — the shell roots are
+ *     `h-dvh` + `overflow-hidden` / `overflow-y-auto`, and a scroll
+ *     ancestor that keeps its bounded height in print traps the whole
+ *     workbook on printed page 1 (the "only the first page prints" bug).
+ *     Ancestor padding/margins are dropped too, so the sheet starts at the
+ *     page's top-left and never overflows the paper width;
+ *  3. forces `--mm: 1mm` inside #print-area and drops the scaled-cell
  *     transform, so every mm() value and QR renders at true size;
- *  3. keeps labels/cards/rows whole across page breaks.
+ *  4. keeps labels/cards/rows whole across page breaks.
  */
 
 export type Orientation = "portrait" | "landscape";
@@ -61,18 +67,23 @@ export function sheetPrintCss({ paper, orientation, marginMm }: SheetPrintOption
      its ancestors — the app shell stops contributing pages entirely. */
   @supports selector(:has(*)) {
     body *:not(#print-area):not(#print-area *):not(:has(#print-area)) { display: none !important; }
-  }
 
-  /* The paper wrapper: unclip, unborder, let content define page breaks. */
-  :has(> #print-area) {
-    height: auto !important;
-    min-height: 0 !important;
-    overflow: visible !important;
-    border: none !important;
-    box-shadow: none !important;
-    border-radius: 0 !important;
-    padding: 0 !important;
-    margin: 0 !important;
+    /* Unclip EVERY ancestor of the sheet (not just the paper wrapper): the
+       shell roots are h-dvh + overflow-hidden / overflow-y-auto, and a
+       bounded scroll ancestor keeps all sheets after the first one out of
+       the printed output. Padding/margins go too so the fixed-width sheet
+       sits flush with the page box instead of overflowing it. */
+    body :has(#print-area) {
+      height: auto !important;
+      min-height: 0 !important;
+      max-height: none !important;
+      overflow: visible !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      border: none !important;
+      box-shadow: none !important;
+      border-radius: 0 !important;
+    }
   }
 
   /* True physical scale: mm() resolves to real mm, transforms are dropped. */

@@ -373,7 +373,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             the old bar (mobile shortcuts + profile) sits inside the pill;
             the offline banner and mobile menu hang below it. */}
         <div className="sticky top-0 z-20 flex flex-col gap-2 px-3 pt-3">
-        <header className="glass-strong flex w-fit max-w-full flex-wrap items-center justify-between gap-x-2 gap-y-1 self-end rounded-2xl border px-2 py-1.5">
+        {/* Mobile: a full-width floating bar spanning left-to-right with the
+            screen (inset by the container padding). Desktop: the compact
+            right-aligned glass pill it has always been. */}
+        <header className="glass-strong flex w-full max-w-full flex-wrap items-center justify-between gap-x-2 gap-y-1 self-stretch rounded-2xl border px-2 py-1.5 md:w-fit md:self-end">
           <div className="flex items-center gap-1 md:hidden">
             {/* Hamburger: opens the full mobile menu (everything in the
                 sidebar, laid out as a dropdown panel). */}

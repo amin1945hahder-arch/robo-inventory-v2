@@ -642,7 +642,10 @@ export function SlicerStudio({
   const railButton = "h-9 w-full justify-start gap-2 text-xs font-medium";
 
   return (
-    <div className="flex h-[calc(100vh-14rem)] min-h-[560px] flex-col gap-3">
+    {/* Mobile/tablet: the viewport claims the screen (dvh-aware so the URL
+        bar can't eat its length) and the control rail becomes a capped
+        scroll strip BELOW it. Desktop: the original side-by-side layout. */}
+    <div className="flex h-[calc(100dvh-10rem)] min-h-[600px] flex-col gap-3 lg:h-[calc(100vh-14rem)] lg:min-h-[560px]">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Layers className="size-4 text-primary" />
@@ -677,9 +680,9 @@ export function SlicerStudio({
         </div>
       )}
 
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[220px_1fr]">
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_minmax(0,15rem)] gap-3 lg:grid-cols-[220px_1fr] lg:grid-rows-none">
         {/* Action rail */}
-        <div className="flex min-h-0 flex-col gap-2 overflow-y-auto glass-3d rounded-lg border bg-card/60 p-2.5">
+        <div className="order-2 flex min-h-0 flex-col gap-2 overflow-y-auto glass-3d rounded-lg border bg-card/60 p-2.5 lg:order-none">
           <div className="flex flex-col gap-1">
             <Label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <Printer className="size-3" /> Printer
@@ -788,7 +791,7 @@ export function SlicerStudio({
         </div>
 
         {/* Embedded Kiri frame */}
-        <div className="relative min-h-0 overflow-hidden glass-3d rounded-lg border bg-zinc-950">
+        <div className="relative order-1 min-h-0 overflow-hidden glass-3d rounded-lg border bg-zinc-950 lg:order-none">
           {!ready && (
             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-zinc-950/90 text-zinc-300">
               <LoadingGifInline size={24} className="size-6" />

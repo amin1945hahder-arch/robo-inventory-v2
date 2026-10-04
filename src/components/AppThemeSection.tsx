@@ -709,9 +709,15 @@ export function AppThemeSection() {
         icons: t.icons,
       });
       const baseThemes = state?.themes ?? [];
+      // Never let a stale server echo drop the corner radius we just edited:
+      // the published theme must carry exactly what the slider showed.
+      const safeSaved: AppTheme = {
+        ...saved,
+        radius: Number.isFinite(saved.radius) ? saved.radius : t.radius,
+      };
       const upserted = editor.isNew
-        ? [...baseThemes, saved]
-        : baseThemes.map((x) => (x.id === saved.id ? saved : x));
+        ? [...baseThemes, safeSaved]
+        : baseThemes.map((x) => (x.id === safeSaved.id ? safeSaved : x));
       const nextActive = publish ? saved.id : (state?.activeId ?? null);
       // Update the source of truth BEFORE the editor unmounts so the
       // preview rollback restores the just-saved theme, not the old one.

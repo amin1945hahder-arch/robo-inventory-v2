@@ -33,6 +33,22 @@ describe("sheetPrintCss", () => {
     expect(css).not.toMatch(/#print-area \* \{ display: none/);
   });
 
+  it("unclips EVERY ancestor of the sheet (the one-page-print bug)", () => {
+    // The AppShell roots are `h-dvh overflow-hidden` / `h-dvh overflow-y-auto`.
+    // They are ancestors of #print-area, so if they keep their bounded height
+    // in print the whole workbook is trapped on printed page 1 — only the
+    // first sheet comes out. The full ancestor chain must be opened up.
+    expect(css).toContain("body :has(#print-area) {");
+    const ancestors = css.match(/body :has\(#print-area\) \{[^}]*\}/s)?.[0] ?? "";
+    expect(ancestors).toContain("height: auto !important;");
+    expect(ancestors).toContain("max-height: none !important;");
+    expect(ancestors).toContain("overflow: visible !important;");
+    // Shell padding (main px-4, page gap wrappers…) must not offset or
+    // narrow the fixed-width sheet — it would overflow the paper box.
+    expect(ancestors).toContain("padding: 0 !important;");
+    expect(ancestors).toContain("margin: 0 !important;");
+  });
+
   it("forces true physical scale inside the sheet", () => {
     expect(css).toContain("--mm: 1mm !important");
     expect(css).toContain("#print-area .print-cell > div > div { transform: none !important; }");

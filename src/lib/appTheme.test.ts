@@ -239,6 +239,21 @@ describe("corner radius persistence (publish regression)", () => {
     expect(root().style.getPropertyValue("--radius")).toBe("1.25rem");
     applyThemeState({ themes: [], activeId: null });
   });
+
+  it("falls back to the default radius for legacy cached themes missing it", () => {
+    // A theme saved by an older build has no radius field at all. It must
+    // paint the design-system default, not `0rem`.
+    const legacy = theme({ id: "legacy-1" });
+    delete (legacy as Partial<AppTheme>).radius;
+    localStorage.setItem(
+      "roboShelf.appTheme.v1",
+      JSON.stringify({ themes: [legacy], activeId: "legacy-1" }),
+    );
+    applyThemeToDom(null);
+    initThemeFromCache();
+    expect(root().style.getPropertyValue("--radius")).toBe("0.625rem");
+    applyThemeState({ themes: [], activeId: null });
+  });
 });
 
 describe("per-theme icon overrides", () => {
