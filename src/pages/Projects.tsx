@@ -82,6 +82,11 @@ export default function Projects() {
 
   const submit = async () => {
     if (!name.trim()) return;
+    const cover = imageUrl.trim();
+    if (cover && !/^(https?:\/\/|data:image\/)/i.test(cover)) {
+      toast.error("Cover image must be an image URL (https://…) or a chosen file");
+      return;
+    }
     setBusy(true);
     try {
       if (editing) {
@@ -90,12 +95,12 @@ export default function Projects() {
           name: name.trim(),
           description: description.trim() || undefined,
           status: editing.status,
-          imageUrl: imageUrl.trim(), // "" clears
+          imageUrl: cover, // "" clears
         });
         toast.success("Project updated");
       } else {
-        await upsert({ name: name.trim(), description: description.trim() || undefined, status: "active", imageUrl: imageUrl.trim() || undefined });
-        toast.success("Project created — its chat group and workspace are live");
+        await upsert({ name: name.trim(), description: description.trim() || undefined, status: "active", imageUrl: cover || undefined });
+        toast.success("Project created — its workspace is live");
       }
       setOpen(false);
       setName("");
@@ -139,11 +144,16 @@ export default function Projects() {
                   <Card key={p._id} className="group relative overflow-hidden border-border/80 shadow-none transition-colors hover:border-primary/40">
                     {p.imageUrl && (
                       <Link to={`/projects/${p._id}`} className="block">
-                        <img
-                          src={p.imageUrl}
-                          alt={p.name}
-                          className="h-32 w-full border-b border-border/60 object-cover"
-                        />
+                        {/* Fixed-height image area (the card never changes
+                            size); the picture fits by its longest side —
+                            contain, never stretched or cropped. */}
+                        <div className="flex h-32 w-full items-center justify-center border-b border-border/60 bg-muted/30">
+                          <img
+                            src={p.imageUrl}
+                            alt={p.name}
+                            className="h-full w-full object-contain"
+                          />
+                        </div>
                       </Link>
                     )}
                     <CardContent className="flex flex-col gap-3 p-5">
@@ -238,7 +248,7 @@ export default function Projects() {
                 <Label>Cover image</Label>
                 <div className="flex items-center gap-3">
                   {imageUrl ? (
-                    <img src={imageUrl} alt="Cover" className="size-16 glass-3d rounded-md border object-cover" />
+                    <img src={imageUrl} alt="Cover" className="size-16 glass-3d rounded-md border object-contain bg-muted/30" />
                   ) : (
                     <div className="flex size-16 items-center justify-center glass-3d rounded-md border border-dashed text-xs text-muted-foreground">
                       none
@@ -250,6 +260,17 @@ export default function Projects() {
                       accept="image/*"
                       onChange={(e) => void pickImage(e.target.files?.[0])}
                       className="h-9 text-xs"
+                    />
+                    <Input
+                      value={imageUrl.startsWith("data:") ? "" : imageUrl}
+                      onChange={(e) => setImageUrl(e.target.value)}
+                      placeholder={
+                        imageUrl.startsWith("data:")
+                          ? "Image chosen from file"
+                          : "…or paste an image URL"
+                      }
+                      className="h-9 text-xs"
+                      inputMode="url"
                     />
                     {imageUrl && (
                       <Button variant="ghost" size="sm" className="h-7 self-start text-xs" onClick={() => setImageUrl("")}>

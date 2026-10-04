@@ -338,7 +338,6 @@ export const addMember = mutation({
       text: `${me.name ?? me.email} added ${person.name ?? person.email} to ${project.name}`,
       link: `/projects/${projectId}`,
     });
-    await ctx.scheduler.runAfter(0, internal.chat.syncProjectGroup, { projectId });
     return rowId;
   },
 });
@@ -368,7 +367,6 @@ export const removeMember = mutation({
       }
     }
     await ctx.db.delete(target._id);
-    await ctx.scheduler.runAfter(0, internal.chat.syncProjectGroup, { projectId });
   },
 });
 
@@ -396,7 +394,6 @@ export const setMemberRole = mutation({
       // The leader becomes the project owner (single canonical leader field).
       await ctx.db.patch(projectId, { ownerId: userId });
     }
-    await ctx.scheduler.runAfter(0, internal.chat.syncProjectGroup, { projectId });
   },
 });
 

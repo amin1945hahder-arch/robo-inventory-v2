@@ -56,17 +56,9 @@ export const upsertProject = mutation({
     };
     if (id) {
       await touchPatch(ctx, id, data);
-      // Keep the project's chat group in sync (name/members) — auto-created
-      // on first save with all admins + the owner.
-      await ctx.scheduler.runAfter(0, internal.chat.syncProjectGroup, { projectId: id });
       return id;
     }
     const projectId = await ctx.db.insert("projects", { ...data, updatedAt: Date.now() });
-    await ctx.scheduler.runAfter(0, internal.chat.ensureProjectGroup, {
-      projectId,
-      name: data.name,
-      ownerId: data.ownerId,
-    });
     return projectId;
   },
 });
@@ -89,8 +81,6 @@ export const dismantleProject = mutation({
       });
     }
     await touchPatch(ctx, id, { status: "dismantled" });
-    // Parts went back to the shelf → refresh the auto group membership.
-    await ctx.scheduler.runAfter(0, internal.chat.syncProjectGroup, { projectId: id });
   },
 });
 
@@ -130,7 +120,5 @@ export const deleteProject = mutation({
     }
     await ctx.db.delete(id);
     await recordTombstone(ctx, "projects", id);
-    // The auto chat group is retired with the project.
-    await ctx.scheduler.runAfter(0, internal.chat.syncProjectGroup, { projectId: id });
   },
 });

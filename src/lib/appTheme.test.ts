@@ -32,6 +32,7 @@ beforeEach(() => {
   setThemeAwareUserMode("dark");
   applyThemeToDom(null);
   root().classList.remove("dark");
+  document.body.classList.remove("dark");
 });
 
 describe("resolveTheme", () => {
@@ -118,6 +119,37 @@ describe("published-state + preview protocol", () => {
     const parsed = JSON.parse(raw as string) as ThemeState;
     expect(parsed.activeId).toBe("cached-1");
     expect(parsed.themes[0].colors.primary).toBe("#123456");
+  });
+});
+
+describe("dark-class placement (theme shadowing regression)", () => {
+  // A `.dark` class on <body> re-declares every --* token on the body
+  // element. Custom properties resolve to the NEAREST declaration, so body's
+  // .dark block would win over the theme's inline vars inherited from <html>
+  // and the published theme would appear "not applied" inside the app.
+  // index.html shipped <body class="dark"> for years — the engine must scrub
+  // it every time it manages the mode.
+  it("scrubs .dark from <body> when a theme is applied", () => {
+    document.body.classList.add("dark");
+    applyThemeToDom(theme());
+    expect(document.body.classList.contains("dark")).toBe(false);
+    expect(root().classList.contains("dark")).toBe(true);
+    expect(root().style.getPropertyValue("--primary")).toBe("#123456");
+  });
+
+  it("scrubs .dark from <body> when the theme is switched off", () => {
+    document.body.classList.add("dark");
+    applyThemeToDom(null);
+    expect(document.body.classList.contains("dark")).toBe(false);
+  });
+
+  it("keeps <body> clean during previews and light-mode themes", () => {
+    document.body.classList.add("dark");
+    beginThemePreview(theme({ mode: "light", colors: defaultColors("light") }));
+    expect(document.body.classList.contains("dark")).toBe(false);
+    expect(root().classList.contains("dark")).toBe(false);
+    endThemePreview();
+    expect(document.body.classList.contains("dark")).toBe(false);
   });
 });
 

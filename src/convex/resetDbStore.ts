@@ -78,9 +78,6 @@ export const purgeAll = internalMutation({
       "filaments",
       "printJobs",
       "rentCardJobs",
-      "chatMessages",
-      "chatConversations",
-      "chatPresence",
       "deviceTokens",
     ] as const) {
       await wipe(table);

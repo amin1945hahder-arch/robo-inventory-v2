@@ -360,7 +360,7 @@ export default function Profile() {
             </Button>
           </div>
           <div className="grid gap-2">
-            <Label>Chat ID (for personal bot DMs & backups)</Label>
+            <Label>Chat ID (for personal bot DMs)</Label>
             <div className="flex gap-2">
               <Input
                 value={tgChat}

@@ -699,8 +699,8 @@ export default function ProjectDetail() {
                 )}
               </section>
               <p className="rounded-lg border border-dashed px-4 py-3 text-xs text-muted-foreground">
-                The project's chat group syncs with this team automatically — admins and members stay
-                connected without manual setup.
+                Team changes here stay in the project record — missions, notes and README history
+                keep every contributor's name for the archive.
               </p>
             </div>
           </div>

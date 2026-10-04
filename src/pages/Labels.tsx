@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
 import { LoadingGifInline } from "@/components/LoadingGif";
 import { useQuery } from "convex/react";
 import QRCode from "react-qr-code";
@@ -30,26 +30,39 @@ import {
   type SectionKey,
   type SectionSizes,
 } from "@/lib/label-layout";
-import { orientedSize, sheetPrintCss, type Orientation } from "@/lib/print";
-import { Printer, Loader2, QrCode, Grid2x2, Download } from "lucide-react";
+import {
+  orientedSize,
+  paginateRowRuns,
+  sheetPrintCss,
+  type Orientation,
+  type RowRun,
+} from "@/lib/print";
+import { Printer, Loader2, QrCode, Grid2x2, Download, ChevronLeft, ChevronRight } from "lucide-react";
 
 /**
  * Bulk QR label sheets with physical sizing:
  *  - every section (storages, categories, projects, groups, units) has its own
  *    label size in millimetres — sub-units of a group can get their own size
- *  - labels are laid out on the chosen paper (A4/A3/Letter) in mm, so what you
- *    see is the physical sheet you print; rows never split mid-label
+ *  - labels are packed into EXPLICIT sheet pages: integer rows per page, a
+ *    page divider between sheets, a pager in the preview, and print output
+ *    that matches the preview page for page (no trimmed half-rows).
  */
 
 // CSS px per mm at 96dpi — QR rendered at this px prints at the right mm size.
 const MM = 96 / 25.4;
+
+/** Vertical space charged for a section heading + the gap between sections. */
+const SECTION_HEADER_MM = 6;
+const SECTION_GAP_MM = 6;
+/** 1mm safety when packing rows — rounding can never spill a half-row. */
+const PACK_SAFETY_MM = 1;
 
 /** Which text lines print alongside each QR chip (admin's choice). */
 type LabelFields = { title: boolean; sub: boolean; code: boolean };
 const ALL_FIELDS: LabelFields = { title: true, sub: true, code: true };
 const FIELDS_KEY = "roboShelf.labelFields";
 
-function MmLabel({
+const MmLabel = memo(function MmLabel({
   value,
   title,
   sub,
@@ -63,9 +76,8 @@ function MmLabel({
   show: LabelFields;
 }) {
   // label = QR + text: side-by-side when big (≥18mm), QR on top + a text
-  // strip underneath when small (<18mm) — the strip is reserved height, so
-  // the text can never overlap the QR no matter how small the label gets.
-  // Each text line is independently toggleable (Label fields control).
+  // strip underneath when small (<18mm). Each line is independently
+  // toggleable (Label fields control).
   const showTitle = show.title;
   const showSub = show.sub && Boolean(sub);
   const showCode = show.code;
@@ -119,11 +131,75 @@ function MmLabel({
       </div>
     </div>
   );
-}
+});
+
+/** One section's worth of label cells, ready to chunk into rows. */
+type SectionPlan = {
+  key: string;
+  header: string;
+  columns: number;
+  basisMm: number;
+  rowPitch: number;
+  cells: ReactNode[];
+};
+
+/** A section's slice of one page (consecutive runs are merged). */
+type PageBlock = { plan: SectionPlan; fromRow: number; toRow: number };
+
+/** One physical sheet — memoized so the progressive mount stays cheap. */
+const PrintPage = memo(function PrintPage({
+  blocks,
+  active,
+  dims,
+  margin,
+}: {
+  blocks: PageBlock[];
+  active: boolean;
+  dims: { w: number; h: number };
+  margin: number;
+}) {
+  return (
+    <div
+      className="print-page print-page--fixed"
+      style={{
+        display: active ? undefined : "none",
+        width: mm(dims.w),
+        height: mm(dims.h),
+        padding: mm(margin),
+        boxSizing: "border-box",
+        position: "relative",
+        background: "#fff",
+      }}
+    >
+      {blocks.map((b, bi) => (
+        <section key={b.plan.key} style={bi > 0 ? { marginTop: mm(SECTION_GAP_MM) } : undefined}>
+          <h2
+            className="font-semibold uppercase tracking-widest text-neutral-500"
+            style={{ fontSize: mm(2.6), marginBottom: mm(2) }}
+          >
+            {b.plan.header}
+          </h2>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: `repeat(${b.plan.columns}, calc(${b.plan.basisMm} * var(--mm, 1px)))`,
+              gap: `calc(${LABEL_GAP_MM} * var(--mm, 1px))`,
+            }}
+          >
+            {b.plan.cells.slice(b.fromRow * b.plan.columns, (b.toRow + 1) * b.plan.columns)}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+});
 
 export default function Labels() {
   const data = useQuery(api.labels.getLabelData, {});
   const [section, setSection] = useState<SectionKey>("all");
+  // Interactive updates stay interruptible: the old sheet keeps the UI alive
+  // while the new one renders in the background (no frozen window).
+  const [isPending, startTransition] = useTransition();
 
   // per-section label size in mm — units (the many small tags) default smaller
   const [sizes, setSizes] = useState<SectionSizes>(DEFAULT_SIZES);
@@ -133,6 +209,10 @@ export default function Labels() {
   const [orientation, setOrientation] = useState("portrait");
   const [margin, setMargin] = useState(8);
   const [showGrid, setShowGrid] = useState(false);
+
+  // preview pager + progressive page mounting (loading until all sheets ready)
+  const [page, setPage] = useState(0);
+  const [mounted, setMounted] = useState(1);
 
   // Which text lines print next to each QR chip — remembered per device.
   const [fields, setFields] = useState<LabelFields>(() => {
@@ -153,8 +233,8 @@ export default function Labels() {
   }, [fields]);
 
   useEffect(() => {
-    // Shared sheet print CSS: oriented @page (single margin), app-shell
-    // removed from the flow (no blank pages), true mm scale in print.
+    // Shared sheet print CSS: oriented @page with zero margin (each page
+    // carries its own), app-shell removed from the flow, true mm scale.
     const style = document.createElement("style");
     style.id = "labels-print-style";
     style.textContent = sheetPrintCss({
@@ -170,17 +250,22 @@ export default function Labels() {
 
   const show = (key: Exclude<SectionKey, "all">) => (section === "all" ? true : section === key);
 
-  // Cutting grid: dashed cut lines drawn inside each label cell (screen only).
+  // Cutting grid: dashed cut lines drawn inside each label cell.
   const gridOverlay = showGrid
     ? { boxShadow: "0 0 0 1px #d4d4d4, inset 0 0 0 0.5px #a3a3a3" }
     : undefined;
+
+  const dims = useMemo(
+    () => orientedSize(PAPERS[paper], orientation as Orientation),
+    [paper, orientation],
+  );
 
   const sizeControl = (key: Exclude<SectionKey, "all">, label: string) => (
     <div className="grid gap-1" key={key}>
       <Label className="text-[11px] text-muted-foreground">{label} (mm)</Label>
       <Select
         value={String(sizes[key])}
-        onValueChange={(v) => setSizes((s) => ({ ...s, [key]: Number(v) }))}
+        onValueChange={(v) => startTransition(() => setSizes((s) => ({ ...s, [key]: Number(v) })))}
       >
         <SelectTrigger className="w-20"><SelectValue /></SelectTrigger>
         <SelectContent>
@@ -192,25 +277,6 @@ export default function Labels() {
     </div>
   );
 
-  // Grid per section: exact column width for THAT section's label size and
-  // the exact number of columns that fit the oriented printable width — the
-  // sheet fills edge to edge with only the cut gap between labels. Values
-  // resolve through --mm so the preview scale and the printed sheet (where
-  // --mm is forced to 1mm) both come out right.
-  const dims = orientedSize(PAPERS[paper], orientation as Orientation);
-  const gridFor = (key: Exclude<SectionKey, "all">): React.CSSProperties => {
-    const { basisMm, columns } = computeColumns(key, sizes, {
-      paperWidthMm: dims.w,
-      marginMm: margin,
-    });
-    return {
-      display: "grid",
-      gridTemplateColumns: `repeat(${columns}, calc(${basisMm} * var(--mm, 1px)))`,
-      justifyContent: "start",
-      gap: `calc(${LABEL_GAP_MM} * var(--mm, 1px))`,
-    };
-  };
-
   // “How many labels fit one sheet?” hint for the selected section.
   const fitHint =
     section !== "all"
@@ -220,6 +286,204 @@ export default function Labels() {
           marginMm: margin,
         })
       : null;
+
+  // ---- build sections → rows → explicit sheet pages (memoized) ------------
+  const plans: SectionPlan[] = useMemo(() => {
+    if (!data) return [];
+    const out: SectionPlan[] = [];
+    const planFor = (
+      key: Exclude<SectionKey, "all">,
+      header: string,
+      build: (push: (node: ReactNode) => void) => void,
+    ) => {
+      if (!show(key)) return;
+      const { basisMm, columns } = computeColumns(key, sizes, {
+        paperWidthMm: dims.w,
+        marginMm: margin,
+      });
+      const cells: ReactNode[] = [];
+      build((node) => cells.push(node));
+      if (cells.length === 0) return;
+      out.push({
+        key,
+        header,
+        columns,
+        basisMm,
+        rowPitch: labelHeightMm(sizes[key]) + LABEL_GAP_MM,
+        cells,
+      });
+    };
+
+    const cell = (
+      key: string,
+      wMm: number,
+      hMm: number,
+      qrValue: string,
+      title: string,
+      sub?: string,
+      sizeMm?: number,
+    ) => (
+      <div key={key} style={gridOverlay} className="print-cell">
+        <ScaledCell wMm={wMm} hMm={hMm}>
+          <MmLabel value={qrValue} title={title} sub={sub} sizeMm={sizeMm ?? 0} show={fields} />
+        </ScaledCell>
+      </div>
+    );
+
+    planFor("closets", "Storages", (push) =>
+      data.closets.forEach((c) =>
+        push(
+          cell(
+            c._id,
+            labelWidthMm(sizes.closets),
+            labelHeightMm(sizes.closets),
+            closetQr(c._id),
+            c.name,
+            c.location ?? undefined,
+            sizes.closets,
+          ),
+        ),
+      ),
+    );
+    planFor("categories", "Categories", (push) =>
+      data.categories.forEach((c) =>
+        push(
+          cell(
+            c._id,
+            labelWidthMm(sizes.categories),
+            labelHeightMm(sizes.categories),
+            categoryQr(c.name),
+            c.name,
+            undefined,
+            sizes.categories,
+          ),
+        ),
+      ),
+    );
+    planFor("projects", "Projects", (push) =>
+      data.projects.forEach((p) =>
+        push(
+          cell(
+            p._id,
+            labelWidthMm(sizes.projects),
+            labelHeightMm(sizes.projects),
+            projectQr(p._id),
+            p.name,
+            undefined,
+            sizes.projects,
+          ),
+        ),
+      ),
+    );
+    planFor("groups", "Groups", (push) =>
+      data.groups.forEach(({ group, closetAlias }) =>
+        push(
+          cell(
+            group._id,
+            labelWidthMm(sizes.groups),
+            labelHeightMm(sizes.groups),
+            closetAlias ? closetQr(closetAlias._id) : groupQr(group._id),
+            group.name,
+            closetAlias ? `→ storage: ${closetAlias.name}` : undefined,
+            sizes.groups,
+          ),
+        ),
+      ),
+    );
+    planFor("units", "Individual units", (push) =>
+      data.groups.flatMap(({ group, parts }) =>
+        parts.forEach((p) =>
+          push(
+            cell(
+              p._id,
+              labelWidthMm(sizes.units),
+              labelHeightMm(sizes.units),
+              unitQr(p.tag),
+              p.tag,
+              group.name,
+              sizes.units,
+            ),
+          ),
+        ),
+      ),
+    );
+    planFor("people", "People", (push) =>
+      data.people.forEach((p: any) =>
+        push(
+          cell(
+            p._id,
+            labelWidthMm(sizes.people),
+            labelHeightMm(sizes.people),
+            personQr(p._id),
+            p.name,
+            p.sub || undefined,
+            sizes.people,
+          ),
+        ),
+      ),
+    );
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, section, sizes, fields, showGrid, dims, margin]);
+
+  const { pageBlocks, totalPages } = useMemo(() => {
+    const usableH = dims.h - margin * 2 - PACK_SAFETY_MM;
+    const runs: RowRun[][] = paginateRowRuns(
+      plans.map((p) => ({
+        id: p.key,
+        rows: Math.ceil(p.cells.length / p.columns),
+        rowPitch: p.rowPitch,
+        headerH: SECTION_HEADER_MM,
+      })),
+      usableH,
+      { sectionGapMm: SECTION_GAP_MM },
+    );
+    const byKey = new Map(plans.map((p) => [p.key, p]));
+    const blocks: PageBlock[][] = runs.map((pageRuns) => {
+      const out: PageBlock[] = [];
+      for (const run of pageRuns) {
+        const plan = byKey.get(run.sectionId)!;
+        const last = out[out.length - 1];
+        if (last && last.plan.key === run.sectionId) {
+          last.toRow = run.fromRow + run.rowCount - 1;
+        } else {
+          out.push({ plan, fromRow: run.fromRow, toRow: run.fromRow + run.rowCount - 1 });
+        }
+      }
+      return out;
+    });
+    return { pageBlocks: blocks, totalPages: blocks.length };
+  }, [plans, dims, margin]);
+
+  // Progressive mount: one more sheet per frame so a hundreds-of-QRs sheet
+  // never freezes the window; the header shows the preparation progress.
+  useEffect(() => {
+    setMounted(1);
+    if (totalPages <= 1) return;
+    let n = 1;
+    let raf = 0;
+    let cancelled = false;
+    const step = () => {
+      if (cancelled) return;
+      n += 1;
+      setMounted(Math.min(n, totalPages));
+      if (n < totalPages) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+    };
+  }, [totalPages]);
+  const preparing = mounted < totalPages;
+  const activePage = Math.min(page, Math.max(0, totalPages - 1));
+
+  const doPrint = () => {
+    if (preparing || totalPages === 0) return;
+    // Let the final frame paint before the (blocking) print dialog opens.
+    setTimeout(() => window.print(), 50);
+  };
+
   return (
     <AppShell>
       <div className="flex flex-col gap-6">
@@ -231,10 +495,10 @@ export default function Labels() {
               separate size for the many individual unit tags.
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               variant={showGrid ? "default" : "outline"}
-              onClick={() => setShowGrid((g) => !g)}
+              onClick={() => startTransition(() => setShowGrid((g) => !g))}
               title="Toggle the cutting grid between labels"
             >
               <Grid2x2 className="size-4" /> Grid
@@ -272,8 +536,9 @@ export default function Labels() {
             >
               <Download className="size-4" /> Export CSV
             </Button>
-            <Button onClick={() => window.print()}>
-              <Printer className="size-4" /> Print sheet
+            <Button onClick={doPrint} disabled={!data || preparing || totalPages === 0}>
+              {preparing ? <Loader2 className="size-4 animate-spin" /> : <Printer className="size-4" />}
+              {preparing ? `Preparing ${mounted}/${totalPages}…` : "Print sheet"}
             </Button>
           </div>
         </header>
@@ -296,7 +561,7 @@ export default function Labels() {
                 key={key}
                 size="sm"
                 variant={section === key ? "default" : "outline"}
-                onClick={() => setSection(key)}
+                onClick={() => startTransition(() => setSection(key))}
               >
                 {label}
               </Button>
@@ -315,7 +580,7 @@ export default function Labels() {
             <div className="ml-auto flex flex-wrap items-end gap-4">
               <div className="grid gap-1">
                 <Label className="text-[11px] text-muted-foreground">Paper</Label>
-                <Select value={paper} onValueChange={setPaper}>
+                <Select value={paper} onValueChange={(v) => startTransition(() => setPaper(v))}>
                   <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {Object.entries(PAPERS).map(([k, v]) => (
@@ -326,7 +591,10 @@ export default function Labels() {
               </div>
               <div className="grid gap-1">
                 <Label className="text-[11px] text-muted-foreground">Orientation</Label>
-                <Select value={orientation} onValueChange={setOrientation}>
+                <Select
+                  value={orientation}
+                  onValueChange={(v) => startTransition(() => setOrientation(v))}
+                >
                   <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="portrait">Portrait</SelectItem>
@@ -341,7 +609,11 @@ export default function Labels() {
                   min={0}
                   max={30}
                   value={margin}
-                  onChange={(e) => setMargin(Math.max(0, Math.min(30, Number(e.target.value) || 0)))}
+                  onChange={(e) =>
+                    startTransition(() =>
+                      setMargin(Math.max(0, Math.min(30, Number(e.target.value) || 0))),
+                    )
+                  }
                   className="w-20"
                 />
               </div>
@@ -384,11 +656,23 @@ export default function Labels() {
               </span>
             )}
           </div>
+          {(isPending || preparing) && (
+            <p className="flex items-center gap-2 border-t pt-2 text-xs text-muted-foreground">
+              <LoadingGifInline size={16} className="size-4" />
+              {preparing
+                ? `Preparing sheet ${mounted} of ${totalPages}… printing unlocks when every page is ready.`
+                : "Updating the sheet…"}
+            </p>
+          )}
         </div>
 
         {data === undefined ? (
           <p className="py-16 text-center text-sm text-muted-foreground">
             <LoadingGifInline size={18} className="mr-2 inline size-4" /> Loading labels…
+          </p>
+        ) : totalPages === 0 ? (
+          <p className="py-16 text-center text-sm text-muted-foreground">
+            Nothing to print for this section yet.
           </p>
         ) : (
           <PaperPreview
@@ -397,150 +681,49 @@ export default function Labels() {
             marginMm={margin}
             className="print-area-wrapper"
             header={
-              <p className="mb-2 text-xs text-muted-foreground">
-                {PAPERS[paper].label} · real scale — width fits your screen
-              </p>
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground">
+                  {PAPERS[paper].label} · {plans.reduce((n, p) => n + p.cells.length, 0)} labels ·{" "}
+                  {totalPages} sheet{totalPages === 1 ? "" : "s"} · real scale
+                </p>
+                {totalPages > 1 && (
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={activePage === 0}
+                      onClick={() => setPage(activePage - 1)}
+                      title="Previous sheet"
+                    >
+                      <ChevronLeft className="size-4" /> Prev
+                    </Button>
+                    <span className="px-1 text-xs tabular-nums text-muted-foreground">
+                      {activePage + 1} / {totalPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={activePage >= totalPages - 1}
+                      onClick={() => setPage(activePage + 1)}
+                      title="Next sheet"
+                    >
+                      Next <ChevronRight className="size-4" />
+                    </Button>
+                  </div>
+                )}
+              </div>
             }
           >
-            <div
-              id="print-area"
-              className="absolute flex flex-col bg-white text-black"
-              style={{
-                top: mm(margin),
-                left: mm(margin),
-                right: mm(margin),
-                bottom: mm(margin),
-                gap: mm(6),
-                padding: mm(2),
-              }}
-            >
-            {show("closets") && data.closets.length > 0 && (
-              <section>
-                <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-neutral-500">
-                  Storages
-                </h2>
-                <div style={gridFor("closets")}>
-                  {data.closets.map((c) => (
-                    <div key={c._id} style={gridOverlay} className="print-cell">
-                      <ScaledCell wMm={labelWidthMm(sizes.closets)} hMm={labelHeightMm(sizes.closets)}>
-                        <MmLabel
-                          value={closetQr(c._id)}
-                          title={c.name}
-                          sub={c.location ?? undefined}
-                          sizeMm={sizes.closets}
-                          show={fields}
-                        />
-                      </ScaledCell>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {show("categories") && data.categories.length > 0 && (
-              <section>
-                <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-neutral-500">
-                  Categories
-                </h2>
-                <div style={gridFor("categories")}>
-                  {data.categories.map((c) => (
-                    <div key={c._id} style={gridOverlay} className="print-cell">
-                      <ScaledCell wMm={labelWidthMm(sizes.categories)} hMm={labelHeightMm(sizes.categories)}>
-                        <MmLabel value={categoryQr(c.name)} title={c.name} sizeMm={sizes.categories} show={fields} />
-                      </ScaledCell>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {show("projects") && data.projects.length > 0 && (
-              <section>
-                <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-neutral-500">
-                  Projects
-                </h2>
-                <div style={gridFor("projects")}>
-                  {data.projects.map((p) => (
-                    <div key={p._id} style={gridOverlay} className="print-cell">
-                      <ScaledCell wMm={labelWidthMm(sizes.projects)} hMm={labelHeightMm(sizes.projects)}>
-                        <MmLabel value={projectQr(p._id)} title={p.name} sizeMm={sizes.projects} show={fields} />
-                      </ScaledCell>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {show("groups") && data.groups.length > 0 && (
-              <section>
-                <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-neutral-500">
-                  Groups
-                </h2>
-                <div style={gridFor("groups")}>
-                  {data.groups.map(({ group, closetAlias }) => (
-                    <div key={group._id} style={gridOverlay} className="print-cell">
-                      <ScaledCell wMm={labelWidthMm(sizes.groups)} hMm={labelHeightMm(sizes.groups)}>
-                        <MmLabel
-                          value={closetAlias ? closetQr(closetAlias._id) : groupQr(group._id)}
-                          title={group.name}
-                          sub={closetAlias ? `→ storage: ${closetAlias.name}` : undefined}
-                          sizeMm={sizes.groups}
-                          show={fields}
-                        />
-                      </ScaledCell>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {show("units") && (
-              <section>
-                <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-neutral-500">
-                  Individual units
-                </h2>
-                <div style={gridFor("units")}>
-                  {data.groups.flatMap(({ group, parts }) =>
-                    parts.map((p) => (
-                      <div key={p._id} style={gridOverlay} className="print-cell">
-                        <ScaledCell wMm={labelWidthMm(sizes.units)} hMm={labelHeightMm(sizes.units)}>
-                          <MmLabel
-                            value={unitQr(p.tag)}
-                            title={p.tag}
-                            sub={group.name}
-                            sizeMm={sizes.units}
-                            show={fields}
-                          />
-                        </ScaledCell>
-                      </div>
-                    )),
-                  )}
-                </div>
-              </section>
-            )}
-
-            {show("people") && data.people.length > 0 && (
-              <section>
-                <h2 className="font-semibold uppercase tracking-widest text-neutral-500" style={{ fontSize: mm(2.6), marginBottom: mm(2) }}>
-                  People
-                </h2>
-                <div style={gridFor("people")}>
-                  {data.people.map((p: any) => (
-                    <div key={p._id} style={gridOverlay} className="print-cell">
-                      <ScaledCell wMm={labelWidthMm(sizes.people)} hMm={labelHeightMm(sizes.people)}>
-                        <MmLabel
-                          value={personQr(p._id)}
-                          title={p.name}
-                          sub={p.sub || undefined}
-                          sizeMm={sizes.people}
-                          show={fields}
-                        />
-                      </ScaledCell>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
+            <div id="print-area" className="absolute inset-0">
+              {pageBlocks.map((blocks, i) => (
+                <PrintPage
+                  key={i}
+                  blocks={blocks}
+                  active={i === activePage}
+                  dims={dims}
+                  margin={margin}
+                />
+              ))}
             </div>
           </PaperPreview>
         )}

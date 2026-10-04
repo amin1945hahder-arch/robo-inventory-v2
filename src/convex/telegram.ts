@@ -187,10 +187,10 @@ export const sendCategory = internalAction({
 });
 
 /**
- * Send a chat-backup archive (zip) as a Telegram document. Used by the admin
- * "chat backup destinations" panel: archives are produced client-side and
- * only relayed here when the admin configures a Telegram destination. The
- * database never stores the archive.
+ * Send a backup archive (zip) as a Telegram document. Used by the admin
+ * data-backup panel: archives are produced client-side and only relayed here
+ * when the admin configures a Telegram destination. The database never
+ * stores the archive.
  */
 export const sendBackupFile = internalAction({
   args: {
@@ -320,7 +320,7 @@ export const relayPrintFile = action({
   handler: async (ctx, { storageId, fileName, caption }): Promise<{ sent: boolean; reason?: string }> => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) throw new Error("Sign in first");
-    const me = (await ctx.runQuery(internal.chatAuth.me, { userId })) as {
+    const me = (await ctx.runQuery(internal.userLookup.me, { userId })) as {
       role?: string;
       printerRole?: boolean;
     } | null;

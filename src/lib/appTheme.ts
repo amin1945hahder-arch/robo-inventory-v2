@@ -215,6 +215,11 @@ function resolveDark(mode: "dark" | "light" | "system"): boolean {
 function applyModeClass(mode: "dark" | "light" | "system") {
   const dark = resolveDark(mode);
   document.documentElement.classList.toggle("dark", dark);
+  // The dark class must live ONLY on <html>: a legacy `.dark` on <body>
+  // re-declares the token variables on the body element and shadows the
+  // theme's inline vars inherited from <html> — the whole app then ignores
+  // the published theme. Scrub it defensively wherever we manage the mode.
+  document.body?.classList.remove("dark");
   document.documentElement.style.colorScheme = dark ? "dark" : "light";
 }
 

@@ -30,7 +30,7 @@ export const deliverRentCardPdf = action({
   ): Promise<{ sent: boolean; reason?: string }> => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) throw new Error("Sign in first");
-    const me = (await ctx.runQuery(internal.chatAuth.me, { userId })) as { role?: string } | null;
+    const me = (await ctx.runQuery(internal.userLookup.me, { userId })) as { role?: string } | null;
     if (!me || me.role !== "admin") {
       throw new Error("Only admins can send rent cards to the group");
     }

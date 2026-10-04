@@ -591,68 +591,6 @@ const schema = defineSchema(
       decidedAt: v.optional(v.number()),
     }).index("by_status", ["status"]),
 
-    // ===== Chat module (local-first relay) =====
-    // The database NEVER stores conversation logs. These tables hold only
-    // ephemeral relay state: live messages are pulled by online recipients
-    // and swept shortly after delivery, so the cloud DB stays clean and the
-    // durable copy of every conversation lives in each user's IndexedDB.
-
-    // A conversation: a 1-on-1 DM (two exact member ids) or a group chat.
-    chatConversations: defineTable({
-      kind: v.union(v.literal("dm"), v.literal("group")),
-      // DMs: sorted pair "<minId>:<maxId>". Groups: undefined.
-      dmKey: v.optional(v.string()),
-      name: v.optional(v.string()), // group name (admin-set)
-      image: v.optional(v.string()), // group avatar (data URL / URL)
-      createdBy: v.optional(v.id("users")),
-      memberIds: v.array(v.id("users")),
-      // Project-linked groups sync automatically with project membership.
-      projectId: v.optional(v.id("projects")),
-      deleted: v.optional(v.boolean()),
-      // Monotonic last-activity stamp, refreshed by the relay on every send.
-      lastActivityAt: v.optional(v.number()),
-    })
-      .index("by_dmKey", ["dmKey"])
-      .index("by_project", ["projectId"]),
-
-    // Live relay messages. `deliveredTo` fills up as recipients pull them;
-    // once every recipient has fetched a message it becomes sweepable.
-    chatMessages: defineTable({
-      conversationId: v.id("chatConversations"),
-      senderId: v.id("users"),
-      body: v.string(),
-      // Attachment = a small data URL (images/docs under ~500 KB) stored on
-      // the message itself so a single pull is enough; recipients persist it
-      // locally and the relay row is swept afterwards.
-      attachment: v.optional(
-        v.object({
-          name: v.string(),
-          mime: v.string(),
-          size: v.number(),
-          dataUrl: v.string(),
-        }),
-      ),
-      replyToId: v.optional(v.id("chatMessages")),
-      editedAt: v.optional(v.number()),
-      deletedForEveryone: v.optional(v.boolean()),
-      clientTag: v.optional(v.string()), // dedupe key from the sender device
-      deliveredTo: v.array(v.id("users")), // recipient acks
-      readBy: v.array(v.id("users")), // read acks (blue ticks)
-      // Per-user "delete for me" flags (userId → true). Relay-only.
-      deletedForMe: v.optional(v.any()),
-      createdAt: v.number(),
-    })
-      .index("by_conversation", ["conversationId"])
-      .index("by_clientTag", ["clientTag"]),
-
-    // Per-user chat state: typing status and last-seen (presence).
-    chatPresence: defineTable({
-      userId: v.id("users"),
-      typingInConversationId: v.optional(v.id("chatConversations")),
-      typingAt: v.optional(v.number()),
-      lastSeenAt: v.optional(v.number()),
-    }).index("by_user", ["userId"]),
-
     // ===== Fast sign-in ("remember this device") =====
     // A per-device secret issued right after a successful email-code sign-in.
     // The raw token lives ONLY in that device's localStorage; the database

@@ -41,8 +41,8 @@ import {
  * the archive stays deliverable through Telegram.
  */
 
-// Tables included in the backup. Everything app-level; auth-internal tables,
-// deviceTokens (login secrets) and chatMessages (ephemeral relay) are out.
+// Tables included in the backup. Everything app-level; auth-internal tables
+// and deviceTokens (login secrets) are out.
 const BACKUP_TABLES = [
   "users",
   "closets",
@@ -67,7 +67,6 @@ const BACKUP_TABLES = [
   "printJobs",
   "telegramTopics",
   "rentCardJobs",
-  "chatConversations",
 ] as const;
 
 // user.image and any other inline base64 blobs are stripped from the dump.

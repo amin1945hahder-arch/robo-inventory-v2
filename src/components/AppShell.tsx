@@ -365,7 +365,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
 
       <div ref={scrollRef} className="flex h-dvh min-w-0 flex-1 flex-col overflow-y-auto">
-        <header className="glass-strong sticky top-0 z-20 flex h-14 items-center justify-between border-b px-4 md:px-8">
+        {/* Floating top bar — a content-width glass pill (matches the floating
+            sidebar) instead of a full-width strip. Everything that lived in
+            the old bar (mobile shortcuts + profile) sits inside the pill;
+            the offline banner and mobile menu hang below it. */}
+        <div className="sticky top-0 z-20 flex flex-col gap-2 px-3 pt-3">
+        <header className="glass-strong flex w-fit max-w-full flex-wrap items-center justify-between gap-x-2 gap-y-1 self-end rounded-2xl border px-2 py-1.5">
           <div className="flex items-center gap-1 md:hidden">
             {/* Hamburger: opens the full mobile menu (everything in the
                 sidebar, laid out as a dropdown panel). */}
@@ -396,7 +401,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </Link>
             ))}
           </div>
-          <div className="hidden md:block" />
           <div className="flex items-center gap-2">
             {!online && (
               <span
@@ -459,7 +463,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             their last values, Inventory reads its IndexedDB delta cache);
             every database write is refused until the backend is reachable. */}
         {!online && (
-          <div className="sticky top-14 z-30 flex items-center gap-2.5 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-500 md:px-8">
+          <div className="flex items-center gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-500">
             <WifiOff className="size-3.5 shrink-0" />
             <span className="min-w-0">
               <span className="font-semibold text-foreground">Offline</span> — showing saved data.
@@ -470,7 +474,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         {/* ===== Mobile menu dropdown (below md) ===== */}
         {mobileMenuOpen && (
-          <div className="glass-strong sticky top-14 z-30 border-b md:hidden">
+          <div className="glass-strong overflow-hidden rounded-xl border md:hidden">
             <nav className="flex max-h-[70dvh] flex-col gap-1 overflow-y-auto px-4 py-3">
               {NAV.filter(({ studentBlocked }) => !studentBlocked || !isStudent).map(
                 ({ to, label, icon: Icon }) => {
@@ -540,6 +544,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </nav>
           </div>
         )}
+        </div>
 
         <main className="flex-1 px-4 py-8 md:px-8">
           <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">

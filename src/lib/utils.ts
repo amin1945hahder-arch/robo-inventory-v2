@@ -48,19 +48,63 @@ export async function compressImageFile(file: File, maxSize = 256): Promise<stri
     el.src = dataUrl;
   });
   const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(img.width * scale));
-  canvas.height = Math.max(1, Math.round(img.height * scale));
+  const makeCanvas = (s: number) => {
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(img.width * s));
+    c.height = Math.max(1, Math.round(img.height * s));
+    return c;
+  };
+  const canvas = makeCanvas(scale);
   const ctx = canvas.getContext("2d");
   if (!ctx) return dataUrl; // canvas unavailable — fall back to original
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-  // Step quality down until the data URL fits the server-side cap (60 KB), so
-  // noisy photos can never bloat user docs and crash list queries again.
+
+  // Transparency check — PNGs (logos, icons) keep their alpha; encoding them
+  // as JPEG would fill every transparent pixel with BLACK, which looked like
+  // a broken background on the cards.
+  let hasAlpha = false;
+  try {
+    const px = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    for (let i = 3; i < px.length; i += 4) {
+      if (px[i] < 255) {
+        hasAlpha = true;
+        break;
+      }
+    }
+  } catch {
+    hasAlpha = false;
+  }
+
+  if (hasAlpha) {
+    // Keep the PNG and shrink until it fits the 60 KB document cap.
+    let s = scale;
+    let out = canvas.toDataURL("image/png");
+    while (out.length > 60_000 && s > 0.2) {
+      s = Math.max(0.2, s * 0.8);
+      const c = makeCanvas(s);
+      const cc = c.getContext("2d");
+      if (!cc) break;
+      cc.drawImage(img, 0, 0, c.width, c.height);
+      out = c.toDataURL("image/png");
+    }
+    if (out.length <= 60_000) return out;
+    // Still too heavy — fall through and flatten onto white below.
+  }
+
+  // JPEG path (photos): composite onto WHITE first so a transparent source
+  // can never render as a black box, then step quality down until the data
+  // URL fits the server-side cap (60 KB).
+  const jcanvas = makeCanvas(scale);
+  const jctx = jcanvas.getContext("2d");
+  if (!jctx) return dataUrl;
+  jctx.fillStyle = "#ffffff";
+  jctx.fillRect(0, 0, jcanvas.width, jcanvas.height);
+  jctx.drawImage(img, 0, 0, jcanvas.width, jcanvas.height);
   let quality = 0.85;
-  let out = canvas.toDataURL("image/jpeg", quality);
+  let out = jcanvas.toDataURL("image/jpeg", quality);
   while (out.length > 60_000 && quality > 0.3) {
     quality -= 0.15;
-    out = canvas.toDataURL("image/jpeg", quality);
+    out = jcanvas.toDataURL("image/jpeg", quality);
   }
   return out;
 }

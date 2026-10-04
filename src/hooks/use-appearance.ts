@@ -43,6 +43,9 @@ function applyMode(mode: AppearanceValue, userId?: string) {
   if (isThemeActive()) return;
   const dark = resolve(mode);
   document.documentElement.classList.toggle("dark", dark);
+  // Keep the class off <body>: a .dark block on body shadows the published
+  // app theme's inline vars (which live on <html>) for the whole page.
+  document.body?.classList.remove("dark");
   document.documentElement.style.colorScheme = dark ? "dark" : "light";
 }
 

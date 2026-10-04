@@ -10,7 +10,7 @@ import JSZip from "jszip";
  * unlike the human archive (csv + data.json + schema.sql).
  *
  * Deliberately excluded here too: deviceTokens (login secrets) and
- * chatMessages (ephemeral relay). Rows come pre-redacted from appBackup's
+ * deviceTokens (login secrets) are out. Rows come pre-redacted from appBackup's
  * dumpAllTables.
  */
 export const CONVEX_BACKUP_TABLES = [

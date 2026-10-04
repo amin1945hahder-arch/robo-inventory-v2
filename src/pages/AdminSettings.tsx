@@ -203,7 +203,7 @@ function DataBackupSection() {
           Zips the entire app database — one CSV per table (like the Export studio) plus a
           structured <code>data.json</code> and a <code>schema.sql</code> any SQL engine can import
           — and posts the archive into the APP group. Bot tokens are redacted; device login tokens
-          and chat relay rows are never included.
+          are never included.
         </p>
       </div>
 
@@ -375,7 +375,7 @@ function ResetDatabaseCard() {
           <TriangleAlert className="size-4" /> Danger zone — reset the database
         </h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          Permanently deletes every inventory item, rental, request, project, chat relay row and
+          Permanently deletes every inventory item, rental, request, project and
           person — except you (the admin confirming) and the app settings. A verification code is
           emailed to you, and you must type DELETE ALL to confirm. This cannot be undone.
         </p>
@@ -1145,7 +1145,6 @@ type SectionId =
   | "returns"
   | "structure"
   | "lists"
-  | "chat-backup"
   | "card-layout"
   | "permissions"
   | "danger";
@@ -1164,7 +1163,6 @@ const SECTIONS: { id: SectionId; label: string; icon: typeof Hash; hint: string;
   { id: "card-layout", label: "Card print layout", icon: Printer, hint: "Page, card size & position", color: "#2dd4bf" },
   { id: "permissions", label: "Device permissions", icon: ShieldCheck, hint: "Notifications, camera, storage, sounds", color: "#60a5fa" },
   { id: "lists", label: "Club lists", icon: Boxes, hint: "Positions & academic states", color: "#c084fc" },
-  { id: "chat-backup", label: "Chat backups", icon: MessageSquare, hint: "Archive destinations", color: "#facc15" },
   { id: "danger", label: "Danger zone", icon: TriangleAlert, hint: "Reset the database", color: "#f87171" },
 ];
 
@@ -1173,11 +1171,9 @@ export default function AdminSettings() {
   const cooldown = useQuery(api.settings.getReturnCooldown, {});
   const roles = useQuery(api.clubLists.getList, { key: "clubRoles" });
   const states = useQuery(api.clubLists.getList, { key: "academicStates" });
-  const backupDest = useQuery(api.settings.getChatBackupDestination, {});
 
   const saveTg = useMutation(api.settings.setTelegram);
   const saveCooldown = useMutation(api.settings.setReturnCooldown);
-  const saveBackupDest = useMutation(api.settings.setChatBackupDestination);
   const testSend = useAction(api.settings.sendTestMessage);
 
   const [section, setSection] = useState<SectionId>("telegram");
@@ -1193,11 +1189,6 @@ export default function AdminSettings() {
   const [testBusy, setTestBusy] = useState(false);
   const [cooldownHours, setCooldownHours] = useState("24");
   const [cdBusy, setCdBusy] = useState(false);
-  const [backupMode, setBackupMode] = useState<
-    "download" | "telegram" | "telegram-dm" | "webhook"
-  >("download");
-  const [backupChatId, setBackupChatId] = useState("");
-  const [backupBusy, setBackupBusy] = useState(false);
 
   // Sync once when the settings query resolves.
   const [synced, setSynced] = useState(false);
@@ -1212,12 +1203,6 @@ export default function AdminSettings() {
   useEffect(() => {
     if (cooldown !== undefined) setCooldownHours(String(cooldown));
   }, [cooldown]);
-  useEffect(() => {
-    if (backupDest !== undefined) {
-      setBackupMode(backupDest.mode);
-      setBackupChatId(backupDest.chatId ?? "");
-    }
-  }, [backupDest]);
 
   return (
     <AppShell>
@@ -1579,72 +1564,6 @@ export default function AdminSettings() {
               </p>
             </div>
             <PermissionsManager />
-          </section>
-        )}
-
-        {section === "chat-backup" && (
-          <section className="glass-3d rounded-lg border">
-            <div className="border-b px-5 py-3">
-              <h2 className="text-sm font-semibold">Chat backup destinations</h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Conversation archives are built in the browser as .zip files and are never stored in
-                the app database. Choose where archives should also be delivered when an admin
-                exports them from the Chat page.
-              </p>
-            </div>
-            <div className="space-y-3 p-5">
-              <div className="flex flex-wrap gap-2">
-                {(
-                  [
-                    ["download", "Browser download only"],
-                    ["telegram", "Telegram group"],
-                    ["telegram-dm", "Telegram DM (self)"],
-                  ] as const
-                ).map(([value, label]) => (
-                  <Button
-                    key={value}
-                    type="button"
-                    size="sm"
-                    variant={backupMode === value ? "default" : "outline"}
-                    onClick={() => setBackupMode(value)}
-                  >
-                    {label}
-                  </Button>
-                ))}
-              </div>
-              {backupMode === "telegram" && (
-                <div>
-                  <Label htmlFor="backup-chat-id">Destination chat id</Label>
-                  <Input
-                    id="backup-chat-id"
-                    value={backupChatId}
-                    onChange={(e) => setBackupChatId(e.target.value)}
-                    placeholder="e.g. -1001234567890 (empty = club group)"
-                    className="mt-1 max-w-sm"
-                  />
-                </div>
-              )}
-              <Button
-                size="sm"
-                disabled={backupBusy}
-                onClick={async () => {
-                  setBackupBusy(true);
-                  try {
-                    await saveBackupDest({
-                      mode: backupMode,
-                      chatId: backupChatId || undefined,
-                    });
-                    toast.success("Chat backup destination saved");
-                  } catch (e) {
-                    toast.error(asMessage(e));
-                  } finally {
-                    setBackupBusy(false);
-                  }
-                }}
-              >
-                Save destination
-              </Button>
-            </div>
           </section>
         )}
 
