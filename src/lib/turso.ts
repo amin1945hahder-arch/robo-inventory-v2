@@ -48,11 +48,22 @@ export function readTursoConfig(
   return { ok: true, config: { url, authToken } };
 }
 
-/** Database name for display: "my-db-org.turso.io" → "my-db". */
+/**
+ * Database name for display only.
+ *
+ * Turso hands out two host shapes and both must reduce to the database name:
+ *   my-db-ab12.turso.io                        (legacy)
+ *   my-db-org.aws-eu-west-1.turso.io           (current, region in the host)
+ * Database names may themselves contain hyphens, so the org segment is only
+ * dropped once the region label has been removed.
+ */
 export function tursoDatabaseName(url: string): string {
   const bare = url.replace(/^[a-z]+:\/\//, "").replace(/\?.*$/, "");
   const host = bare.split("/")[0] ?? bare;
-  return host.replace(/-\w+\.turso\.io$/i, "") || host;
+  const noDomain = host.replace(/\.turso\.io$/i, "");
+  const noRegion = noDomain.replace(/\.aws[\w-]*$/i, "");
+  const parts = noRegion.split("-");
+  return parts.length > 1 ? parts.slice(0, -1).join("-") : noRegion || host;
 }
 
 // ===== The ledger =========================================================

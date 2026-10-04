@@ -65,8 +65,15 @@ describe("turso configuration", () => {
   it("derives a short database name for display", () => {
     expect(tursoDatabaseName("libsql://roboshelf-abc123.turso.io")).toBe("roboshelf");
     // A host without an organisation suffix is already the database name.
-    expect(tursoDatabaseName("https://db.turso.io/?authToken=x")).toBe("db.turso.io");
+    expect(tursoDatabaseName("https://db.turso.io/?authToken=x")).toBe("db");
     expect(tursoDatabaseName("libsql://shelf-myorg.turso.io")).toBe("shelf");
+  });
+
+  it("handles the regional host shape and keeps hyphens in the db name", () => {
+    expect(tursoDatabaseName("libsql://roboshelf-amuntu.aws-eu-west-1.turso.io")).toBe(
+      "roboshelf",
+    );
+    expect(tursoDatabaseName("https://my-db-org.aws-us-east-1.turso.io")).toBe("my-db");
   });
 });
 
