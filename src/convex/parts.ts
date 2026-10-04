@@ -919,6 +919,14 @@ export const requestReturn = mutation({
       "active · return requested",
       `↩️ ${user.name ?? user.email ?? "A member"} requested to return ${group?.name ?? "part"} (${part?.tag ?? "?"}) — process it in the Requests console.`,
     );
+    // Edge ledger (Turso) — same append-only mirror as the admin decisions.
+    await ctx.scheduler.runAfter(0, internal.turso.recordShelfEvent, {
+      kind: "returned",
+      partTag: part?.tag,
+      partName: group?.name,
+      member: user.name ?? user.email,
+      note: "return requested",
+    });
   },
 });
 
@@ -969,6 +977,15 @@ export const decideRental = mutation({
           : `❌ Your request for ${group?.name ?? "a part"} (${part.tag}) was denied.`,
       });
     }
+    // Edge ledger (Turso): the decision is mirrored to an append-only table so
+    // the club keeps an audit trail that outlives the Convex database.
+    await ctx.scheduler.runAfter(0, internal.turso.recordShelfEvent, {
+      kind: approve ? "approved" : "denied",
+      partTag: part.tag,
+      partName: group?.name,
+      member: student?.name ?? student?.email,
+      note: rental.rentBroken ? "broken unit" : "",
+    });
     if (student?.telegramChatId || student?.telegramUsername) {
       // DM the member directly; the message already names the deciding admin.
       // We can't know the actor here (email link path), so it attributes to
@@ -1247,6 +1264,14 @@ export const adminRentalAction = mutation({
           decidedAt: now,
         });
         await touchPatch(ctx, part._id, { status: "rented", currentHolderId: rental.userId });
+        // Edge ledger (Turso) — append-only copy of the hand-over, outside Convex.
+        await ctx.scheduler.runAfter(0, internal.turso.recordShelfEvent, {
+          kind: "rented",
+          partTag: part.tag,
+          partName: group?.name,
+          member: student?.name ?? student?.email,
+          note: "manual hand-over",
+        });
       }
       // Package bookkeeping: when this hand-over was the LAST approved unit
       // of a bundle, stamp the package row so the bundle leaves the Pick-up
