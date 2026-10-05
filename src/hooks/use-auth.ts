@@ -4,7 +4,7 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { useConvexAuth, useQuery } from "convex/react";
 
 /** The live user document shape (inferred from the query). */
-type LiveUser = NonNullable<ReturnType<typeof useQuery<typeof api.users.currentUser>>>;
+export type LiveUser = NonNullable<ReturnType<typeof useQuery<typeof api.users.currentUser>>>;
 
 /**
  * Auth — works offline.
@@ -35,6 +35,51 @@ const USER_KEY = "roboshelf.authUser.v1";
  * drift out of sync when a field is added.
  */
 export type CachedUser = Partial<LiveUser> & { _id: LiveUser["_id"] };
+
+/**
+ * Canonical JSON: key order (at every nesting level) can differ between a
+ * localStorage seed and a fresh Convex document, so compare on sorted shape.
+ */
+function stableValue(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(stableValue);
+  if (v && typeof v === "object") {
+    const obj = v as Record<string, unknown>;
+    return Object.keys(obj)
+      .sort()
+      .map((k) => [k, stableValue(obj[k])]);
+  }
+  return v;
+}
+
+function stableJson(v: unknown): string {
+  return JSON.stringify(stableValue(v));
+}
+
+/**
+ * Decide the next cached identity from the live record.
+ *
+ * Returns `prev` UNCHANGED when the live document carries the same content —
+ * this is the render-loop fix. The sync effect below runs on every live-query
+ * push; returning a fresh object each time made the effect's `cachedUser`
+ * dependency change on every pass, which re-ran the effect, which returned a
+ * fresh object again — an endless setState loop in EVERY component that calls
+ * useAuth(). React's default-priority updates then preempt the router's
+ * startTransition render, so tab clicks changed the URL while the new page
+ * never committed (the "stuck navigation" that needed a manual reload).
+ *
+ * Convergence rule: same _id and same canonical content → same object →
+ * no state change → the effect stops re-running.
+ */
+export function mergeCachedUser(
+  prev: CachedUser | null,
+  live: LiveUser,
+): CachedUser {
+  const next: CachedUser = { ...live, _id: live._id };
+  if (prev && prev._id === next._id && stableJson(prev) === stableJson(next)) {
+    return prev;
+  }
+  return next;
+}
 
 /** Read the persisted identity (defensive: corrupt JSON → null). */
 export function readCachedUser(): CachedUser | null {
@@ -109,12 +154,15 @@ export function useAuth() {
   // the same identity without opening their own subscription.
   useEffect(() => {
     if (liveUser && typeof liveUser._id === "string") {
+      // publishAuthUser is id-guarded (same _id → no notification), so calling
+      // it on every pass is safe; the loop used to come from setCachedUser.
+      publishAuthUser({ ...liveUser, _id: liveUser._id });
       setCachedUser((prev) => {
-        const next: CachedUser = { ...liveUser, _id: liveUser._id };
-        if (prev?._id !== next._id || prev?.role !== next.role) writeCachedUser(next);
+        const next = mergeCachedUser(prev, liveUser);
+        // (writeCachedUser is idempotent — safe if StrictMode re-invokes this.)
+        if (next !== prev) writeCachedUser(next);
         return next;
       });
-      publishAuthUser({ ...liveUser, _id: liveUser._id });
     } else if (!liveUser && isAuthenticated === false) {
       // Signed out for real (not merely offline) → drop the identity.
       setCachedUser((prev) => {

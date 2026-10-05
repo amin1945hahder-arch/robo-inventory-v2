@@ -18,7 +18,16 @@ import {
  * Escalation (bounded by MAX_STALL_REMOUNTS) ends in window.location.reload(),
  * which is the one thing that always recovers — the behaviour we are replacing
  * with an automatic one.
+ *
+ * The reload fires AT MOST ONCE per browser session: if the screen is
+ * genuinely identical after a real reload (e.g. two routes that legitimately
+ * render the same text), re-reloading would be the exact "app reloads in a
+ * loop" bug this watchdog exists to prevent. After one reload the session
+ * flag blocks further ones, leaving remounts — which are invisible to the
+ * user — as the only escalation.
  */
+const RELOAD_FLAG = "roboshelf.navWatchdogReload";
+
 export function useNavigationWatchdog(settleMs = SETTLE_MS): number {
   const location = useLocation();
   const [remounts, setRemounts] = useState(0);
@@ -35,6 +44,12 @@ export function useNavigationWatchdog(settleMs = SETTLE_MS): number {
       if (result.action === "remount") {
         setRemounts((n) => n + 1);
       } else if (result.action === "reload") {
+        try {
+          if (window.sessionStorage.getItem(RELOAD_FLAG)) return;
+          window.sessionStorage.setItem(RELOAD_FLAG, String(Date.now()));
+        } catch {
+          /* storage unavailable — proceed, in-memory state resets on reload */
+        }
         window.location.reload();
       }
     }, settleMs);

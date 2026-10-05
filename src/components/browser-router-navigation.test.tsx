@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import { afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { BrowserRouter, Link, Route, Routes } from "react-router";
 import { PageErrorBoundary } from "@/components/PageErrorBoundary";
@@ -46,8 +46,10 @@ describe("BrowserRouter navigation", () => {
     expect(window.location.pathname).toBe("/inventory");
 
     // And a second, different destination replaces it rather than stacking.
-    window.history.replaceState(null, "", "/closets");
-    window.dispatchEvent(new PopStateEvent("popstate"));
+    await act(async () => {
+      window.history.replaceState(null, "", "/closets");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
     await waitFor(() => expect(screen.getByText("CLOSETS PAGE")).toBeTruthy());
     expect(screen.queryByText("INVENTORY PAGE")).toBeNull();
   });
