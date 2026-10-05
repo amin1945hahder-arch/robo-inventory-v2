@@ -154,11 +154,12 @@ export default function Printing3D() {
   // Admins hold the printer privilege implicitly — one gate drives all actions.
   const isReviewer = hasPrinterPrivilege(user);
 
-  const printers = useQuery(api.printing.listPrinters) ?? [];
-  const filaments = useQuery(api.printing.listFilaments) ?? [];
+  const printers = Array.isArray(useQuery(api.printing.listPrinters)) ? useQuery(api.printing.listPrinters) : [];
+  const filaments = Array.isArray(useQuery(api.printing.listFilaments)) ? useQuery(api.printing.listFilaments) : [];
   // Client-side enrichment: requesterName rides along from listJobs — the query
-  // returns it, but typing needs the extension.
-  const jobs = (useQuery(api.printing.listJobs) ?? []) as EnrichedJob[];
+  // returns it, but typing needs the extension. Guard against a non-array result
+  // during the loading edge so the farm page never crashes on navigation.
+  const jobs = (Array.isArray(useQuery(api.printing.listJobs)) ? (useQuery(api.printing.listJobs) as EnrichedJob[]) : []) as EnrichedJob[];
   const stats = useQuery(api.printing.farmStats);
 
   const approveJob = useMutation(api.printing.approveJob);
@@ -194,13 +195,16 @@ export default function Printing3D() {
   const [decideNote, setDecideNote] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const activeJobs = jobs.filter((j) => j.status === "printing");
-  const pendingJobs = jobs.filter((j) => j.status === "pending" && !j.archivedAt);
-  const approvedJobs = jobs.filter((j) => ["approved", "need_slicing", "slicing"].includes(j.status) && !j.archivedAt);
-  const queueJobs = jobs.filter((j) => j.status === "queued" && !j.archivedAt);
-  const historyJobs = jobs.filter((j) => ["done", "failed", "canceled", "denied"].includes(j.status) && !j.archivedAt);
-  const jobPrinter = (id: string | undefined) => printers.find((p) => p._id === id);
-  const jobSpool = (id: string | undefined) => filaments.find((f) => f._id === id);
+  const jobsArr = Array.isArray(jobs) ? jobs : [];
+  const activeJobs = jobsArr.filter((j) => j.status === "printing");
+  const pendingJobs = jobsArr.filter((j) => j.status === "pending" && !j.archivedAt);
+  const approvedJobs = jobsArr.filter((j) => ["approved", "need_slicing", "slicing"].includes(j.status) && !j.archivedAt);
+  const queueJobs = jobsArr.filter((j) => j.status === "queued" && !j.archivedAt);
+  const historyJobs = jobsArr.filter((j) => ["done", "failed", "canceled", "denied"].includes(j.status) && !j.archivedAt);
+  const printersArr = Array.isArray(printers) ? printers : [];
+  const filamentsArr = Array.isArray(filaments) ? filaments : [];
+  const jobPrinter = (id: string | undefined) => printersArr.find((p) => p._id === id);
+  const jobSpool = (id: string | undefined) => filamentsArr.find((f) => f._id === id);
 
   const act = async (fn: () => Promise<unknown>, ok: string) => {
     setBusy(true);
@@ -291,7 +295,7 @@ export default function Printing3D() {
           {/* ===== Dashboard tab ===== */}
           <TabsContent value="dashboard" className="flex flex-col gap-4">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {printers.length === 0 && (
+              {printersArr.length === 0 && (
                 <Card className="md:col-span-2 xl:col-span-3">
                   <CardContent className="flex flex-col items-center gap-2 py-10 text-center">
                     <Printer className="size-8 text-muted-foreground/50" />
@@ -304,7 +308,7 @@ export default function Printing3D() {
                   </CardContent>
                 </Card>
               )}
-              {printers.map((p) => {
+              {printersArr.map((p) => {
                 const current = activeJobs.find((j) => j.printerId === p._id);
                 const upcoming = queueJobs
                   .filter((j) => j.printerId === p._id)
@@ -349,20 +353,18 @@ export default function Printing3D() {
                       ) : (
                         <p className="rounded-lg border border-dashed p-3 text-center text-xs text-muted-foreground">
                           {upcoming.length > 0
-                            ? `Next in queue: ${upcoming[0].name}`
+                            ? `Next in queue: ${upcoming[0]?.name ?? "queued"}`
                             : p.status === "maintenance"
                               ? "Under maintenance"
                               : "Nothing printing — ready for jobs"}
                         </p>
                       )}
-                      <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                        {upcoming.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">                          {upcoming.length > 0 && (
                           <Badge variant="secondary" className="text-[11px]">
                             {upcoming.length} queued
                           </Badge>
                         )}
-                      </div>
-                      {isReviewer && (
+                      </div>                          {isReviewer && (
                         <div className="flex gap-2">
                           {current && (
                             <>
@@ -426,8 +428,7 @@ export default function Printing3D() {
           </TabsContent>
 
           {/* ===== Jobs tab ===== */}
-          <TabsContent value="jobs" className="flex flex-col gap-4">
-            {pendingJobs.length > 0 && (
+          <TabsContent value="jobs" className="flex flex-col gap-4">                {pendingJobs.length > 0 && (
               <section className="flex flex-col gap-2">
                 <h2 className="text-sm font-semibold text-muted-foreground">Awaiting approval</h2>
                 {pendingJobs.map((j) => (
@@ -583,7 +584,7 @@ export default function Printing3D() {
 
           {/* ===== Slicer tab ===== */}
           <TabsContent value="slicer" className="flex flex-col gap-4">
-            {printers.length === 0 ? (
+            {printersArr.length === 0 ? (
               <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
                 The slicer needs at least one registered printer for machine profiles — ask an admin to add one.
               </p>
@@ -608,12 +609,12 @@ export default function Printing3D() {
               </Button>
             </div>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {filaments.length === 0 && (
+              {filamentsArr.length === 0 && (
                 <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground sm:col-span-2 xl:col-span-3">
                   No spools registered yet — add the first one to start scheduling prints.
                 </p>
               )}
-              {filaments.map((f) => {
+              {filamentsArr.map((f) => {
                 const remaining = Number(f.remainingG);
                 const pct = Math.min(100, Math.round((remaining / Math.max(1, f.weightG)) * 100));
                 const low = f.lowAtG !== undefined && remaining <= f.lowAtG;
@@ -677,13 +678,13 @@ export default function Printing3D() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {printers.length === 0 ? (
+                {printersArr.length === 0 ? (
                   <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
                     No printers registered yet — streams appear once machines exist.
                   </p>
                 ) : (
                   <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                    {printers.map((p) => {
+                    {printersArr.map((p) => {
                       const current = activeJobs.find((j) => j.printerId === p._id);
                       return (
                         <div key={p._id} className="flex flex-col gap-2 glass-3d rounded-lg border bg-zinc-950/60 p-3">
@@ -720,7 +721,7 @@ export default function Printing3D() {
                 </Button>
               </div>
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {printers.map((p) => {
+                {printersArr.map((p) => {
                   const meta = PRINTER_META[p.status];
                   return (
                     <Card key={p._id} className={meta.className}>

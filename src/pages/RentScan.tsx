@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { asArray } from "@/lib/list";
 import { normalizeScan } from "@/lib/qr";
 import { toast } from "sonner";
 import { asMessage } from "@/components/EditRentalDialog";
@@ -78,7 +79,7 @@ export default function RentScan() {
     if (isAdmin) return;
     setBlock(null); // reset when another unit loads or the scan is cleared
     if (!partData?.part) return;
-    const st = partData.part.status;
+    const st = partData.part.status ?? "unknown";
     const rental = partData.shownRental;
     if (st === "available") return;
     if (st === "pending") {
@@ -306,10 +307,10 @@ export default function RentScan() {
                   <p className="font-mono text-xs text-muted-foreground">{partData.part.tag}</p>
                   <h2 className="text-xl font-semibold tracking-tight">{partData.group?.name}</h2>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {[partData.closet?.name, partData.category?.name].filter(Boolean).join(" · ")}
+                    {asArray([partData.closet?.name, partData.category?.name] as const).filter(Boolean).join(" · ")}
                   </p>
                 </div>
-                <StatusBadge status={partData.part.status} />
+                <StatusBadge status={partData.part?.status} />
               </div>
 
               {/* STUDENT: available -> request */}

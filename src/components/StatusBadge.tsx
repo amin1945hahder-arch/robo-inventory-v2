@@ -20,8 +20,9 @@ const MAP: Record<string, { label: string; className: string }> = {
   dismantled: { label: "Dismantled", className: "border-rose-500/40 bg-rose-500/10 text-rose-400" },
 };
 
-export function StatusBadge({ status, className }: { status: string; className?: string }) {
-  const cfg = MAP[status] ?? { label: status, className: "border-border bg-muted text-muted-foreground" };
+export function StatusBadge({ status, className }: { status?: string | null; className?: string }) {
+  const key = status == null ? "" : String(status);
+  const cfg = MAP[key] ?? { label: key || "—", className: "border-border bg-muted text-muted-foreground" };
   return (
     <Badge variant="outline" className={cn("font-medium", cfg.className, className)}>
       {cfg.label}
