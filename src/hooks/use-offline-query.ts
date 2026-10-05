@@ -39,15 +39,7 @@ import {
 import { loadQueryEntry, saveQueryEntry } from "@/lib/sync/queryStore";
 import { bumpDataSyncListen } from "@/lib/sync/bus";
 import { getAuthUserSync, subscribeAuthUser } from "@/hooks/use-auth";
-
-/** Resolve the "parts/listMyRentals" identifier from a query reference. */
-function queryNameOf(query: unknown): string {
-  const url = (query as { url?: string } | undefined)?.url;
-  if (typeof url !== "string") return "unknown";
-  const parts = url.split("/");
-  // apiUrl: "https://host/api/v1", then module, then function name.
-  return `${parts[parts.length - 2] ?? "?"}/${parts[parts.length - 1] ?? "?"}`;
-}
+import { queryNameOf } from "@/lib/sync/queryName";
 
 export function useOfflineQuery<Query extends FunctionReference<"query">>(
   query: Query,

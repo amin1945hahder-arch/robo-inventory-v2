@@ -154,13 +154,17 @@ export default function Printing3D() {
   // Admins hold the printer privilege implicitly — one gate drives all actions.
   const isReviewer = hasPrinterPrivilege(user);
 
-  const printers = Array.isArray(useQuery(api.printing.listPrinters)) ? useQuery(api.printing.listPrinters) : [];
-  const filaments = Array.isArray(useQuery(api.printing.listFilaments)) ? useQuery(api.printing.listFilaments) : [];
+  // One subscription per query; the coercion only guards the render below.
+  const printersQ = useQuery(api.printing.listPrinters);
+  const filamentsQ = useQuery(api.printing.listFilaments);
   // Client-side enrichment: requesterName rides along from listJobs — the query
-  // returns it, but typing needs the extension. Guard against a non-array result
-  // during the loading edge so the farm page never crashes on navigation.
-  const jobs = (Array.isArray(useQuery(api.printing.listJobs)) ? (useQuery(api.printing.listJobs) as EnrichedJob[]) : []) as EnrichedJob[];
+  // returns it, but typing needs the extension.
+  const jobsQ = useQuery(api.printing.listJobs) as EnrichedJob[] | undefined;
   const stats = useQuery(api.printing.farmStats);
+
+  const printers = Array.isArray(printersQ) ? printersQ : [];
+  const filaments = Array.isArray(filamentsQ) ? filamentsQ : [];
+  const jobs = Array.isArray(jobsQ) ? jobsQ : [];
 
   const approveJob = useMutation(api.printing.approveJob);
   const denyJob = useMutation(api.printing.denyJob);

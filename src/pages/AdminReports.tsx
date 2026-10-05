@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useAction } from "convex/react";
+import { useMemo, useState } from "react";
 import { useOfflineQuery as useQuery } from "@/hooks/use-offline-query";
 import {
   Bar,
@@ -28,8 +27,7 @@ import {
   Card,
   CardContent,
 } from "@/components/ui/card";
-import { Database, Download, Loader2, RefreshCw } from "lucide-react";
-import { shelfEventLabel, type ShelfEvent } from "@/lib/turso";
+import { Download } from "lucide-react";
 
 const STATUSES = [
   "all",
@@ -271,137 +269,7 @@ export default function AdminReports() {
             </div>
           )}
         </section>
-
-        <EdgeLedgerCard />
       </div>
     </AppShell>
-  );
-}
-
-/**
- * Edge ledger — the append-only shelf_events table kept in Turso (edge SQLite)
- * next to Convex. Every rental decision is mirrored there by a scheduled node
- * action, so this trail survives a Convex reset and can be read from anywhere.
- * Renders as "not connected" (with the exact missing key) until the two
- * Turso environment variables are present.
- */
-function EdgeLedgerCard() {
-  const ledger = useAction(api.turso.ledger);
-  const append = useAction(api.turso.appendEvent);
-  const [data, setData] = useState<Awaited<ReturnType<typeof ledger>> | null>(
-    null,
-  );
-  const [busy, setBusy] = useState(false);
-
-  const load = useCallback(async () => {
-    try {
-      setData(await ledger({ limit: 25 }));
-    } catch (e) {
-      setData({
-        configured: false,
-        problem: e instanceof Error ? e.message : String(e),
-        database: null,
-        events: [],
-        summary: { total: 0, byKind: [], uniqueParts: 0, uniqueMembers: 0, lastAt: null, firstAt: null },
-      });
-    }
-  }, [ledger]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  const logTest = async () => {
-    setBusy(true);
-    try {
-      await append({ kind: "approved", note: "manual check from Reports" });
-      await load();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const when = (t: number) =>
-    new Date(t).toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-
-  return (
-    <section className="glass rounded-xl border p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="flex items-center gap-2 font-semibold">
-            <Database className="size-4 text-cyan-400" /> Edge ledger
-            <span className="text-xs font-normal text-muted-foreground">
-              · append-only mirror in Turso
-            </span>
-          </h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {data === null
-              ? "Loading…"
-              : data.configured
-                ? `Connected to “${data.database}” · ${data.summary.total} event${data.summary.total === 1 ? "" : "s"} · ${data.summary.uniqueParts} part${data.summary.uniqueParts === 1 ? "" : "s"} · ${data.summary.uniqueMembers} member${data.summary.uniqueMembers === 1 ? "" : "s"}`
-                : `Not connected — ${data.problem}`}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => void load()}
-            disabled={busy}
-          >
-            <RefreshCw className="size-3.5" /> Refresh
-          </Button>
-          {data?.configured && (
-            <Button size="sm" onClick={() => void logTest()} disabled={busy}>
-              {busy ? <Loader2 className="size-3.5 animate-spin" /> : null}
-              Log a test event
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {data?.summary.byKind.length ? (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {data.summary.byKind.map((k) => (
-            <span
-              key={k.kind}
-              className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-0.5 text-[11px] text-cyan-300"
-            >
-              {k.label} · {k.count}
-            </span>
-          ))}
-        </div>
-      ) : null}
-
-      {data?.events.length ? (
-        <div className="mt-3 max-h-72 overflow-auto rounded-md border">
-          <table className="w-full text-sm">
-            <tbody className="divide-y">
-              {data.events.map((e: ShelfEvent, i: number) => (
-                <tr key={`${e.at}-${i}`} className="hover:bg-muted/30">
-                  <td className="whitespace-nowrap px-3 py-2 text-xs text-muted-foreground">
-                    {e.at > 0 ? when(e.at) : "—"}
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-2 text-xs">
-                    {shelfEventLabel(e.kind)}
-                  </td>
-                  <td className="px-3 py-2 font-mono text-xs">{e.partTag || "—"}</td>
-                  <td className="px-3 py-2 text-xs">{e.partName || "—"}</td>
-                  <td className="px-3 py-2 text-xs">{e.member || "—"}</td>
-                  <td className="px-3 py-2 text-xs text-muted-foreground">
-                    {e.note || "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : null}
-    </section>
   );
 }

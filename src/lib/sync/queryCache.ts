@@ -34,6 +34,17 @@ export type Freshness = "miss" | "fresh" | "stale";
 /** Default revalidation window: results are trusted this long. */
 export const DEFAULT_MAX_AGE_MS = 10 * 60 * 1000;
 
+/**
+ * Cache layout/storage version.
+ *
+ * Bump this whenever a cached query result's SHAPE changes (or the key layout
+ * changes). The version is part of every key, so results written by an older
+ * deployment are never read back — a stale entry can therefore never be handed
+ * to a page expecting the new shape. This is the guard that stops a deploy from
+ * blanking every route on devices that still hold an old cache.
+ */
+export const CACHE_VERSION = 2;
+
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
@@ -65,7 +76,7 @@ export function stableStringify(value: unknown): string {
  */
 export function cacheKey(queryName: string, args: unknown, userId: string | null): string {
   const scope = userId || "anon";
-  return `${scope}|${queryName}|${stableStringify(args)}`;
+  return `${scope}|v${CACHE_VERSION}|${queryName}|${stableStringify(args)}`;
 }
 
 /**

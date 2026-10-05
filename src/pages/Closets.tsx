@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
-import { useAction } from "convex/react";
+import { useMutation } from "convex/react";
 import { useOfflineQuery as useQuery } from "@/hooks/use-offline-query";
 import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
@@ -26,25 +26,19 @@ import { compressImageFile } from "@/lib/utils";
 import { toast } from "sonner";
 import { asMessage } from "@/components/EditRentalDialog";
 import { Pencil, Plus, Trash2, Warehouse } from "lucide-react";
-import {
-  useTursoClosets,
-  useTursoGroups,
-} from "@/hooks/use-turso-catalog";
 type Stats = { total: number; available: number; rented: number; onProject: number; broken: number; pending: number };
 
 export default function Closets() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
-  // Turso is the store now: these two reads come from the edge SQLite
-  // database (polled), not from Convex's database.
-  const { data: closets, refresh: refreshClosets } = useTursoClosets();
-  const { data: groups } = useTursoGroups();
+  // Convex is the single source of truth for the catalog: these reads are
+  // reactive subscriptions and the writes are plain mutations.
+  const closets = useQuery(api.catalog.listClosets, {});
+  const groups = useQuery(api.catalog.listGroups, {});
   const allGroups = useQuery(api.catalog.childGroupOptions, {});
   const stats = useQuery(api.stats.groupStats, {});
-  // Writes go to Turso as well, so this table is fully migrated: reads and
-  // writes both come from the edge database, never from Convex.
-  const remove = useAction(api.tursoCatalog.deleteCloset);
-  const upsertCloset = useAction(api.tursoCatalog.upsertCloset);
+  const remove = useMutation(api.catalog.deleteCloset);
+  const upsertCloset = useMutation(api.catalog.upsertCloset);
 
   // Master containers (group-of-groups) per storage: containers whose OWN
   // closetId points at the storage, or that sit inside containers of it.
@@ -119,8 +113,6 @@ export default function Closets() {
         imageUrl: imageUrl.trim(), // "" clears
       });
       toast.success(editing ? "Storage updated" : "Storage added");
-      // Actions don't push to subscribers, so pull the fresh list explicitly.
-      void refreshClosets();
       setOpen(false);
     } catch (e) {
       toast.error(asMessage(e));
@@ -134,7 +126,6 @@ export default function Closets() {
     try {
       await remove({ id: c._id });
       toast.success(`Storage “${c.name}” deleted`);
-      void refreshClosets();
     } catch (e) {
       toast.error(asMessage(e));
     }
