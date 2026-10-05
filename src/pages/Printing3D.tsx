@@ -332,9 +332,8 @@ export default function Printing3D() {
                         </div>
                         <Badge variant="outline" className="shrink-0">{meta.label}</Badge>
                       </div>
-                    </CardHeader>
-                    <CardContent className="flex flex-col gap-3">
-                      {current ? (
+                    </CardHeader>                <CardContent className="flex flex-col gap-3">
+                {current ? (
                         <div className="flex flex-col gap-2 glass-3d rounded-lg border bg-background/60 p-3">
                           <div className="flex items-center justify-between gap-2">
                             <p className="truncate text-sm font-medium">{current.name}</p>
@@ -359,12 +358,14 @@ export default function Printing3D() {
                               : "Nothing printing — ready for jobs"}
                         </p>
                       )}
-                      <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">                          {upcoming.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                        {upcoming.length > 0 && (
                           <Badge variant="secondary" className="text-[11px]">
                             {upcoming.length} queued
                           </Badge>
                         )}
-                      </div>                          {isReviewer && (
+                      </div>
+                      {isReviewer && (
                         <div className="flex gap-2">
                           {current && (
                             <>
@@ -590,8 +591,8 @@ export default function Printing3D() {
               </p>
             ) : (
               <SlicerStudio
-                printers={printers}
-                filaments={filaments}
+                printers={printersArr}
+                filaments={filamentsArr}
                 userRole={user?.role}
                 userPrinterRole={user?.printerRole}
               />

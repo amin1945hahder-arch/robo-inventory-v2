@@ -35,9 +35,10 @@ export default function Dashboard() {
   const closets = useQuery(api.catalog.listClosets, {});
 
 
-  const myActive = (my ?? []).filter((r) => r.rental.status === "active");
-  const myPending = (my ?? []).filter((r) => r.rental.status === "pending");
-  const myOnProject = (my ?? []).filter((r) => r.rental.status === "on_project");
+  const myArr = Array.isArray(my) ? my : [];
+  const myActive = myArr.filter((r) => r?.rental?.status === "active");
+  const myPending = myArr.filter((r) => r?.rental?.status === "pending");
+  const myOnProject = myArr.filter((r) => r?.rental?.status === "on_project");
 
   const statCards = isAdmin
     ? [
@@ -112,19 +113,19 @@ export default function Dashboard() {
                 View all
               </Link>
             </div>
-            {pending === undefined || my === undefined ? (
+            {!Array.isArray(pending) || !Array.isArray(my) ? (
               <LoadingGif size={40} label={null} />
             ) : isAdmin && pending.length > 0 ? (
               <ul className="divide-y">
-                {pending.slice(0, 5).map(({ rental, part, group, student }) => (
-                  <li key={rental._id} className="flex items-center justify-between gap-3 px-5 py-3">
+                {pending.slice(0, 5).map((r) => (
+                  <li key={r.rental._id} className="flex items-center justify-between gap-3 px-5 py-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium">
-                        {group?.name ?? "Part"} <span className="font-mono text-xs text-muted-foreground">{part?.tag}</span>
+                        {r.group?.name ?? "Part"} <span className="font-mono text-xs text-muted-foreground">{r.part?.tag}</span>
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {student?.name ?? student?.email ?? "Member"} ·{" "}
-                        {new Date(rental.requestedAt).toLocaleDateString()}
+                        {r.student?.name ?? r.student?.email ?? "Member"} ·{" "}
+                        {new Date(r.rental.requestedAt).toLocaleDateString()}
                       </p>
                     </div>
                     <StatusBadge status="pending" />
@@ -139,13 +140,22 @@ export default function Dashboard() {
               </p>
             ) : (
               <ul className="divide-y">
-                {[...myPending, ...myActive].slice(0, 5).map(({ rental, part, group }) => (
-                  <li key={rental._id} className="flex items-center justify-between gap-3 px-5 py-3">
+                {myPending.slice(0, 5).map((r) => (
+                  <li key={r.rental._id} className="flex items-center justify-between gap-3 px-5 py-3">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{group?.name ?? "Part"}</p>
-                      <p className="font-mono text-xs text-muted-foreground">{part?.tag}</p>
+                      <p className="truncate text-sm font-medium">{r.group?.name ?? "Part"}</p>
+                      <p className="font-mono text-xs text-muted-foreground">{r.part?.tag}</p>
                     </div>
-                    <StatusBadge status={rental.status} />
+                    <StatusBadge status={r.rental?.status} />
+                  </li>
+                ))}
+                {myActive.slice(0, Math.max(0, 5 - myPending.length)).map((r) => (
+                  <li key={r.rental._id} className="flex items-center justify-between gap-3 px-5 py-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{r.group?.name ?? "Part"}</p>
+                      <p className="font-mono text-xs text-muted-foreground">{r.part?.tag}</p>
+                    </div>
+                    <StatusBadge status={r.rental?.status} />
                   </li>
                 ))}
               </ul>
