@@ -110,8 +110,25 @@ export function migrationMetaSql(): string[] {
   ];
 }
 
+/**
+ * Schema tables that must NEVER be copied into Turso.
+ *
+ * `tursoHeads` is Convex-side INFRASTRUCTURE: it publishes per-table change
+ * heads so the frontend knows when to refetch a Turso-backed action. Turso
+ * already tracks its own heads in `_changes`, so a copy of this table would be
+ * dead weight that costs rows on the free plan — and, worse, it would make
+ * `verify` report a permanent mismatch (Convex holds the live head rows, Turso
+ * holds none) that has nothing to do with the data migration.
+ */
+export const CONVEX_ONLY_TABLES: ReadonlySet<string> = new Set(["tursoHeads"]);
+
+/** The app-data tables: the full schema minus the Convex-only infrastructure. */
+export function appTables(): string[] {
+  return Object.keys(MIGRATION_TABLES).filter((t) => !CONVEX_ONLY_TABLES.has(t));
+}
+
 /** Every statement needed to prepare a target database. */
-export function migrationSchemaSql(tables: readonly string[] = Object.keys(MIGRATION_TABLES)): string[] {
+export function migrationSchemaSql(tables: readonly string[] = appTables()): string[] {
   return [...migrationMetaSql(), ...tables.flatMap(migrationTableSql)];
 }
 
@@ -210,6 +227,23 @@ export function insertSql(table: string): { sql: string; columns: string[] } {
   };
 }
 
+/**
+ * One multi-row `INSERT OR REPLACE` for `n` rows.
+ *
+ * The migration runs over Turso's HTTP client, where EVERY statement is an
+ * HTTP round-trip: writing a few thousand rows one statement at a time exceeded
+ * the action time limit. Batching `n` rows into a single statement cuts those
+ * round-trips by ~n. Callers keep batches well under SQLite's bound-parameter
+ * limit (columns × n ≪ 32766).
+ */
+export function insertSqlMany(table: string, n: number): { sql: string; columns: string[] } {
+  const single = insertSql(table);
+  if (n <= 1) return single;
+  const tuple = `(${single.columns.map(() => "?").join(", ")})`;
+  const head = `INSERT OR REPLACE INTO ${q(table)} (${single.columns.map(q).join(", ")}) VALUES `;
+  return { sql: head + Array.from({ length: n }, () => tuple).join(", "), columns: single.columns };
+}
+
 // ===== Checksums ===========================================================
 
 /** FNV-1a over a canonical JSON encoding — stable across runs and platforms. */
@@ -276,7 +310,7 @@ export async function importDump(
 ): Promise<MigrationReport> {
   const mode = opts.mode ?? "merge";
   const startedAt = opts.now ?? Date.now();
-  const wanted = opts.tables ?? Object.keys(MIGRATION_TABLES);
+  const wanted = opts.tables ?? appTables();
   const tables: TableReport[] = [];
 
   for (const sql of migrationMetaSql()) await exec.execute(sql);
@@ -303,39 +337,53 @@ export async function importDump(
       for (const sql of migrationTableSql(table)) await exec.execute(sql);
       if (mode === "replace") await exec.execute(`DELETE FROM ${q(table)}`);
 
-      const stmt = insertSql(table);
+      // Two batching strategies, because the two libSQL drivers differ:
+      //
+      //  * `executeBatch` (the node-runtime client) sends N statements in one
+      //    round trip via the driver batch API.
+      //  * `insertSqlMany` folds N rows into ONE multi-row `INSERT OR REPLACE`,
+      //    which needs nothing but plain `execute` — so it also works for the
+      //    default-runtime client that has no batch API.
+      //
+      // Both are required: per-row writes mean one HTTP round trip each, which
+      // blows the Convex action time limit on a few thousand rows. Prefer the
+      // driver batch when it exists, otherwise use the multi-row statement.
+      const BATCH = 100;
       const write = async () => {
         let written = 0;
-        const batch = exec.executeBatch
-          ? async () => {
-              let chunk: { sql: string; args: unknown[] }[] = [];
-              for (const doc of rows) {
-                if (doc?._id === undefined || doc?._id === null) continue;
-                const values = encodeRow(doc, columns);
-                chunk.push({
-                  sql: stmt.sql,
-                  args: stmt.columns.map((c) => values[c] ?? null),
-                });
-                if (chunk.length >= BATCH_SIZE) {
-                  await exec.executeBatch!(chunk);
-                  written += chunk.length;
-                  chunk = [];
-                }
-              }
-              if (chunk.length) {
-                await exec.executeBatch!(chunk);
-                written += chunk.length;
-              }
+        if (exec.executeBatch) {
+          const stmt = insertSql(table);
+          let chunk: { sql: string; args: unknown[] }[] = [];
+          for (const doc of rows) {
+            if (doc?._id === undefined || doc?._id === null) continue;
+            const values = encodeRow(doc, columns);
+            chunk.push({ sql: stmt.sql, args: stmt.columns.map((c) => values[c] ?? null) });
+            if (chunk.length >= BATCH_SIZE) {
+              await exec.executeBatch(chunk);
+              written += chunk.length;
+              chunk = [];
             }
-          : async () => {
-              for (const doc of rows) {
-                if (doc?._id === undefined || doc?._id === null) continue;
-                const values = encodeRow(doc, columns);
-                await exec.execute(stmt.sql, stmt.columns.map((c) => values[c] ?? null));
-                written++;
-              }
-            };
-        await batch();
+          }
+          if (chunk.length) {
+            await exec.executeBatch(chunk);
+            written += chunk.length;
+          }
+        } else {
+          for (let i = 0; i < rows.length; i += BATCH) {
+            const chunk = rows
+              .slice(i, i + BATCH)
+              .filter((doc) => doc?._id !== undefined && doc?._id !== null);
+            if (chunk.length === 0) continue;
+            const stmt = insertSqlMany(table, chunk.length);
+            const args: unknown[] = [];
+            for (const doc of chunk) {
+              const values = encodeRow(doc, columns);
+              for (const c of stmt.columns) args.push(values[c] ?? null);
+            }
+            await exec.execute(stmt.sql, args);
+            written += chunk.length;
+          }
+        }
         return written;
       };
       const written = exec.transaction ? await exec.transaction(write) : await write();
@@ -414,7 +462,7 @@ export type VerifyReport = {
 export async function verifyDump(
   exec: SqlExecutor,
   dump: Dump,
-  tables: readonly string[] = Object.keys(MIGRATION_TABLES),
+  tables: readonly string[] = appTables(),
 ): Promise<VerifyReport> {
   const out: VerifyReport["tables"] = [];
 

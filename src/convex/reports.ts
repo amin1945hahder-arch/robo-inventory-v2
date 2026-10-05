@@ -1,30 +1,52 @@
 import { v } from "convex/values";
-import { query } from "./_generated/server";
-import { requireAdmin } from "./lib";
-import { docCache } from "./parts";
+import { action } from "./_generated/server";
+import { requireActionAdmin } from "./authActions";
+import { loadTurso } from "./tursoDb";
+
+// Joined report datasets. Admin-only. Converted to read TURSO.
+
+/** Per-execution memo for joined docs — keeps repeated reads of heavy user
+ *  docs (base64 avatars) from re-hitting the database per row. db-based twin of
+ *  the helper in parts.ts (which is still Convex-side). */
+function docCache() {
+  const cache = new Map<string, Promise<any>>();
+  return {
+    async get(db: any, id: string | undefined): Promise<any> {
+      if (!id) return null;
+      const existing = cache.get(id);
+      if (existing) return existing;
+      const promise: Promise<any> = db.get(id);
+      cache.set(id, promise);
+      return promise;
+    },
+  };
+}
 
 // Full rental history — every request ever made, newest first, with the
 // student, part tag, group and project joined in. Optional status + search.
-export const history = query({
+export const history = action({
   args: {
     status: v.optional(v.string()),
     q: v.optional(v.string()),
   },
   handler: async (ctx, { status, q }) => {
-    await requireAdmin(ctx);
-    let rows = await ctx.db.query("rentals").collect();
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+
+    let rows = (await db.query("rentals").collect()) as any[];
     if (status && status !== "all") {
       rows = rows.filter((r) => r.status === status);
     }
-    // Cached joins — see docCache() in parts.ts: users with base64 avatars
-    // appear on many rental rows and would be re-read per row otherwise.
+    // Cached joins — users with base64 avatars appear on many rental rows and
+    // would be re-read per row otherwise.
     const cache = docCache();
-    const out = [];
+    const out: any[] = [];
     for (const r of rows.sort((a, b) => b.requestedAt - a.requestedAt)) {
-      const part = await cache.get(ctx, r.partId);
-      const group = part ? await cache.get(ctx, part.groupId) : null;
-      const project = r.projectId ? await cache.get(ctx, r.projectId) : null;
-      const student = await cache.get(ctx, r.userId);
+      const part = await cache.get(db, r.partId);
+      const group = part ? await cache.get(db, part.groupId) : null;
+      const project = r.projectId ? await cache.get(db, r.projectId) : null;
+      const student = await cache.get(db, r.userId);
       const entry = {
         rental: r,
         part,
@@ -63,30 +85,33 @@ export const history = query({
 });
 
 // Aggregate stats + the most-rented groups (for charts).
-export const stats = query({
+export const stats = action({
   args: {},
   handler: async (ctx) => {
-    await requireAdmin(ctx);
-    const parts = await ctx.db
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+
+    const parts = (await db
       .query("parts")
       .filter((q) => q.neq(q.field("deleted"), true))
-      .collect();
-    const groups = await ctx.db
+      .collect()) as any[];
+    const groups = (await db
       .query("groups")
       .filter((q) => q.neq(q.field("deleted"), true))
-      .collect();
-    const projects = await ctx.db
+      .collect()) as any[];
+    const projects = (await db
       .query("projects")
       .filter((q) => q.neq(q.field("deleted"), true))
-      .collect();
-    const rentals = await ctx.db.query("rentals").collect();
-    const users = await ctx.db.query("users").collect();
+      .collect()) as any[];
+    const rentals = (await db.query("rentals").collect()) as any[];
+    const users = (await db.query("users").collect()) as any[];
 
     const groupName = new Map<string, string>(groups.map((g) => [g._id, g.name]));
     const byGroup = new Map<string, number>();
     const pcache = docCache();
     for (const r of rentals) {
-      const part = await pcache.get(ctx, r.partId);
+      const part = await pcache.get(db, r.partId);
       if (!part) continue;
       byGroup.set(part.groupId, (byGroup.get(part.groupId) ?? 0) + 1);
     }

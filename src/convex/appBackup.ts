@@ -5,11 +5,13 @@ import {
   internalMutation,
   internalQuery,
   mutation,
-  query,
 } from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { requireAdmin } from "./lib";
+import { requireActionAdmin } from "./authActions";
+import { loadTurso } from "./tursoDb";
 import {
   backupFileName,
   buildBackupZip,
@@ -115,11 +117,24 @@ export type BackupSchedule = {
 
 const BACKUP_KEY = "data_backup_schedule";
 
-export const getBackupSettings = query({
+export const getBackupSettings = action({
   args: {},
   handler: async (ctx) => {
-    await requireAdmin(ctx);
-    return getBackupSchedule(ctx);
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const row = await db
+      .query<Doc<"settings">>("settings")
+      .withIndex("by_key", (q) => q.eq("key", BACKUP_KEY))
+      .unique();
+    const parsed = row?.value ? (JSON.parse(row.value) as BackupSchedule) : null;
+    return {
+      enabled: parsed?.enabled ?? false,
+      dayOfMonth: parsed?.dayOfMonth ?? 1,
+      threadId: parsed?.threadId,
+      lastRunAt: parsed?.lastRunAt,
+      lastResult: parsed?.lastResult,
+    };
   },
 });
 

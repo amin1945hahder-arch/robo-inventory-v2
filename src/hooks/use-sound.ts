@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
-import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { useOfflineQuery as useQuery } from "@/hooks/use-offline-query";
 import { scheduleSound, soundDuration, type SoundSpec } from "@/lib/sound-engine";
 
 /**

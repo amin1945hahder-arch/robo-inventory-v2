@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { useMutation, useQuery, useConvexConnectionState } from "convex/react";
+import { useMutation, useConvexConnectionState } from "convex/react";
+import { useOfflineQuery as useQuery } from "@/hooks/use-offline-query";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -44,6 +45,7 @@ import { useSound } from "@/hooks/use-sound";
 import { useAppearance } from "@/hooks/use-appearance";
 import { useFont } from "@/hooks/use-font";
 import { usePush } from "@/hooks/use-push";
+import { useTursoHeads } from "@/hooks/use-turso-heads";
 import { usePermission } from "@/hooks/use-permissions";
 import { useOnline } from "@/hooks/use-online";
 import { setBackendConnected } from "@/lib/offline";
@@ -98,6 +100,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const myCounts = useQuery(api.parts.myRequestCounts, {});
   // OS-level push notifications (service worker) for the wrapped APK/EXE apps.
   usePush();
+  // Turso reactivity bridge: watch the change-head mirror and revalidate the
+  // offline caches only for tables whose head actually moved (0 reads when
+  // nothing changed). Inert until the Turso conversion populates the registry.
+  useTursoHeads();
 
   // Offline mode: the browser's network events PLUS the live Convex websocket
   // state feed one central flag (src/lib/offline.ts). When it flips, the

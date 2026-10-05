@@ -17,12 +17,24 @@ export async function requireAdmin(ctx: QueryCtx) {
   return user;
 }
 
-/** Guests (anonymous sessions) can browse everything but never interact.
- *  Brand-new members are treated like guests too: until they fill their
- *  profile AND an admin approves it, every interaction is blocked.
- *  Legacy/seeded members (data present, no approval flag yet) are grandfathered. */
-export async function requireNonGuest(ctx: QueryCtx) {
-  const user = await requireUser(ctx);
+/**
+ * Shared guest/approval rule. Guests (anonymous sessions) can browse
+ * everything but never interact. Brand-new members are treated like guests
+ * too: until they fill their profile AND an admin approves it, every
+ * interaction is blocked. Legacy/seeded members (data present, no approval
+ * flag yet) are grandfathered.
+ *
+ * Pure (no ctx) so the SAME rule backs both the Convex query/mutation gates
+ * below and the action gates in `authActions.ts` — one rule, two entry points.
+ */
+export function assertInteractionAllowed(user: {
+  isAnonymous?: boolean;
+  role?: string;
+  name?: string;
+  studentId?: string;
+  phone?: string;
+  profileApproved?: boolean;
+}): void {
   if (user.isAnonymous) {
     throw new Error("Guests are view-only — sign in to interact");
   }
@@ -39,6 +51,11 @@ export async function requireNonGuest(ctx: QueryCtx) {
       );
     }
   }
+}
+
+export async function requireNonGuest(ctx: QueryCtx) {
+  const user = await requireUser(ctx);
+  assertInteractionAllowed(user);
   return user;
 }
 
@@ -49,22 +66,7 @@ export async function requireInteractingMember(ctx: QueryCtx) {
   const user = await requireNonStudent(ctx);
   // Re-run the guest/approval checks from requireNonGuest against the
   // non-student user we already have.
-  if (user.isAnonymous) {
-    throw new Error("Guests are view-only — sign in to interact");
-  }
-  if (user.role !== "admin") {
-    const hasData = Boolean(user.name && (user.studentId || user.phone));
-    const allowed =
-      user.profileApproved === true ||
-      (user.profileApproved === undefined && hasData);
-    if (!allowed) {
-      throw new Error(
-        user.name || user.studentId || user.phone
-          ? "Your profile is awaiting admin approval — you can browse but not interact yet"
-          : "Complete your profile first — it must be approved by an admin before you can interact",
-      );
-    }
-  }
+  assertInteractionAllowed(user);
   return user;
 }
 

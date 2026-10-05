@@ -29,11 +29,21 @@ export async function loadQueryEntry<T>(key: string): Promise<CacheEntry<T> | un
   }
 }
 
-/** Persist one query result (fire-and-forget; failures are non-fatal). */
-export async function saveQueryEntry<T>(key: string, value: T, storedAt: number): Promise<void> {
+/**
+ * Persist one query result (fire-and-forget; failures are non-fatal).
+ * `heads` optionally records the Turso change heads at fetch time so a later
+ * mount can skip the read while nothing has changed.
+ */
+export async function saveQueryEntry<T>(
+  key: string,
+  value: T,
+  storedAt: number,
+  heads?: CacheEntry<T>["heads"],
+): Promise<void> {
   try {
     if (!store) return;
-    await set(keyOf(key), { value, storedAt } satisfies CacheEntry<T>, store);
+    const entry: CacheEntry<T> = heads ? { value, storedAt, heads } : { value, storedAt };
+    await set(keyOf(key), entry, store);
   } catch {
     /* quota / private mode — the cache simply won't survive the session */
   }

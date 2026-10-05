@@ -1,9 +1,12 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { action, mutation } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { requireNonStudent, safeImage } from "./lib";
+import { requireActionNonStudent, type AuthUserDoc } from "./authActions";
+import { loadTurso } from "./tursoDb";
+import type { BridgeDb } from "../lib/turso-bridge";
 import { telegramDM } from "./notify";
 import { diffLines, diffStat, mergeLines, type RowDecision } from "../lib/lineDiff";
 
@@ -84,6 +87,51 @@ async function userAvatar(ctx: QueryCtx | MutationCtx, id: Id<"users">) {
   return safeImage(u?.image);
 }
 
+// ---- Turso twins of the helpers above (used by the converted actions) ----
+
+async function projectAccessDb(
+  db: BridgeDb,
+  user: AuthUserDoc,
+  projectId: Id<"projects">,
+): Promise<Access> {
+  const project = await db.get<Doc<"projects">>(projectId);
+  if (!project || project.deleted) throw new Error("Project not found");
+  const rows = await db
+    .query<Doc<"projectMembers">>("projectMembers")
+    .withIndex("by_user", (q) => q.eq("userId", user._id))
+    .collect();
+  const mine = rows.find((m) => m.projectId === projectId && !m.leftAt) ?? null;
+  const isAdmin = user.role === "admin";
+  const isLeader = mine?.role === "leader";
+  return {
+    user,
+    project,
+    mine: mine ? { role: mine.role } : null,
+    isAdmin,
+    isLeader: !!isLeader,
+    isMember: isAdmin || !!mine,
+    canDirectSave: isAdmin || !!isLeader,
+    canReview: isAdmin || !!isLeader,
+  };
+}
+
+async function loadReadmeDb(db: BridgeDb, projectId: Id<"projects">) {
+  return db
+    .query<Doc<"projectReadmes">>("projectReadmes")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .unique();
+}
+
+async function userNameDb(db: BridgeDb, id: Id<"users">) {
+  const u = await db.get<Doc<"users">>(id);
+  return u?.name ?? u?.email ?? "Member";
+}
+
+async function userAvatarDb(db: BridgeDb, id: Id<"users">) {
+  const u = await db.get<Doc<"users">>(id);
+  return safeImage(u?.image);
+}
+
 const decisionValidator = v.array(
   v.object({
     row: v.number(),
@@ -96,13 +144,16 @@ const decisionValidator = v.array(
 // ---------- queries ----------
 
 /** README document + my permissions + pending edit requests for this project. */
-export const get = query({
+export const get = action({
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }) => {
-    const access = await projectAccess(ctx, projectId);
-    const doc = await loadReadme(ctx, projectId);
-    const pendingRows = await ctx.db
-      .query("readmeEditRequests")
+    const user = await requireActionNonStudent(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const access = await projectAccessDb(db, user, projectId);
+    const doc = await loadReadmeDb(db, projectId);
+    const pendingRows = await db
+      .query<Doc<"readmeEditRequests">>("readmeEditRequests")
       .withIndex("by_project", (q) => q.eq("projectId", projectId))
       .collect();
     const pending: {
@@ -120,8 +171,8 @@ export const get = query({
       pending.push({
         _id: r._id,
         submittedBy: r.submittedBy,
-        submitterName: await userName(ctx, r.submittedBy),
-        submitterImage: await userAvatar(ctx, r.submittedBy),
+        submitterName: await userNameDb(db, r.submittedBy),
+        submitterImage: await userAvatarDb(db, r.submittedBy),
         requestedAt: r.requestedAt,
         note: r.note,
         baseVersion: r.baseVersion,
@@ -133,8 +184,8 @@ export const get = query({
       content: doc?.content ?? "",
       version: doc?.version ?? 0,
       updatedAt: doc?.updatedAt ?? 0,
-      updatedByName: doc ? await userName(ctx, doc.updatedBy) : null,
-      updatedByImage: doc ? await userAvatar(ctx, doc.updatedBy) : null,
+      updatedByName: doc ? await userNameDb(db, doc.updatedBy) : null,
+      updatedByImage: doc ? await userAvatarDb(db, doc.updatedBy) : null,
       canEdit: access.isMember,
       canDirectSave: access.canDirectSave,
       canReview: access.canReview,
@@ -144,12 +195,15 @@ export const get = query({
 });
 
 /** One pending request with its diff snapshots — used by the review dialog. */
-export const getRequest = query({
+export const getRequest = action({
   args: { requestId: v.id("readmeEditRequests") },
   handler: async (ctx, { requestId }) => {
-    const req = await ctx.db.get(requestId);
+    const user = await requireActionNonStudent(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const req = await db.get<Doc<"readmeEditRequests">>(requestId);
     if (!req) return null;
-    const access = await projectAccess(ctx, req.projectId);
+    const access = await projectAccessDb(db, user, req.projectId);
     if (!access.isMember) throw new Error("You are not assigned to this project");
     return {
       _id: req._id,
@@ -161,20 +215,23 @@ export const getRequest = query({
       note: req.note,
       requestedAt: req.requestedAt,
       submittedBy: req.submittedBy,
-      submitterName: await userName(ctx, req.submittedBy),
-      submitterImage: await userAvatar(ctx, req.submittedBy),
+      submitterName: await userNameDb(db, req.submittedBy),
+      submitterImage: await userAvatarDb(db, req.submittedBy),
       canReview: access.canReview && req.submittedBy !== access.user._id,
     };
   },
 });
 
 /** Full README history — visible to every assigned member. */
-export const history = query({
+export const history = action({
   args: { projectId: v.id("projects") },
   handler: async (ctx, { projectId }) => {
-    await projectAccess(ctx, projectId);
-    const entries = await ctx.db
-      .query("readmeHistory")
+    const user = await requireActionNonStudent(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    await projectAccessDb(db, user, projectId);
+    const entries = await db
+      .query<Doc<"readmeHistory">>("readmeHistory")
       .withIndex("by_project", (q) => q.eq("projectId", projectId))
       .order("desc")
       .take(50);
@@ -187,7 +244,7 @@ export const history = query({
     const images = new Map<string, string | undefined>();
     await Promise.all(
       [...ids].map(async (id) => {
-        const u = await ctx.db.get(id as Id<"users">);
+        const u = await db.get<Doc<"users">>(id as Id<"users">);
         names.set(id, u?.name ?? u?.email ?? "Member");
         images.set(id, safeImage(u?.image));
       }),
@@ -215,17 +272,19 @@ export const history = query({
  * Pending README edit requests visible in the Requests console:
  * site admins see all, a project lead sees the projects they lead.
  */
-export const pendingAll = query({
+export const pendingAll = action({
   args: {},
   handler: async (ctx) => {
-    const user = await requireNonStudent(ctx);
-    let pending = await ctx.db
-      .query("readmeEditRequests")
+    const user = await requireActionNonStudent(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    let pending = await db
+      .query<Doc<"readmeEditRequests">>("readmeEditRequests")
       .withIndex("by_status", (q) => q.eq("status", "pending"))
       .collect();
     if (user.role !== "admin") {
-      const memberships = await ctx.db
-        .query("projectMembers")
+      const memberships = await db
+        .query<Doc<"projectMembers">>("projectMembers")
         .withIndex("by_user", (q) => q.eq("userId", user._id))
         .collect();
       const led = new Set(
@@ -237,9 +296,9 @@ export const pendingAll = query({
     }
     const rows = await Promise.all(
       pending.map(async (r) => {
-        const project = await ctx.db.get(r.projectId);
+        const project = await db.get<Doc<"projects">>(r.projectId);
         if (!project || project.deleted) return null;
-        const submitter = await ctx.db.get(r.submittedBy);
+        const submitter = await db.get<Doc<"users">>(r.submittedBy);
         return {
           _id: r._id,
           projectId: r.projectId,

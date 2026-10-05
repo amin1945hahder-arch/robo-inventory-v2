@@ -1,11 +1,17 @@
 import { ConvexError, v } from "convex/values";
-import { internalMutation, mutation, query } from "./_generated/server";
+import { action, internalMutation, mutation } from "./_generated/server";
 import { api } from "./_generated/api";
 import { listAdmins, requireAdmin, requireInventory, requireNonGuest, requireInteractingMember, requireUser, safeImage } from "./lib";
+import {
+  requireActionAdmin,
+  requireActionInteractingMember,
+  requireActionUser,
+} from "./authActions";
+import { loadTurso } from "./tursoDb";
 import { adminPhones } from "./whatsapp";
 import { telegramDM, telegramGroup, notifyTelegram } from "./notify";
 import { internal } from "./_generated/api";
-import { Id } from "./_generated/dataModel";
+import { Doc, Id } from "./_generated/dataModel";
 import { planMeasureTake, describePlan } from "../lib/measure-alloc";
 import { formatLineAmount, roundBulk } from "../lib/group-measure";
 import { sumUnitStock, assertGroupLendable, containerChainFromIndex } from "./catalog";
@@ -77,12 +83,14 @@ async function returnCooldownHours(ctx: any): Promise<number> {
   return row?.value ? Number(JSON.parse(row.value)) : 24;
 }
 
-export const listPartsOfGroup = query({
+export const listPartsOfGroup = action({
   args: { groupId: v.id("groups") },
   handler: async (ctx, { groupId }) => {
-    await requireUser(ctx);
-    const parts = await ctx.db
-      .query("parts")
+    await requireActionUser(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const parts = await db
+      .query<Doc<"parts">>("parts")
       .withIndex("by_group", (q) => q.eq("groupId", groupId))
       .filter((q) => q.neq(q.field("deleted"), true))
       .collect();
@@ -104,30 +112,32 @@ export const listPartsOfGroup = query({
  * rentals table just to show one part's history — this keeps that page
  * proportional to the unit's own history instead of the entire ledger.
  */
-export const rentalsOfPart = query({
+export const rentalsOfPart = action({
   args: { partId: v.id("parts") },
   handler: async (ctx, { partId }) => {
-    await requireUser(ctx);
-    const rows = await ctx.db
-      .query("rentals")
+    await requireActionUser(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const rows = await db
+      .query<Doc<"rentals">>("rentals")
       .withIndex("by_part", (q) => q.eq("partId", partId))
       .collect();
     const cache = docCache();
     // The unit's group + its container chain (printed on the rent card).
-    const part0 = await ctx.db.get(partId);
-    const group0 = part0 ? await ctx.db.get(part0.groupId) : null;
+    const part0 = await db.get<Doc<"parts">>(partId);
+    const group0 = part0 ? await db.get<Doc<"groups">>(part0.groupId) : null;
     let containerChain = "";
     if (group0) {
-      const groups = await ctx.db.query("groups").collect();
+      const groups = await db.query<Doc<"groups">>("groups").collect();
       const idx = new Map(groups.map((g) => [g._id, g]));
       containerChain = containerChainFromIndex(group0, idx);
     }
     const out = [];
     for (const r of rows.sort((a, b) => b.requestedAt - a.requestedAt)) {
-      const student = await cache.get(ctx, r.userId);
+      const student = await cache.get({ db }, r.userId);
       out.push({
         rental: r,
-        part: await cache.get(ctx, partId),
+        part: await cache.get({ db }, partId),
         group: group0,
         containerChain,
         student: student
@@ -145,12 +155,14 @@ export const rentalsOfPart = query({
   },
 });
 
-export const listPartsByGroups = query({
+export const listPartsByGroups = action({
   args: {},
   handler: async (ctx) => {
-    await requireUser(ctx);
-    const parts = await ctx.db
-      .query("parts")
+    await requireActionUser(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const parts = await db
+      .query<Doc<"parts">>("parts")
       .filter((q) => q.neq(q.field("deleted"), true))
       .collect();
     return parts
@@ -162,12 +174,14 @@ export const listPartsByGroups = query({
 // Units grouped by group id: { available: number, broken: number, pending: number,
 // rented: number, onProject: number }. Used by the package builder to know how
 // many units of each item can go into one request.
-export const availabilityByGroup = query({
+export const availabilityByGroup = action({
   args: {},
   handler: async (ctx) => {
-    await requireUser(ctx);
-    const parts = await ctx.db
-      .query("parts")
+    await requireActionUser(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const parts = await db
+      .query<Doc<"parts">>("parts")
       .filter((q) => q.neq(q.field("deleted"), true))
       .collect();
     const byGroup: Record<
@@ -191,7 +205,7 @@ export const availabilityByGroup = query({
         row.available += 1;
         let m = groupMeasure.get(p.groupId);
         if (m === undefined) {
-          const g = await ctx.db.get(p.groupId);
+          const g = await db.get<Doc<"groups">>(p.groupId);
           m = g?.measure;
           groupMeasure.set(p.groupId, m);
         }
@@ -208,29 +222,33 @@ export const availabilityByGroup = query({
   },
 });
 
-export const getPart = query({
+export const getPart = action({
   args: { id: v.id("parts") },
   handler: async (ctx, { id }) => {
-    await requireUser(ctx);
-    return await ctx.db.get(id);
+    await requireActionUser(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    return await db.get<Doc<"parts">>(id);
   },
 });
 
 // Full detail payload for the part detail page: part + group + category + closet +
 // the rental the viewer cares about (their own pending/active, or latest for admins)
 // + recent history.
-export const getPartWithRental = query({
+export const getPartWithRental = action({
   args: { id: v.id("parts") },
   handler: async (ctx, { id }) => {
-    const user = await requireUser(ctx);
-    const part = await ctx.db.get(id);
+    const user = await requireActionUser(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const part = await db.get<Doc<"parts">>(id);
     if (!part) return null;
-    const group = await ctx.db.get(part.groupId);
-    const category = group ? await ctx.db.get(group.categoryId) : null;
-    const closet = group ? await ctx.db.get(group.closetId) : null;
+    const group = await db.get<Doc<"groups">>(part.groupId);
+    const category = group ? await db.get<Doc<"categories">>(group.categoryId) : null;
+    const closet = group ? await db.get<Doc<"closets">>(group.closetId) : null;
 
-    const rentals = await ctx.db
-      .query("rentals")
+    const rentals = await db
+      .query<Doc<"rentals">>("rentals")
       .withIndex("by_part", (q) => q.eq("partId", id))
       .collect();
     const sorted = rentals.sort((a, b) => b.requestedAt - a.requestedAt);
@@ -246,8 +264,8 @@ export const getPartWithRental = query({
 
     let shownRental = null;
     if (shown) {
-      const holder = await ctx.db.get(shown.userId);
-      const project = shown.projectId ? await ctx.db.get(shown.projectId) : null;
+      const holder = await db.get<Doc<"users">>(shown.userId);
+      const project = shown.projectId ? await db.get<Doc<"projects">>(shown.projectId) : null;
       shownRental = {
         _id: shown._id,
         status: shown.status,
@@ -273,8 +291,8 @@ export const getPartWithRental = query({
     const cache = docCache();
     const history = [];
     for (const r of sorted.slice(0, 12)) {
-      const holder = await cache.get(ctx, r.userId);
-      const project = r.projectId ? await cache.get(ctx, r.projectId) : null;
+      const holder = await cache.get({ db }, r.userId);
+      const project = r.projectId ? await cache.get({ db }, r.projectId) : null;
       history.push({
         _id: r._id,
         status: r.status,
@@ -312,12 +330,14 @@ export const getPartWithRental = query({
   },
 });
 
-export const getPartByTag = query({
+export const getPartByTag = action({
   args: { tag: v.string() },
   handler: async (ctx, { tag }) => {
-    await requireUser(ctx);
-    const part = await ctx.db
-      .query("parts")
+    await requireActionUser(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const part = await db
+      .query<Doc<"parts">>("parts")
       .withIndex("by_tag", (q) => q.eq("tag", tag.trim().toUpperCase()))
       .first();
     return part;
@@ -1786,20 +1806,22 @@ export const assignPartToProject = mutation({
 
 // ===== Rentals listing =====
 
-export const listMyRentals = query({
+export const listMyRentals = action({
   args: {},
   handler: async (ctx) => {
-    const user = await requireUser(ctx);
-    const rows = await ctx.db
-      .query("rentals")
+    const user = await requireActionUser(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const rows = await db
+      .query<Doc<"rentals">>("rentals")
       .withIndex("by_user", (q) => q.eq("userId", user._id))
       .collect();
     const cache = docCache();
     const out = [];
     for (const r of rows.sort((a, b) => b.requestedAt - a.requestedAt)) {
-      const part = await cache.get(ctx, r.partId);
-      const group = part ? await cache.get(ctx, part.groupId) : null;
-      const project = r.projectId ? await cache.get(ctx, r.projectId) : null;
+      const part = await cache.get({ db }, r.partId);
+      const group = part ? await cache.get({ db }, part.groupId) : null;
+      const project = r.projectId ? await cache.get({ db }, r.projectId) : null;
       out.push({
         rental: r,
         part,
@@ -1815,12 +1837,14 @@ export const listMyRentals = query({
 // Rentals). Pending packages are counted ONCE per package (the member sees one
 // bundle card), not once per claimed unit — otherwise the bubble shows a
 // number far bigger than the list actually renders.
-export const myRequestCounts = query({
+export const myRequestCounts = action({
   args: {},
   handler: async (ctx) => {
-    const user = await requireUser(ctx);
-    const rows = await ctx.db
-      .query("rentals")
+    const user = await requireActionUser(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const rows = await db
+      .query<Doc<"rentals">>("rentals")
       .withIndex("by_user", (q) => q.eq("userId", user._id))
       .collect();
     const packageIds = new Set(
@@ -1854,18 +1878,20 @@ export const cancelMyRequest = mutation({
   },
 });
 
-export const listAllRentals = query({
+export const listAllRentals = action({
   args: { status: v.optional(v.string()) },
   handler: async (ctx, { status }) => {
-    await requireAdmin(ctx);
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
     let rows;
     if (status) {
-      rows = await ctx.db
-        .query("rentals")
+      rows = await db
+        .query<Doc<"rentals">>("rentals")
         .withIndex("by_status", (q) => q.eq("status", status as any))
         .collect();
     } else {
-      rows = await ctx.db.query("rentals").collect();
+      rows = await db.query<Doc<"rentals">>("rentals").collect();
     }
     // Cached joins: a user with a big base64 avatar appears on many rental
     // rows — without the cache their doc is re-read per row and can exceed
@@ -1874,9 +1900,9 @@ export const listAllRentals = query({
     const cache = docCache();
     const out = [];
     for (const r of rows.sort((a, b) => b.requestedAt - a.requestedAt)) {
-      const part = await cache.get(ctx, r.partId);
-      const group = part ? await cache.get(ctx, part.groupId) : null;
-      const student = await cache.get(ctx, r.userId);
+      const part = await cache.get({ db }, r.partId);
+      const group = part ? await cache.get({ db }, part.groupId) : null;
+      const student = await cache.get({ db }, r.userId);
       out.push({
         rental: r,
         part,
@@ -1899,21 +1925,23 @@ export const listAllRentals = query({
 // Groups the admin's pending rentals into display rows: single requests stay
 // one row each, while units claimed by the same pending package collapse into
 // ONE row per package — so the Pending tab badge and the list always agree.
-export const pendingRentalRows = query({
+export const pendingRentalRows = action({
   args: {},
   handler: async (ctx) => {
-    await requireAdmin(ctx);
-    const rows = await ctx.db
-      .query("rentals")
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const rows = await db
+      .query<Doc<"rentals">>("rentals")
       .withIndex("by_status", (q) => q.eq("status", "pending"))
       .collect();
     const cache = docCache();
     const out: any[] = [];
     for (const r of rows.sort((a, b) => a.requestedAt - b.requestedAt)) {
       if (r.packageId) continue;
-      const part = await cache.get(ctx, r.partId);
-      const group = part ? await cache.get(ctx, part.groupId) : null;
-      const student = await cache.get(ctx, r.userId);
+      const part = await cache.get({ db }, r.partId);
+      const group = part ? await cache.get({ db }, part.groupId) : null;
+      const student = await cache.get({ db }, r.userId);
       out.push({
         kind: "single" as const,
         key: r._id,
@@ -1934,13 +1962,13 @@ export const pendingRentalRows = query({
     // One row per pending package, with its units attached.
     const pkgIds = [...new Set(rows.filter((r) => r.packageId).map((r) => r.packageId!))];
     for (const packageId of pkgIds) {
-      const pkg = await ctx.db.get(packageId);
+      const pkg = await db.get<Doc<"rentalPackages">>(packageId);
       if (!pkg) continue;
       const units = [];
       for (const r of rows.filter((x) => x.packageId === packageId)) {
-        const part = await cache.get(ctx, r.partId);
-        const group = part ? await cache.get(ctx, part.groupId) : null;
-        const info = group ? await containerInfo(ctx, cache, group._id) : {};
+        const part = await cache.get({ db }, r.partId);
+        const group = part ? await cache.get({ db }, part.groupId) : null;
+        const info = group ? await containerInfo({ db }, cache, group._id) : {};
         units.push({
           rentalId: r._id,
           partId: part?._id,
@@ -1952,7 +1980,7 @@ export const pendingRentalRows = query({
           closetName: info.closetName,
         });
       }
-      const student = await cache.get(ctx, pkg.userId);
+      const student = await cache.get({ db }, pkg.userId);
       out.push({
         kind: "package" as const,
         key: packageId,
@@ -2005,21 +2033,24 @@ const MAX_UNITS_PER_LINE = 20;
 /** Members with a pending profile or without an approved profile are still
  *  allowed to browse; requesting a package follows the same rules as single
  *  rentals (requireNonGuest). */
-export const listPackages = query({
+export const listPackages = action({
   args: { scope: v.optional(v.union(v.literal("mine"), v.literal("all"))) },
   handler: async (ctx, { scope }) => {
+    await requireActionUser(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
     let userId: any;
     if (scope === "all") {
-      await requireAdmin(ctx);
+      await requireActionAdmin(ctx);
     } else {
-      const u = await requireInteractingMember(ctx);
+      const u = await requireActionInteractingMember(ctx);
       userId = u._id;
     }
     const rows =
       scope === "all"
-        ? await ctx.db.query("rentalPackages").collect()
-        : await ctx.db
-            .query("rentalPackages")
+        ? await db.query<Doc<"rentalPackages">>("rentalPackages").collect()
+        : await db
+            .query<Doc<"rentalPackages">>("rentalPackages")
             .withIndex("by_user", (q) => q.eq("userId", userId))
             .collect();
     const cache = docCache();
@@ -2027,18 +2058,18 @@ export const listPackages = query({
     for (const pkg of rows.sort((a, b) => b.requestedAt - a.requestedAt)) {
       // by_package index: only THIS bundle's units — the old by_user query
       // re-read the requester's whole rental history once per package (N+1).
-      const pkgRentals = await ctx.db
-        .query("rentals")
+      const pkgRentals = await db
+        .query<Doc<"rentals">>("rentals")
         .withIndex("by_package", (q) => q.eq("packageId", pkg._id))
         .collect();
-      const requester = await cache.get(ctx, pkg.userId);
+      const requester = await cache.get({ db }, pkg.userId);
       const lines = [];
       for (const line of pkg.lines) {
-        const group = await cache.get(ctx, line.groupId);
-        const info = await containerInfo(ctx, cache, line.groupId);
+        const group = await cache.get({ db }, line.groupId);
+        const info = await containerInfo({ db }, cache, line.groupId);
         const units = [];
         for (const r of pkgRentals) {
-          const part = r.partId ? await cache.get(ctx, r.partId) : null;
+          const part = r.partId ? await cache.get({ db }, r.partId) : null;
           if (part && part.groupId === line.groupId) {
             units.push({
               rentalId: r._id,
@@ -2106,16 +2137,18 @@ export const listPackages = query({
  * project) plus its package, so admins can reach the exact request instead
  * of hunting through the Requests console.
  */
-export const holdingOfPart = query({
+export const holdingOfPart = action({
   args: { partId: v.id("parts") },
   handler: async (ctx, { partId }) => {
-    await requireUser(ctx);
-    const part = await ctx.db.get(partId);
+    await requireActionUser(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const part = await db.get<Doc<"parts">>(partId);
     if (!part) return null;
 
     const rental = (
-      await ctx.db
-        .query("rentals")
+      await db
+        .query<Doc<"rentals">>("rentals")
         .withIndex("by_part", (q) => q.eq("partId", partId))
         .collect()
     )
@@ -2123,8 +2156,8 @@ export const holdingOfPart = query({
       .sort((a, b) => b.requestedAt - a.requestedAt)[0];
     if (!rental) return null;
 
-    const holder = rental.userId ? await ctx.db.get(rental.userId) : null;
-    const pkg = rental.packageId ? await ctx.db.get(rental.packageId) : null;
+    const holder = rental.userId ? await db.get<Doc<"users">>(rental.userId) : null;
+    const pkg = rental.packageId ? await db.get<Doc<"rentalPackages">>(rental.packageId) : null;
     return {
       rentalId: rental._id,
       status: rental.status,
@@ -2136,27 +2169,29 @@ export const holdingOfPart = query({
   },
 });
 
-export const getPackage = query({
+export const getPackage = action({
   args: { id: v.id("rentalPackages") },
   handler: async (ctx, { id }) => {
-    const user = await requireUser(ctx);
-    const pkg = await ctx.db.get(id);
+    const user = await requireActionUser(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const pkg = await db.get<Doc<"rentalPackages">>(id);
     if (!pkg) return null;
     if (pkg.userId !== user._id && user.role !== "admin") {
       throw new ConvexError("Not your package");
     }
-    const requester = await ctx.db.get(pkg.userId);
+    const requester = await db.get<Doc<"users">>(pkg.userId);
     // by_package index: this bundle's rows only, not the member's history.
-    const pkgRentals = await ctx.db
-      .query("rentals")
+    const pkgRentals = await db
+      .query<Doc<"rentals">>("rentals")
       .withIndex("by_package", (q) => q.eq("packageId", id))
       .collect();
     const lines = [];
     for (const line of pkg.lines) {
-      const group = await ctx.db.get(line.groupId);
+      const group = await db.get<Doc<"groups">>(line.groupId);
       const units = [];
       for (const r of pkgRentals) {
-        const part = r.partId ? await ctx.db.get(r.partId) : null;
+        const part = r.partId ? await db.get<Doc<"parts">>(r.partId) : null;
         if (part && part.groupId === line.groupId) {
           units.push({
             rentalId: r._id,
@@ -3345,20 +3380,22 @@ export type PartId = Id<"parts">;
  * The admin console shows these so they can reuse an existing slot for a new
  * request ("same date as the other pickup") or chase no-shows.
  */
-export const scheduledPickups = query({
+export const scheduledPickups = action({
   args: {},
   handler: async (ctx) => {
-    await requireAdmin(ctx);
-    const rows = await ctx.db
-      .query("rentals")
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const rows = await db
+      .query<Doc<"rentals">>("rentals")
       .withIndex("by_status", (q) => q.eq("status", "approved"))
       .collect();
     const cache = docCache();
     const out = [];
     for (const r of rows.sort((a, b) => (a.pickupAt ?? Infinity) - (b.pickupAt ?? Infinity))) {
-      const part = await cache.get(ctx, r.partId);
-      const group = part ? await cache.get(ctx, part.groupId) : null;
-      const student = await cache.get(ctx, r.userId);
+      const part = await cache.get({ db }, r.partId);
+      const group = part ? await cache.get({ db }, part.groupId) : null;
+      const student = await cache.get({ db }, r.userId);
       out.push({
         rentalId: r._id,
         pickupAt: r.pickupAt,

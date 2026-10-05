@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery } from "convex/react";
+import { useOfflineQuery } from "@/hooks/use-offline-query";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { RentCardSheet } from "@/components/RentCardPaper";
@@ -18,7 +19,7 @@ import { elementToPdfBase64 } from "@/lib/rent-card-hifi";
  */
 export function RentCardRelay() {
   const job = useQuery(api.rentCardRelay.nextQueuedPublic, {});
-  const layout = useQuery(api.settings.getCardLayout, {});
+  const layout = useOfflineQuery(api.settings.getCardLayout, {});
   const claim = useMutation(api.rentCardRelay.claim);
   const release = useMutation(api.rentCardRelay.release);
   const submitPdf = useMutation(api.rentCardRelay.submitPdf);

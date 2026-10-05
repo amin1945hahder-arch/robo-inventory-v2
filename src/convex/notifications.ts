@@ -1,20 +1,23 @@
 import { ConvexError, v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { action, mutation, query } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { requireAdmin, requireUser, safeImage } from "./lib";
+import { requireActionAdmin, requireActionUser } from "./authActions";
+import { loadTurso } from "./tursoDb";
 import { recordTombstone } from "./sync";
 import { telegramDM } from "./notify";
 
 // ===== Admin notifications =====
 
-export const listNotifications = query({
+export const listNotifications = action({
   args: {},
   handler: async (ctx) => {
-    await requireAdmin(ctx);
-    // Only the newest 50 are ever rendered. The default scan is ordered by
-    // _creationTime, so read the tail without collecting the whole (growing)
-    // feed into memory first.
-    return ctx.db.query("notifications").order("desc").take(50);
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    // Only the newest 50 are ever rendered.
+    return db.query<Doc<"notifications">>("notifications").order("desc").take(50);
   },
 });
 
@@ -56,14 +59,15 @@ export const markRead = mutation({
   },
 });
 
-export const unreadCount = query({
+export const unreadCount = action({
   args: {},
   handler: async (ctx) => {
-    await requireAdmin(ctx);
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
     // Count inside the same 50-row window the feed renders: rows older than
-    // that are invisible, so a whole-table scan only bought a bigger number
-    // — re-run on EVERY notification write, forever.
-    const rows = await ctx.db.query("notifications").order("desc").take(50);
+    // that are invisible, so a whole-table scan would only buy a bigger number.
+    const rows = await db.query<Doc<"notifications">>("notifications").order("desc").take(50);
     return rows.filter((r) => r.read !== true).length;
   },
 });
@@ -144,19 +148,21 @@ export const requestProfileChange = mutation({
   },
 });
 
-export const listProfileRequests = query({
+export const listProfileRequests = action({
   args: { status: v.optional(v.union(v.literal("pending"), v.literal("approved"), v.literal("denied"))) },
   handler: async (ctx, { status }) => {
-    await requireAdmin(ctx);
-    let rows;
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    let rows: Doc<"profileRequests">[];
     if (status) {
-      rows = await ctx.db.query("profileRequests").withIndex("by_status", (q) => q.eq("status", status)).collect();
+      rows = await db.query<Doc<"profileRequests">>("profileRequests").withIndex("by_status", (q) => q.eq("status", status)).collect();
     } else {
-      rows = await ctx.db.query("profileRequests").collect();
+      rows = await db.query<Doc<"profileRequests">>("profileRequests").collect();
     }
     const out = [];
     for (const r of rows.sort((a, b) => b.requestedAt - a.requestedAt)) {
-      const user = await ctx.db.get(r.userId);
+      const user = await db.get<Doc<"users">>(r.userId);
       out.push({
         request: r,
         user: user
@@ -215,12 +221,14 @@ export const decideProfileRequest = mutation({
 });
 
 // The signed-in member's own pending profile-change request (if any).
-export const myPendingProfileRequest = query({
+export const myPendingProfileRequest = action({
   args: {},
   handler: async (ctx) => {
-    const user = await requireUser(ctx);
-    const rows = await ctx.db
-      .query("profileRequests")
+    const user = await requireActionUser(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const rows = await db
+      .query<Doc<"profileRequests">>("profileRequests")
       .withIndex("by_status", (q) => q.eq("status", "pending"))
       .collect();
     return rows.some((r) => r.userId === user._id);
@@ -229,11 +237,13 @@ export const myPendingProfileRequest = query({
 
 // ===== Account =====
 
-export const listPeople = query({
+export const listPeople = action({
   args: {},
   handler: async (ctx) => {
-    await requireAdmin(ctx);
-    const users = await ctx.db.query("users").collect();
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const users = await db.query<Doc<"users">>("users").collect();
     // Count LIVE rentals per member via the status index instead of collecting
     // the entire (unbounded, historical) rentals table. Only pending/active/
     // on_project rows matter for these two badges.
@@ -243,14 +253,14 @@ export const listPeople = query({
       e[key] += 1;
       byUser.set(userId, e);
     };
-    const pendingRows = await ctx.db
-      .query("rentals")
+    const pendingRows = await db
+      .query<Doc<"rentals">>("rentals")
       .withIndex("by_status", (q) => q.eq("status", "pending"))
       .collect();
     for (const r of pendingRows) bump(r.userId, "pending");
     for (const status of ["active", "on_project"] as const) {
-      const rows = await ctx.db
-        .query("rentals")
+      const rows = await db
+        .query<Doc<"rentals">>("rentals")
         .withIndex("by_status", (q) => q.eq("status", status))
         .collect();
       for (const r of rows) bump(r.userId, "active");

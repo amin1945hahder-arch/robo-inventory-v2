@@ -8,14 +8,17 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   BATCH_SIZE,
+  CONVEX_ONLY_TABLES,
   MIGRATION_VERSION,
   RUNS_TABLE,
+  appTables,
   checksum,
   decodeRow,
   encodeRow,
   encodeValue,
   importDump,
   insertSql,
+  migrationSchemaSql,
   migrationTableSql,
   stableStringify,
   verifyDump,
@@ -356,5 +359,23 @@ describe("generated schema spec", () => {
   it("never emits a column kind the driver does not understand", () => {
     const kinds = new Set(Object.values(MIGRATION_TABLES).flatMap((c) => Object.values(c)));
     for (const k of kinds) expect(["text", "real", "int", "json"]).toContain(k);
+  });
+
+  // tursoHeads is the Convex→client change-head publisher. Turso keeps its own
+  // heads in _changes, so copying it would waste free-plan rows AND make verify
+  // report a permanent phantom mismatch.
+  it("appTables() excludes the Convex-only head table", () => {
+    expect(MIGRATION_TABLES.tursoHeads).toBeDefined();
+    expect(CONVEX_ONLY_TABLES.has("tursoHeads")).toBe(true);
+    const tables = appTables();
+    expect(tables).not.toContain("tursoHeads");
+    expect(tables.length).toBe(Object.keys(MIGRATION_TABLES).length - 1);
+    // The real app data is still all there.
+    for (const t of ["users", "parts", "rentals", "settings", "sessions"]) {
+      expect(tables).toContain(t);
+    }
+    // And no DDL is emitted for it.
+    const ddl = migrationSchemaSql(tables).join("\n");
+    expect(ddl).not.toContain('CREATE TABLE IF NOT EXISTS "tursoHeads"');
   });
 });

@@ -107,11 +107,27 @@ export function useAuth() {
   // Keep the persisted identity in step with the live record, and publish it to
   // the shared store so non-subscribing consumers (the offline query cache) see
   // the same identity without opening their own subscription.
+  //
+  // The updater MUST return the PREVIOUS object when nothing meaningful
+  // changed (React only bails out on Object.is equality). This effect depends
+  // on `cachedUser`; returning a fresh `{ ...liveUser }` every pass re-arms
+  // the effect on its own state write — an infinite re-render loop that
+  // saturates the main thread. Symptom: the URL changes on click but React
+  // never repaints the route, so navigation appears dead until a manual
+  // browser refresh. Guarded by the regression test
+  // src/hooks/use-auth.live-user.test.tsx.
   useEffect(() => {
     if (liveUser && typeof liveUser._id === "string") {
       setCachedUser((prev) => {
         const next: CachedUser = { ...liveUser, _id: liveUser._id };
-        if (prev?._id !== next._id || prev?.role !== next.role) writeCachedUser(next);
+        // Same member, same role → keep the exact same reference: no
+        // re-render, no effect re-run, loop ends. A member field change
+        // (name, avatar…) doesn't need the cache copy — `user` below
+        // prefers `liveUser` while it is present; the persisted copy only
+        // exists as the offline identity hint and was only ever refreshed
+        // on id/role changes by the original write condition.
+        if (prev?._id === next._id && prev.role === next.role) return prev;
+        writeCachedUser(next);
         return next;
       });
       publishAuthUser({ ...liveUser, _id: liveUser._id });

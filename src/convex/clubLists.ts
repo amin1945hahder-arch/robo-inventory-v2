@@ -14,6 +14,23 @@ import {
  * Admin-editable club lists, stored in the clubLists table as one row per
  * list. Members' UI selects (profile, People editor) read these lists, and
  * the Settings page can fully add/edit/delete every entry.
+ *
+ * WHY THIS MODULE IS STILL 100% CONVEX
+ * ------------------------------------
+ * `clubLists` looks like an easy first table to move to Turso: its reads are
+ * all here, and two mutations is a small diff. It is NOT, because of the rank →
+ * role mapping.
+ *
+ * `getRankRoleMap` is read *inside three Convex mutations in `users.ts`*
+ * (person edit, person create, rank-request approval) to decide whether
+ * granting a club position should also grant the mapped app role. A Convex
+ * MUTATION context has no `ctx.runAction` — only queries and actions do — so
+ * those mutations cannot reach Turso at all. Moving the writes without also
+ * converting those three mutations would leave them reading a frozen Convex
+ * copy of the map, silently breaking the auto-role-grant rule.
+ *
+ * So the table is kept whole on Convex: one source of truth, no staleness. It
+ * moves when `users.ts` moves, as one unit. See TURSO_CUTOVER.md §1.21.
  */
 
 export type ListKey = "clubRoles" | "academicStates";
@@ -59,6 +76,7 @@ export const setList = mutation({
 });
 
 // ===== Rank → app-role mapping =============================================
+
 // The admin can MARK a club rank/position (e.g. "manager") as one of the
 // app's main roles. Whenever that rank is requested and approved — or set on
 // a person directly — the mapped role is applied automatically (skipped when

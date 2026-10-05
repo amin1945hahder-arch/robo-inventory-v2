@@ -1,7 +1,11 @@
 import { ConvexError, v } from "convex/values";
-import { internalMutation, mutation, query, type MutationCtx } from "./_generated/server";
+import { action, internalMutation, mutation, type MutationCtx } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { requireAdmin } from "./lib";
+import { requireActionAdmin } from "./authActions";
+import { loadTurso } from "./tursoDb";
+import type { BridgeDb } from "../lib/turso-bridge";
 import { touchPatch, recordTombstone } from "./sync";
 
 /**
@@ -141,15 +145,17 @@ export const deletePackageRecord = mutation({
 });
 
 /** What would clearRentalHistory remove, so the dialog can confirm precisely. */
-export const historyStats = query({
+export const historyStats = action({
   args: { userId: v.optional(v.id("users")) },
   handler: async (ctx, { userId }) => {
-    await requireAdmin(ctx);
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
     // Clearing one person's history only needs THAT person's rows — use the
     // by_user index instead of scanning the whole rentals table.
     const rows = userId
-      ? await ctx.db.query("rentals").withIndex("by_user", (q) => q.eq("userId", userId)).collect()
-      : await ctx.db.query("rentals").collect();
+      ? await db.query<Doc<"rentals">>("rentals").withIndex("by_user", (q) => q.eq("userId", userId)).collect()
+      : await db.query<Doc<"rentals">>("rentals").collect();
     return {
       processed: rows.filter((r) => PROCESSED.has(r.status)).length,
       live: rows.filter((r) => !PROCESSED.has(r.status)).length,
@@ -248,21 +254,37 @@ const seenKeys = async (ctx: any, keys: string[]) => {
   return out;
 };
 
+const seenKeysDb = async (db: BridgeDb, keys: string[]) => {
+  const out = new Set<string>();
+  for (const key of keys) {
+    const row = await db
+      .query<Doc<"seenRequests">>("seenRequests")
+      .withIndex("by_key", (q) => q.eq("key", key))
+      .unique();
+    if (row) out.add(key);
+  }
+  return out;
+};
+
 /** Which of the given keys are already seen (client filters Updates with it). */
-export const seenForKeys = query({
+export const seenForKeys = action({
   args: { keys: v.array(v.string()) },
   handler: async (ctx, { keys }) => {
-    await requireAdmin(ctx);
-    return [...(await seenKeys(ctx, keys))];
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    return [...(await seenKeysDb(db, keys))];
   },
 });
 
 /** All seen keys (the Updates tab requests it once per mount). */
-export const allSeenKeys = query({
+export const allSeenKeys = action({
   args: {},
   handler: async (ctx) => {
-    await requireAdmin(ctx);
-    const rows = await ctx.db.query("seenRequests").collect();
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const rows = await db.query<Doc<"seenRequests">>("seenRequests").collect();
     return rows.map((r) => r.key);
   },
 });

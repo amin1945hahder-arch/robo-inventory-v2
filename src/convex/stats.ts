@@ -1,20 +1,28 @@
-import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
-import { requireAdmin, requireNonStudent } from "./lib";
+import { action } from "./_generated/server";
+import { requireActionNonStudent } from "./authActions";
+import { loadTurso } from "./tursoDb";
 
-// Aggregated stats for inventory dashboard / group cards
-export const groupStats = query({
+// Aggregated stats for inventory dashboard / group cards.
+//
+// Converted to read TURSO (kept current by the live mirror). These are
+// aggregate reads that genuinely need whole small tables (groups/parts/
+// projects) or an indexed rental range, so they are the deliberate "scan" case
+// of the read budget; they run on a signed-in page, not per request.
+export const groupStats = action({
   args: {},
   handler: async (ctx) => {
-    await requireNonStudent(ctx);
-    const groups = await ctx.db
+    await requireActionNonStudent(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+
+    const groups = (await db
       .query("groups")
       .filter((q) => q.neq(q.field("deleted"), true))
-      .collect();
-    const parts = await ctx.db
+      .collect()) as any[];
+    const parts = (await db
       .query("parts")
       .filter((q) => q.neq(q.field("deleted"), true))
-      .collect();
+      .collect()) as any[];
     const byGroup: Record<string, { total: number; available: number; rented: number; onProject: number; broken: number; pending: number; transferred: number; consumed: number }> = {};
     for (const p of parts) {
       const g = (byGroup[p.groupId] ??= {
@@ -53,24 +61,27 @@ export const groupStats = query({
   },
 });
 
-export const overview = query({
+export const overview = action({
   args: {},
   handler: async (ctx) => {
-    await requireNonStudent(ctx);
-    const parts = await ctx.db.query("parts").filter((q) => q.neq(q.field("deleted"), true)).collect();
-    const groups = await ctx.db.query("groups").filter((q) => q.neq(q.field("deleted"), true)).collect();
-    const projects = await ctx.db
+    await requireActionNonStudent(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+
+    const parts = (await db.query("parts").filter((q) => q.neq(q.field("deleted"), true)).collect()) as any[];
+    const groups = (await db.query("groups").filter((q) => q.neq(q.field("deleted"), true)).collect()) as any[];
+    const projects = (await db
       .query("projects")
       .filter((q) => q.eq(q.field("status"), "active"))
-      .collect();
-    const pending = await ctx.db
+      .collect()) as any[];
+    const pending = (await db
       .query("rentals")
       .withIndex("by_status", (q) => q.eq("status", "pending"))
-      .collect();
-    const active = await ctx.db
+      .collect()) as any[];
+    const active = (await db
       .query("rentals")
       .withIndex("by_status", (q) => q.eq("status", "active"))
-      .collect();
+      .collect()) as any[];
     const stats = {
       groups: groups.length,
       units: parts.length,

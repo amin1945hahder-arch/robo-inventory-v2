@@ -1,8 +1,11 @@
 import { v } from "convex/values";
-import { internalQuery, mutation, query } from "./_generated/server";
+import { action, internalQuery, mutation } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { requireAdmin } from "./lib";
+import { requireActionAdmin } from "./authActions";
+import { loadTurso } from "./tursoDb";
 
 /**
  * Telegram topic routing (forum groups).
@@ -81,12 +84,14 @@ export type TopicRow = {
 };
 
 // Admin topic list for one group ("app" | "printer").
-export const listTopics = query({
+export const listTopics = action({
   args: { bot: v.union(v.literal("app"), v.literal("printer")) },
   handler: async (ctx, { bot }) => {
-    await requireAdmin(ctx);
-    const rows = await ctx.db
-      .query("telegramTopics")
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const rows = await db
+      .query<Doc<"telegramTopics">>("telegramTopics")
       .withIndex("by_bot", (q) => q.eq("bot", bot))
       .collect();
     return rows

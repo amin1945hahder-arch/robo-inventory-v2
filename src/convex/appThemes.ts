@@ -1,8 +1,11 @@
 import { ConvexError, v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { action, mutation } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import { defaultColors, TOKEN_KEYS, type ThemeMode } from "../lib/themeTokens";
 import { requireAdmin } from "./lib";
+import { loadTurso } from "./tursoDb";
+import type { BridgeDb } from "../lib/turso-bridge";
 
 /**
  * Global app themes — published by an admin, used by EVERY member.
@@ -60,14 +63,10 @@ function parseSchedule(raw: unknown): ThemeSchedule | null {
   return null;
 }
 
-async function readState(ctx: QueryCtx): Promise<ThemesDoc> {
-  const row = await ctx.db
-    .query("settings")
-    .withIndex("by_key", (q) => q.eq("key", KEY))
-    .unique();
-  if (!row?.value) return { themes: [], activeId: null, defaultId: null, schedule: null };
+function parseThemesDoc(value: string | undefined): ThemesDoc {
+  if (!value) return { themes: [], activeId: null, defaultId: null, schedule: null };
   try {
-    const parsed = JSON.parse(row.value) as Partial<ThemesDoc>;
+    const parsed = JSON.parse(value) as Partial<ThemesDoc>;
     return {
       themes: Array.isArray(parsed.themes) ? (parsed.themes as AppTheme[]) : [],
       activeId: typeof parsed.activeId === "string" ? parsed.activeId : null,
@@ -77,6 +76,23 @@ async function readState(ctx: QueryCtx): Promise<ThemesDoc> {
   } catch {
     return { themes: [], activeId: null, defaultId: null, schedule: null };
   }
+}
+
+async function readState(ctx: QueryCtx): Promise<ThemesDoc> {
+  const row = await ctx.db
+    .query("settings")
+    .withIndex("by_key", (q) => q.eq("key", KEY))
+    .unique();
+  return parseThemesDoc(row?.value);
+}
+
+/** Action-side twin of {@link readState}: reads the same settings row via Turso. */
+async function readStateDb(db: BridgeDb): Promise<ThemesDoc> {
+  const row = await db
+    .query<Doc<"settings">>("settings")
+    .withIndex("by_key", (q) => q.eq("key", KEY))
+    .unique();
+  return parseThemesDoc(row?.value);
 }
 
 async function writeState(ctx: MutationCtx, state: ThemesDoc): Promise<void> {
@@ -93,7 +109,7 @@ async function writeState(ctx: MutationCtx, state: ThemesDoc): Promise<void> {
  * The published theme state. Readable by anyone (signed in or not) so the
  * theme can apply instantly on the landing page and while offline.
  */
-export const get = query({
+export const get = action({
   args: {},
   handler: async (
     ctx,
@@ -103,7 +119,9 @@ export const get = query({
     defaultId: string | null;
     schedule: ThemeSchedule | null;
   }> => {
-    const state = await readState(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const state = await readStateDb(db);
     return {
       themes: state.themes,
       activeId: state.activeId,

@@ -838,6 +838,19 @@ const schema = defineSchema(
       // Table-scoped tombstone reads: syncHead/listTombstonesSince must never
       // let a delete in one table wake every other table's delta pull.
       .index("by_table_deletedAt", ["table", "deletedAt"]),
+
+    // ===== Turso change-head mirror =====
+    // Data lives in Turso now, but Convex cannot read Turso and Turso is not
+    // reactive. So every Turso write ALSO bumps a tiny head row here: clients
+    // subscribe to the reactive `head:tursoHeads` query and only pull from
+    // Turso for tables whose head actually moved. No head movement → zero
+    // Turso data reads. One row per data table (≤36), written by
+    // head:publishHeads from the actions in tursoDb.ts.
+    tursoHeads: defineTable({
+      table: v.string(),
+      at: v.number(),
+      seq: v.number(),
+    }).index("by_table", ["table"]),
   },
   {
     schemaValidation: false,

@@ -28,8 +28,11 @@ export function containerChainFromIndex(
   }
   return parts.join(" > ");
 }
-import { mutation, query } from "./_generated/server";
+import { action, mutation, query } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import { requireInteractingMember, requireInventory, requireNonStudent } from "./lib";
+import { requireActionNonStudent } from "./authActions";
+import { loadTurso } from "./tursoDb";
 import { telegramGroup } from "./notify";
 import { planMeasureTake } from "../lib/measure-alloc";
 
@@ -73,20 +76,24 @@ export function isPlainCountGroupSrv(group: {
 
 // ===== Closets =====
 
-export const listClosets = query({
+export const listClosets = action({
   args: {},
   handler: async (ctx) => {
-    await requireNonStudent(ctx);
-    const rows = await ctx.db.query("closets").withIndex("by_name").collect();
+    await requireActionNonStudent(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const rows = await db.query<Doc<"closets">>("closets").withIndex("by_name").collect();
     return rows;
   },
 });
 
-export const getCloset = query({
+export const getCloset = action({
   args: { id: v.id("closets") },
   handler: async (ctx, { id }) => {
-    await requireNonStudent(ctx);
-    return await ctx.db.get(id);
+    await requireActionNonStudent(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    return await db.get<Doc<"closets">>(id);
   },
 });
 
@@ -153,11 +160,13 @@ export const deleteCloset = mutation({
 
 // ===== Categories =====
 
-export const listCategories = query({
+export const listCategories = action({
   args: {},
   handler: async (ctx) => {
-    await requireNonStudent(ctx);
-    const rows = await ctx.db.query("categories").withIndex("by_name").collect();
+    await requireActionNonStudent(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const rows = await db.query<Doc<"categories">>("categories").withIndex("by_name").collect();
     return rows;
   },
 });
@@ -232,16 +241,18 @@ export const deleteCategory = mutation({
 
 // ===== Groups (component types / cards) =====
 
-export const listGroups = query({
+export const listGroups = action({
   args: {
     categoryId: v.optional(v.id("categories")),
     closetId: v.optional(v.id("closets")),
     search: v.optional(v.string()),
   },
   handler: async (ctx, { categoryId, closetId, search }) => {
-    await requireNonStudent(ctx);
-    let rows = await ctx.db
-      .query("groups")
+    await requireActionNonStudent(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    let rows = await db
+      .query<Doc<"groups">>("groups")
       .withIndex("by_category")
       .filter((q) => q.neq(q.field("deleted"), true))
       .collect();
@@ -260,22 +271,26 @@ export const listGroups = query({
   },
 });
 
-export const getGroup = query({
+export const getGroup = action({
   args: { id: v.id("groups") },
   handler: async (ctx, { id }) => {
-    await requireNonStudent(ctx);
-    return await ctx.db.get(id);
+    await requireActionNonStudent(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    return await db.get<Doc<"groups">>(id);
   },
 });
 
 // Container (group-of-groups) picker options: every active group, shallow.
 // The form filters out the current group's own subtree client-side.
-export const childGroupOptions = query({
+export const childGroupOptions = action({
   args: {},
   handler: async (ctx) => {
-    await requireNonStudent(ctx);
-    return await ctx.db
-      .query("groups")
+    await requireActionNonStudent(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    return await db
+      .query<Doc<"groups">>("groups")
       .withIndex("by_category")
       .filter((q) => q.neq(q.field("deleted"), true))
       .collect();
@@ -787,11 +802,13 @@ export const consumeBulkUnit = mutation({
 });
 
 /** The consumption audit trail of one unit (for the detail dialog). */
-export const consumptionLog = query({
+export const consumptionLog = action({
   args: { partId: v.id("parts") },
   handler: async (ctx, { partId }) => {
-    await requireNonStudent(ctx);
-    const part = await ctx.db.get(partId);
+    await requireActionNonStudent(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const part = await db.get<Doc<"parts">>(partId);
     return (part?.consumptionLog ?? []).slice().reverse();
   },
 });

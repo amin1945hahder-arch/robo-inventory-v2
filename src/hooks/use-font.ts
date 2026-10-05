@@ -1,6 +1,6 @@
 import { useEffect } from "react";
-import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { useOfflineQuery as useQuery } from "@/hooks/use-offline-query";
 import { applyFont } from "@/lib/fonts";
 
 /**

@@ -1,9 +1,11 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { action, mutation } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { requireAdmin, requireNonStudent, safeImage } from "./lib";
+import { requireActionNonStudent } from "./authActions";
+import { loadTurso } from "./tursoDb";
 import { telegramDM, telegramGroup } from "./notify";
 
 /**
@@ -125,16 +127,18 @@ type PersonRefLite = {
 // ---------- queries ----------
 
 /** Lightweight rows for the Projects grid: team size, leader, task progress. */
-export const listSummaries = query({
+export const listSummaries = action({
   args: {},
   handler: async (ctx) => {
-    await requireNonStudent(ctx);
-    const projects = await ctx.db
-      .query("projects")
+    await requireActionNonStudent(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const projects = await db
+      .query<Doc<"projects">>("projects")
       .filter((q) => q.neq(q.field("deleted"), true))
       .collect();
-    const allMembers = await ctx.db.query("projectMembers").collect();
-    const allTasks = await ctx.db.query("projectTasks").collect();
+    const allMembers = await db.query<Doc<"projectMembers">>("projectMembers").collect();
+    const allTasks = await db.query<Doc<"projectTasks">>("projectTasks").collect();
 
     const out = [];
     for (const p of projects.sort((a, b) => a.name.localeCompare(b.name))) {
@@ -145,7 +149,7 @@ export const listSummaries = query({
       const leaderRow = active.find((m) => m.role === "leader");
       const ownerIdRow = active.find((m) => m.userId === p.ownerId);
       const ownerRow = leaderRow ?? ownerIdRow ?? null;
-      const owner = ownerRow ? await ctx.db.get(ownerRow.userId) : null;
+      const owner = ownerRow ? await db.get<Doc<"users">>(ownerRow.userId) : null;
       out.push({
         project: p,
         teamSize: active.length,
@@ -160,21 +164,23 @@ export const listSummaries = query({
 });
 
 /** The full workspace for one project: team, missions, notes, parts, stats. */
-export const workspace = query({
+export const workspace = action({
   args: { id: v.id("projects") },
   handler: async (ctx, { id }) => {
-    const me = await requireNonStudent(ctx);
-    const project = await ctx.db.get(id);
+    const me = await requireActionNonStudent(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const project = await db.get<Doc<"projects">>(id);
     if (!project || project.deleted) return null;
 
     // Team with user join.
-    const memberRows = await ctx.db
-      .query("projectMembers")
+    const memberRows = await db
+      .query<Doc<"projectMembers">>("projectMembers")
       .withIndex("by_project", (q) => q.eq("projectId", id))
       .collect();
     const members = [];
     for (const m of memberRows.sort((a, b) => a.addedAt - b.addedAt)) {
-      const u = await ctx.db.get(m.userId);
+      const u = await db.get<Doc<"users">>(m.userId);
       if (!u) continue; // user was deleted; the row will be cleaned up lazily
       members.push({
         _id: m._id,
@@ -194,13 +200,13 @@ export const workspace = query({
     }
 
     // Missions + notes with light user joins (assignee / creator names).
-    const taskRows = await ctx.db
-      .query("projectTasks")
+    const taskRows = await db
+      .query<Doc<"projectTasks">>("projectTasks")
       .withIndex("by_project", (q) => q.eq("projectId", id))
       .collect();
     const userCache = new Map<string, Promise<UserDoc | null>>();
     const getUser = (uid: Id<"users">) => {
-      if (!userCache.has(uid)) userCache.set(uid, ctx.db.get(uid));
+      if (!userCache.has(uid)) userCache.set(uid, db.get<UserDoc>(uid));
       return userCache.get(uid)!;
     };
     const tasks: {
@@ -232,8 +238,8 @@ export const workspace = query({
       });
     }
 
-    const noteRows = await ctx.db
-      .query("projectNotes")
+    const noteRows = await db
+      .query<Doc<"projectNotes">>("projectNotes")
       .withIndex("by_project", (q) => q.eq("projectId", id))
       .collect();
     const notes = [];
@@ -243,14 +249,14 @@ export const workspace = query({
     }
 
     // Parts currently checked out to the project (with their group names).
-    const partRows = await ctx.db
-      .query("parts")
+    const partRows = await db
+      .query<Doc<"parts">>("parts")
       .filter((q) => q.eq(q.field("currentProjectId"), id))
       .filter((q) => q.neq(q.field("deleted"), true))
       .collect();
     const parts = [];
     for (const p of partRows.sort((a, b) => a.tag.localeCompare(b.tag))) {
-      const group = await ctx.db.get(p.groupId);
+      const group = await db.get<Doc<"groups">>(p.groupId);
       parts.push({ part: p, groupName: group?.name ?? "Unit" });
     }
 

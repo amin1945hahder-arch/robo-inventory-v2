@@ -27,6 +27,13 @@ export type CacheEntry<T = unknown> = {
   value: T;
   /** Epoch ms when this entry was written. */
   storedAt: number;
+  /**
+   * Turso change heads as they were when this result was fetched. Lets a
+   * re-mount skip the read entirely when nothing has changed since (see
+   * `planRead` in readPlan.ts). Absent for Convex-subscription results, which
+   * are kept fresh by the live subscription rather than by heads.
+   */
+  heads?: Record<string, { table: string; at: number; seq: number }>;
 };
 
 export type Freshness = "miss" | "fresh" | "stale";

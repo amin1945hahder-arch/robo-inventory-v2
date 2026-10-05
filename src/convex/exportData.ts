@@ -1,42 +1,51 @@
-import { query } from "./_generated/server";
-import { requireAdmin, safeImage } from "./lib";
+import { action } from "./_generated/server";
+import { requireActionAdmin } from "./authActions";
+import { safeImage } from "./lib";
+import { loadTurso } from "./tursoDb";
 
 // Joined datasets for the Export studio. Admin-only.
+//
+// Converted to read TURSO (kept current by the live mirror). `docCache` now
+// resolves through the bridge (id-based reads use the `_idmap`), and the
+// handlers are unchanged apart from `ctx.db` → `db`.
 
 /** Per-execution memo for joined docs — keeps repeated reads of heavy user
- *  docs (base64 avatars) from blowing Convex's per-execution read limit. */
+ *  docs (base64 avatars) from re-hitting the database per row. */
 function docCache() {
   const cache = new Map<string, Promise<any>>();
   return {
-    async get(ctx: any, id: string | undefined): Promise<any> {
+    async get(db: any, id: string | undefined): Promise<any> {
       if (!id) return null;
       const existing = cache.get(id);
       if (existing) return existing;
-      const promise: Promise<any> = ctx.db.get(id);
+      const promise: Promise<any> = db.get(id);
       cache.set(id, promise);
       return promise;
     },
   };
 }
 
-export const inventory = query({
+export const inventory = action({
   args: {},
   handler: async (ctx) => {
-    await requireAdmin(ctx);
-    const groups = await ctx.db
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+
+    const groups = (await db
       .query("groups")
       .filter((q) => q.neq(q.field("deleted"), true))
-      .collect();
-    const parts = await ctx.db
+      .collect()) as any[];
+    const parts = (await db
       .query("parts")
       .filter((q) => q.neq(q.field("deleted"), true))
-      .collect();
+      .collect()) as any[];
     const cache = docCache();
     const byId = new Map(groups.map((g) => [g._id, g]));
-    const out = [];
+    const out: any[] = [];
     for (const g of groups.sort((a, b) => a.name.localeCompare(b.name))) {
-      const category = await cache.get(ctx, g.categoryId);
-      const closet = await cache.get(ctx, g.closetId);
+      const category = await cache.get(db, g.categoryId);
+      const closet = await cache.get(db, g.closetId);
       // Container (group-of-groups) this group lives inside — shown in the
       // export sheet and printed under the QR on item cards.
       const parent = g.parentGroupId ? (byId.get(g.parentGroupId) ?? null) : null;
@@ -95,22 +104,24 @@ export const inventory = query({
   },
 });
 
-export const rentals = query({
+export const rentals = action({
   args: {},
   handler: async (ctx) => {
-    await requireAdmin(ctx);
-    const rows = await ctx.db.query("rentals").collect();
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+
+    const rows = (await db.query("rentals").collect()) as any[];
     // Cached joins + capped projections: full docs (esp. user avatars) repeated
-    // per row have previously pushed queries past Convex's per-execution read
-    // limit. Export needs only the columns the studio renders.
+    // per row are expensive; export needs only the columns the studio renders.
     const cache = docCache();
-    const joined = [];
+    const joined: any[] = [];
     for (const r of rows.sort((a, b) => b.requestedAt - a.requestedAt)) {
-      const part = await cache.get(ctx, r.partId);
-      const group = part ? await cache.get(ctx, part.groupId) : null;
-      const parent = group?.parentGroupId ? await cache.get(ctx, group.parentGroupId) : null;
-      const project = r.projectId ? await cache.get(ctx, r.projectId) : null;
-      const student = await cache.get(ctx, r.userId);
+      const part = await cache.get(db, r.partId);
+      const group = part ? await cache.get(db, part.groupId) : null;
+      const parent = group?.parentGroupId ? await cache.get(db, group.parentGroupId) : null;
+      const project = r.projectId ? await cache.get(db, r.projectId) : null;
+      const student = await cache.get(db, r.userId);
       joined.push({
         rental: r,
         part: part ? { _id: part._id, tag: part.tag } : null,
@@ -132,12 +143,15 @@ export const rentals = query({
   },
 });
 
-export const people = query({
+export const people = action({
   args: {},
   handler: async (ctx) => {
-    await requireAdmin(ctx);
-    const users = await ctx.db.query("users").collect();
-    const rentals = await ctx.db.query("rentals").collect();
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+
+    const users = (await db.query("users").collect()) as any[];
+    const rentals = (await db.query("rentals").collect()) as any[];
     return users
       .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""))
       .map((u) => ({
@@ -163,22 +177,25 @@ export const people = query({
   },
 });
 
-export const projects = query({
+export const projects = action({
   args: {},
   handler: async (ctx) => {
-    await requireAdmin(ctx);
-    const projects = await ctx.db
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+
+    const projects = (await db
       .query("projects")
       .filter((q) => q.neq(q.field("deleted"), true))
-      .collect();
-    const parts = await ctx.db
+      .collect()) as any[];
+    const parts = (await db
       .query("parts")
       .filter((q) => q.neq(q.field("deleted"), true))
-      .collect();
+      .collect()) as any[];
     const cache = docCache();
-    const out = [];
+    const out: any[] = [];
     for (const project of projects.sort((a, b) => a.name.localeCompare(b.name))) {
-      const owner = project.ownerId ? await cache.get(ctx, project.ownerId) : null;
+      const owner = project.ownerId ? await cache.get(db, project.ownerId) : null;
       out.push({
         project,
         owner: owner ? { _id: owner._id, name: owner.name, email: owner.email } : null,
@@ -190,31 +207,36 @@ export const projects = query({
 });
 
 // Storages (for the export sheet + printed cards: image left, QR right).
-export const storages = query({
+export const storages = action({
   args: {},
   handler: async (ctx) => {
-    await requireAdmin(ctx);
-    const rows = await ctx.db.query("closets").collect();
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const rows = (await db.query("closets").collect()) as any[];
     return rows.sort((a, b) => a.name.localeCompare(b.name));
   },
 });
 
 // Every physical unit (tag) with its group/storage names and image — used by
 // the printed cards (each card = one unit sticker) and the units dataset.
-export const units = query({
+export const units = action({
   args: {},
   handler: async (ctx) => {
-    await requireAdmin(ctx);
-    const parts = await ctx.db
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+
+    const parts = (await db
       .query("parts")
       .filter((q) => q.neq(q.field("deleted"), true))
-      .collect();
-    const groups = await ctx.db
+      .collect()) as any[];
+    const groups = (await db
       .query("groups")
       .filter((q) => q.neq(q.field("deleted"), true))
-      .collect();
-    const closets = await ctx.db.query("closets").collect();
-    const out = [];
+      .collect()) as any[];
+    const closets = (await db.query("closets").collect()) as any[];
+    const out: any[] = [];
     for (const p of parts.sort((a, b) => a.tag.localeCompare(b.tag))) {
       const g = groups.find((x) => x._id === p.groupId);
       if (!g) continue;

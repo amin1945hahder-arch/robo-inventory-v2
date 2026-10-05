@@ -1,7 +1,14 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
-import { internalQuery, mutation, query, QueryCtx } from "./_generated/server";
+import { action, internalQuery, mutation, query, QueryCtx } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
+import {
+  requireActionAdmin,
+  requireActionNonStudent,
+  requireActionUser,
+} from "./authActions";
+import { loadTurso } from "./tursoDb";
 import { touchPatch, recordTombstone } from "./sync";
 import {
   hasInventoryPrivilege,
@@ -41,11 +48,13 @@ export const currentUser = query({
  * Users are sorted once here so every consumer renders a stable order
  * without re-sorting the list on each render.
  */
-export const listPeopleLite = query({
+export const listPeopleLite = action({
   args: {},
   handler: async (ctx) => {
-    await requireNonStudent(ctx);
-    const users = await ctx.db.query("users").collect();
+    await requireActionNonStudent(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const users = await db.query<Doc<"users">>("users").collect();
     return users
       .filter((u) => !u.isAnonymous)
       .map((u) => ({
@@ -78,6 +87,18 @@ export const getCurrentUser = async (ctx: QueryCtx) => {
 export const currentInternalUser = internalQuery({
   args: {},
   handler: async (ctx) => getCurrentUser(ctx),
+});
+
+// Internal twin of `lib.listAdmins` so ACTIONS (which cannot touch ctx.db)
+// can still resolve the club admins for notifications. Reads through the
+// `by_role` index — 1 row read per admin, never a scan.
+export const listAdminsInternal = internalQuery({
+  args: {},
+  handler: async (ctx) =>
+    ctx.db
+      .query("users")
+      .withIndex("by_role", (q) => q.eq("role", "admin"))
+      .collect(),
 });
 
 // Bootstrap A: the first user who signs in with an email on the admin allow-list
@@ -471,11 +492,13 @@ export const deletePerson = mutation({
  * role, plus their rental history when the viewer is an admin or the person
  * themselves. Guests never resolve (they are not people).
  */
-export const getPersonCard = query({
+export const getPersonCard = action({
   args: { userId: v.id("users") },
   handler: async (ctx, { userId }) => {
-    const me = await requireUser(ctx);
-    const person = await ctx.db.get(userId);
+    const me = await requireActionUser(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const person = await db.get<Doc<"users">>(userId);
     if (!person || person.isAnonymous) return null;
 
     const canSeeHistory = me.role === "admin" || me._id === userId;
@@ -496,13 +519,13 @@ export const getPersonCard = query({
         if (!id) return null;
         let p = cache.get(id);
         if (!p) {
-          p = ctx.db.get(id as any);
+          p = db.get(id as any);
           cache.set(id, p);
         }
         return p;
       };
-      const rows = await ctx.db
-        .query("rentals")
+      const rows = await db
+        .query<Doc<"rentals">>("rentals")
         .withIndex("by_user", (q) => q.eq("userId", userId))
         .collect();
       for (const r of rows.sort((a, b) => b.requestedAt - a.requestedAt)) {
@@ -535,15 +558,15 @@ export const getPersonCard = query({
     }[] = [];
     let totalUnitsOnProject = 0;
     if (canSeeHistory) {
-      const memberRows = await ctx.db
-        .query("projectMembers")
+      const memberRows = await db
+        .query<Doc<"projectMembers">>("projectMembers")
         .withIndex("by_user", (q) => q.eq("userId", userId))
         .collect();
       for (const m of memberRows.sort((a, b) => b.addedAt - a.addedAt)) {
-        const project = await ctx.db.get(m.projectId);
+        const project = await db.get<Doc<"projects">>(m.projectId);
         if (!project || project.deleted) continue;
-        const checkedOut = await ctx.db
-          .query("parts")
+        const checkedOut = await db
+          .query<Doc<"parts">>("parts")
           .filter((q) => q.eq(q.field("currentProjectId"), m.projectId))
           .collect();
         projects.push({
@@ -557,8 +580,8 @@ export const getPersonCard = query({
         });
       }
       totalUnitsOnProject = (
-        await ctx.db
-          .query("parts")
+        await db
+          .query<Doc<"parts">>("parts")
           .filter((q) => q.eq(q.field("currentHolderId"), userId))
           .collect()
       ).length;
@@ -694,17 +717,19 @@ export const requestRoleUpgrade = mutation({
 });
 
 // Admin view of all rank/role requests with the requester joined in.
-export const listRankRequests = query({
+export const listRankRequests = action({
   args: { status: v.optional(v.union(v.literal("pending"), v.literal("approved"), v.literal("denied"))) },
   handler: async (ctx, { status }) => {
-    await requireAdmin(ctx);
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
     const rows = status
-      ? await ctx.db.query("rankRequests").withIndex("by_status", (q) => q.eq("status", status)).collect()
-      : await ctx.db.query("rankRequests").collect();
+      ? await db.query<Doc<"rankRequests">>("rankRequests").withIndex("by_status", (q) => q.eq("status", status)).collect()
+      : await db.query<Doc<"rankRequests">>("rankRequests").collect();
     const sorted = rows.sort((a, b) => b.requestedAt - a.requestedAt);
     // Parallel member joins — latency is wall-clock, so Promise.all keeps the
     // console snappy while the read count stays one per request row.
-    const users = await Promise.all(sorted.map((r) => ctx.db.get(r.userId)));
+    const users = await Promise.all(sorted.map((r) => db.get<Doc<"users">>(r.userId)));
     return sorted.map((r, i) => ({
       request: r,
       user: users[i]
@@ -793,12 +818,14 @@ export const decideRankRequest = mutation({
 });
 
 // The signed-in member's own pending rank/role request (if any).
-export const myPendingRankRequest = query({
+export const myPendingRankRequest = action({
   args: {},
   handler: async (ctx) => {
-    const user = await requireUser(ctx);
-    const row = await ctx.db
-      .query("rankRequests")
+    const user = await requireActionUser(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const row = await db
+      .query<Doc<"rankRequests">>("rankRequests")
       .withIndex("by_user_status", (q) =>
         q.eq("userId", user._id).eq("status", "pending"),
       )
@@ -849,22 +876,24 @@ export const requestPrinterRole = mutation({
 });
 
 // Admin view of printer-privilege requests with the requester joined in.
-export const listPrinterRequests = query({
+export const listPrinterRequests = action({
   args: {
     status: v.optional(
       v.union(v.literal("pending"), v.literal("approved"), v.literal("denied")),
     ),
   },
   handler: async (ctx, { status }) => {
-    await requireAdmin(ctx);
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
     const rows = status
-      ? await ctx.db
-          .query("printerRequests")
+      ? await db
+          .query<Doc<"printerRequests">>("printerRequests")
           .withIndex("by_status", (q) => q.eq("status", status))
           .collect()
-      : await ctx.db.query("printerRequests").collect();
+      : await db.query<Doc<"printerRequests">>("printerRequests").collect();
     const sorted = rows.sort((a, b) => b.requestedAt - a.requestedAt);
-    const users = await Promise.all(sorted.map((r) => ctx.db.get(r.userId)));
+    const users = await Promise.all(sorted.map((r) => db.get<Doc<"users">>(r.userId)));
     return sorted.map((r, i) => ({
       request: r,
       user: users[i]
@@ -964,12 +993,14 @@ export const decidePrinterRequest = mutation({
 });
 
 // The signed-in member's own pending printer request (if any).
-export const myPendingPrinterRequest = query({
+export const myPendingPrinterRequest = action({
   args: {},
   handler: async (ctx) => {
-    const user = await requireUser(ctx);
-    const row = await ctx.db
-      .query("printerRequests")
+    const user = await requireActionUser(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const row = await db
+      .query<Doc<"printerRequests">>("printerRequests")
       .withIndex("by_user_status", (q) =>
         q.eq("userId", user._id).eq("status", "pending"),
       )
@@ -1019,22 +1050,24 @@ export const requestInventoryRole = mutation({
 });
 
 // Admin view of inventory-manager requests with the requester joined in.
-export const listInventoryRequests = query({
+export const listInventoryRequests = action({
   args: {
     status: v.optional(
       v.union(v.literal("pending"), v.literal("approved"), v.literal("denied")),
     ),
   },
   handler: async (ctx, { status }) => {
-    await requireAdmin(ctx);
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
     const rows = status
-      ? await ctx.db
-          .query("inventoryRequests")
+      ? await db
+          .query<Doc<"inventoryRequests">>("inventoryRequests")
           .withIndex("by_status", (q) => q.eq("status", status))
           .collect()
-      : await ctx.db.query("inventoryRequests").collect();
+      : await db.query<Doc<"inventoryRequests">>("inventoryRequests").collect();
     const sorted = rows.sort((a, b) => b.requestedAt - a.requestedAt);
-    const users = await Promise.all(sorted.map((r) => ctx.db.get(r.userId)));
+    const users = await Promise.all(sorted.map((r) => db.get<Doc<"users">>(r.userId)));
     return sorted.map((r, i) => ({
       request: r,
       user: users[i]
@@ -1170,12 +1203,14 @@ export const decideInventoryRequest = mutation({
 });
 
 // The signed-in member's own pending inventory request (if any).
-export const myPendingInventoryRequest = query({
+export const myPendingInventoryRequest = action({
   args: {},
   handler: async (ctx) => {
-    const user = await requireUser(ctx);
-    const row = await ctx.db
-      .query("inventoryRequests")
+    const user = await requireActionUser(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const row = await db
+      .query<Doc<"inventoryRequests">>("inventoryRequests")
       .withIndex("by_user_status", (q) =>
         q.eq("userId", user._id).eq("status", "pending"),
       )
@@ -1186,10 +1221,10 @@ export const myPendingInventoryRequest = query({
 
 // Effective inventory access for the SIGNED-IN user — the client uses this
 // to show/hide inventory edit controls (admins always see everything).
-export const myInventoryAccess = query({
+export const myInventoryAccess = action({
   args: {},
   handler: async (ctx) => {
-    const me = await requireUser(ctx);
+    const me = await requireActionUser(ctx);
     return {
       isManager: hasInventoryPrivilege(me),
       perms: inventoryPermsOf(me),
@@ -1322,14 +1357,16 @@ export const approveProfile = mutation({
 // ONLY explicitly-pending submissions count (profileApproved === false) —
 // legacy members without the flag are grandfathered and must not inflate the
 // Requests badge with numbers that don't match any actionable list.
-export const listUnapprovedProfiles = query({
+export const listUnapprovedProfiles = action({
   args: {},
   handler: async (ctx) => {
-    await requireAdmin(ctx);
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
     // Index lookup: only explicitly-pending submissions are read — never the
     // whole users table (this was one of the biggest reads in the console).
-    const rows = await ctx.db
-      .query("users")
+    const rows = await db
+      .query<Doc<"users">>("users")
       .withIndex("by_profileApproved", (q) => q.eq("profileApproved", false))
       .collect();
     return rows

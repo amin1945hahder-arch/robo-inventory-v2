@@ -354,6 +354,11 @@ export const MIGRATION_TABLES: Record<string, Record<string, SqlKind>> = {
     recordId: "text",
     deletedAt: "real"
   },
+  tursoHeads: {
+    table: "text",
+    at: "real",
+    seq: "real"
+  },
   accounts: {
     accountId: "text",
     providerAccountId: "text",
@@ -822,6 +827,14 @@ export const MIGRATION_INDEXES: Record<string, { name: string; columns: string[]
       columns: [
         "table",
         "deletedAt"
+      ]
+    }
+  ],
+  tursoHeads: [
+    {
+      name: "by_table",
+      columns: [
+        "table"
       ]
     }
   ],

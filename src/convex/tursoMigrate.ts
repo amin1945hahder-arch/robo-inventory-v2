@@ -5,6 +5,7 @@ import { action, internalAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import {
   MIGRATION_VERSION,
+  appTables,
   importDump,
   migrationMetaSql,
   verifyDump,
@@ -13,6 +14,7 @@ import {
 } from "../lib/turso-migrate";
 import { MIGRATION_TABLES } from "../lib/turso-schema.generated";
 import { tursoSql } from "./tursoClient";
+import { IDMAP_DDL, backfillIdMap } from "../lib/turso-bridge";
 
 /**
  * Convex → Turso migration tooling.
@@ -30,7 +32,15 @@ import { tursoSql } from "./tursoClient";
  *   TURSO_AUTH_TOKEN    — a token with write access
  */
 
-const TABLE_NAMES = Object.keys(MIGRATION_TABLES);
+// The APP-data tables only.
+//
+// NOT `Object.keys(MIGRATION_TABLES)`: that set also contains the Convex-only
+// infrastructure tables (`tursoHeads`, the change-head signal the frontend uses
+// to decide when to refetch a Turso-backed action). Turso tracks its own heads in
+// `_changes`, so copying `tursoHeads` across would cost rows on the free plan and
+// make `verify` report a permanent mismatch that has nothing to do with the data
+// migration. Every default below therefore comes from `appTables()`.
+const TABLE_NAMES = appTables();
 
 /**
  * The connection lives in tursoClient.ts now, shared with the runtime data
@@ -41,11 +51,32 @@ function tursoExecutor(): { exec: SqlExecutor | null; problem: string | null } {
   return { exec: sql, problem };
 }
 
-async function requireAdmin(ctx: ActionCtx) {
+/**
+ * Authorization for migration steps.
+ *
+ * Two ways in, because the migration has two legitimate callers:
+ *
+ *  1. A signed-in club admin (from the app / dashboard).
+ *  2. The operator running `bunx convex run tursoMigrate:…` from a terminal.
+ *     `convex run` runs with NO user session, so (1) can never succeed there.
+ *     The deployment-level CLI credential IS the authorization, but these steps
+ *     read and rewrite the whole database, so the operator must ALSO opt in by
+ *     explicitly enabling the switch on the deployment:
+ *
+ *         bunx convex env set TURSO_MIGRATION_ALLOW_CLI 1   # and unset after
+ *
+ *     Off by default: nothing here runs from a terminal unless you say so.
+ */
+export async function requireMigrationAdmin(ctx: ActionCtx): Promise<void> {
   const me = (await ctx.runQuery(internal.users.currentInternalUser, {})) as {
     role?: string;
   } | null;
-  if (!me || me.role !== "admin") throw new Error("Admin access required");
+  if (me && me.role === "admin") return;
+  if (process.env.TURSO_MIGRATION_ALLOW_CLI === "1") return;
+  throw new Error(
+    "Admin access required — sign in as an admin, or set TURSO_MIGRATION_ALLOW_CLI=1 on the " +
+      "deployment to run this from the CLI.",
+  );
 }
 
 /** Pull a whole dump, table by table, from the connected Convex deployment. */
@@ -73,7 +104,7 @@ export const preview = action({
     tables: { table: string; rows: number }[];
     totalRows: number;
   }> => {
-    await requireAdmin(ctx);
+    await requireMigrationAdmin(ctx);
     const { exec, problem } = tursoExecutor();
     const tables: { table: string; rows: number }[] = [];
     let totalRows = 0;
@@ -107,7 +138,7 @@ export const runImport = action({
     tables: v.optional(v.array(v.string())),
   },
   handler: async (ctx, { mode, tables }) => {
-    await requireAdmin(ctx);
+    await requireMigrationAdmin(ctx);
     const wanted = (tables ?? TABLE_NAMES).filter((t) => t in MIGRATION_TABLES);
     if (wanted.length === 0) throw new Error("No known tables selected");
 
@@ -130,7 +161,7 @@ export const runImport = action({
 export const verify = action({
   args: { tables: v.optional(v.array(v.string())) },
   handler: async (ctx, { tables }) => {
-    await requireAdmin(ctx);
+    await requireMigrationAdmin(ctx);
     const wanted = (tables ?? TABLE_NAMES).filter((t) => t in MIGRATION_TABLES);
     const { exec, problem } = tursoExecutor();
     if (!exec) throw new Error(problem ?? "Turso is not configured");
@@ -202,11 +233,29 @@ export const verifyInternal = internalAction({
   },
 });
 
+/**
+ * Backfill the `_idmap` (id → table) index the Turso bridge needs to resolve
+ * MIGRATED Convex ids, which carry no table prefix. Run once after an import;
+ * idempotent, and one statement per table (see backfillIdMap).
+ */
+export const syncIds = action({
+  args: { tables: v.optional(v.array(v.string())) },
+  handler: async (ctx, { tables }) => {
+    await requireMigrationAdmin(ctx);
+    const { exec, problem } = tursoExecutor();
+    if (!exec) throw new Error(problem ?? "Turso is not configured");
+    const wanted = (tables ?? TABLE_NAMES).filter((t) => t in MIGRATION_TABLES);
+    await exec.execute(IDMAP_DDL);
+    const recorded = await backfillIdMap(exec, wanted);
+    return { tables: wanted.length, recorded };
+  },
+});
+
 /** Previous migration runs recorded in the target database. */
 export const history = action({
   args: {},
   handler: async (ctx) => {
-    await requireAdmin(ctx);
+    await requireMigrationAdmin(ctx);
     const { exec, problem } = tursoExecutor();
     if (!exec) return { configured: false as const, problem, runs: [] };
     for (const sql of migrationMetaSql()) await exec.execute(sql);

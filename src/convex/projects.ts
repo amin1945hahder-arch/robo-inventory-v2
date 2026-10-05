@@ -1,33 +1,40 @@
 import { ConvexError, v } from "convex/values";
-import { mutation, query } from "./_generated/server";
-import { requireAdmin, requireNonStudent, requireUser } from "./lib";
+import { action, mutation, query } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
+import { requireAdmin } from "./lib";
+import { requireActionNonStudent, requireActionUser } from "./authActions";
+import { loadTurso } from "./tursoDb";
 import { internal } from "./_generated/api";
 import { touchPatch, recordTombstone } from "./sync";
 
-export const listProjects = query({
+export const listProjects = action({
   args: { status: v.optional(v.union(v.literal("active"), v.literal("completed"), v.literal("dismantled"))) },
   handler: async (ctx, { status }) => {
-    await requireUser(ctx);
-    let rows = await ctx.db.query("projects").filter((q) => q.neq(q.field("deleted"), true)).collect();
+    await requireActionUser(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    let rows = await db.query<Doc<"projects">>("projects").filter((q) => q.neq(q.field("deleted"), true)).collect();
     if (status) rows = rows.filter((p) => p.status === status);
     return rows.sort((a, b) => a.name.localeCompare(b.name));
   },
 });
 
-export const getProject = query({
+export const getProject = action({
   args: { id: v.id("projects") },
   handler: async (ctx, { id }) => {
-    await requireNonStudent(ctx);
-    const project = await ctx.db.get(id);
+    await requireActionNonStudent(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const project = await db.get<Doc<"projects">>(id);
     if (!project) return null;
-    const parts = await ctx.db
-      .query("parts")
+    const parts = await db
+      .query<Doc<"parts">>("parts")
       .filter((q) => q.eq(q.field("currentProjectId"), id))
       .filter((q) => q.neq(q.field("deleted"), true))
       .collect();
     const out = [];
     for (const p of parts.sort((a, b) => a.tag.localeCompare(b.tag))) {
-      const group = await ctx.db.get(p.groupId);
+      const group = await db.get<Doc<"groups">>(p.groupId);
       out.push({ part: p, group });
     }
     return { project, parts: out };

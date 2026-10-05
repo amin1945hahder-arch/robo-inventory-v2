@@ -1,8 +1,10 @@
 import { v } from "convex/values";
-import { internalMutation, mutation, query } from "./_generated/server";
+import { action, internalMutation, mutation } from "./_generated/server";
 import { api, internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { requireAdmin, requireInteractingMember, requirePrinter, hasPrinterPrivilege } from "./lib";
+import { requireActionPrinter } from "./authActions";
+import { loadTurso } from "./tursoDb";
 import { telegramPrinterDM, telegramGroup } from "./notify";
 
 /**
@@ -106,11 +108,13 @@ async function memberRef(ctx: any, userId: Id<"users">) {
 
 // ===== Printers =====
 
-export const listPrinters = query({
+export const listPrinters = action({
   args: {},
   handler: async (ctx) => {
-    await requirePrinter(ctx);
-    const rows = await ctx.db.query("printers").filter((q) => q.neq(q.field("deleted"), true)).collect();
+    await requireActionPrinter(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const rows = await db.query<Doc<"printers">>("printers").filter((q) => q.neq(q.field("deleted"), true)).collect();
     return rows.sort((a, b) => a.name.localeCompare(b.name));
   },
 });
@@ -226,12 +230,14 @@ export const addMaintenance = mutation({
 
 // ===== Filament spools =====
 
-export const listFilaments = query({
+export const listFilaments = action({
   args: {},
   handler: async (ctx) => {
-    await requirePrinter(ctx);
-    return await ctx.db
-      .query("filaments")
+    await requireActionPrinter(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    return await db
+      .query<Doc<"filaments">>("filaments")
       .withIndex("by_archived", (q) => q.eq("archived", undefined))
       .collect();
   },
@@ -416,14 +422,16 @@ export const archiveFilament = mutation({
 
 // ===== Print jobs =====
 
-export const listJobs = query({
+export const listJobs = action({
   args: {},
   handler: async (ctx) => {
-    await requirePrinter(ctx);
-    const rows = await ctx.db.query("printJobs").collect();
+    await requireActionPrinter(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const rows = await db.query<Doc<"printJobs">>("printJobs").collect();
     const out = [];
     for (const j of rows.sort((a, b) => b.createdAt - a.createdAt)) {
-      const requester = await ctx.db.get(j.requesterId);
+      const requester = await db.get<Doc<"users">>(j.requesterId);
       out.push({
         ...j,
         requesterName: requester?.name ?? requester?.email ?? "Member",
@@ -433,13 +441,15 @@ export const listJobs = query({
   },
 });
 
-export const farmStats = query({
+export const farmStats = action({
   args: {},
   handler: async (ctx) => {
-    await requirePrinter(ctx);
-    const printers = await ctx.db.query("printers").filter((q) => q.neq(q.field("deleted"), true)).collect();
-    const jobs = await ctx.db.query("printJobs").collect();
-    const spools = await ctx.db.query("filaments").collect();
+    await requireActionPrinter(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const printers = await db.query<Doc<"printers">>("printers").filter((q) => q.neq(q.field("deleted"), true)).collect();
+    const jobs = await db.query<Doc<"printJobs">>("printJobs").collect();
+    const spools = await db.query<Doc<"filaments">>("filaments").collect();
     const activeSpools = spools.filter((s) => !s.archived);
     return {
       printers: printers.length,

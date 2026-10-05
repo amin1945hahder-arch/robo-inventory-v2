@@ -4,11 +4,14 @@ import {
   internalMutation,
   internalQuery,
   mutation,
-  query,
 } from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import { api, internal } from "./_generated/api";
 import { requireAdmin, requireUser } from "./lib";
+import { requireActionUser } from "./authActions";
+import { loadTurso } from "./tursoDb";
+import type { BridgeDb } from "../lib/turso-bridge";
 
 /**
  * Admin-editable app settings, stored in the settings table as JSON values.
@@ -97,12 +100,14 @@ function normalizeCardLayout(raw: unknown): CardPrintLayout {
 }
 
 /** Read the card print layout (any signed-in user — the dialog needs it). */
-export const getCardLayout = query({
+export const getCardLayout = action({
   args: {},
   handler: async (ctx) => {
-    await requireUser(ctx);
-    const row = await ctx.db
-      .query("settings")
+    await requireActionUser(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const row = await db
+      .query<Doc<"settings">>("settings")
       .withIndex("by_key", (q) => q.eq("key", CARD_LAYOUT_KEY))
       .unique();
     return normalizeCardLayout(row?.value ? JSON.parse(row.value) : {});
@@ -163,10 +168,12 @@ export type { SoundSettings, SoundSpec };
 const SOUNDS_KEY = "notification_sounds"; // legacy global key (no longer written)
 
 // Read my own sound settings (any signed-in user). Falls back to defaults.
-export const getMySounds = query({
+// The settings live on the user row, which the auth read already returns —
+// no Turso round-trip is needed.
+export const getMySounds = action({
   args: {},
   handler: async (ctx) => {
-    const me = await requireUser(ctx);
+    const me = await requireActionUser(ctx);
     const parsed = me.soundSettings
       ? (JSON.parse(me.soundSettings) as Partial<SoundSettings>)
       : {};
@@ -224,10 +231,10 @@ export type Appearance = "dark" | "light" | "system";
 
 // Read MY OWN appearance setting (any signed-in user). Defaults to dark —
 // the app was designed dark-first.
-export const getMyAppearance = query({
+export const getMyAppearance = action({
   args: {},
   handler: async (ctx): Promise<Appearance> => {
-    const me = await requireUser(ctx);
+    const me = await requireActionUser(ctx);
     return me.appearance ?? "dark";
   },
 });
@@ -247,10 +254,10 @@ export const setMyAppearance = mutation({
 // stored (validated to a short slug); the client owns the catalog and applies
 // the matching font stack on <html>. "" restores the app default.
 
-export const getMyFont = query({
+export const getMyFont = action({
   args: {},
   handler: async (ctx): Promise<string> => {
-    const me = await requireUser(ctx);
+    const me = await requireActionUser(ctx);
     return me.font ?? "";
   },
 });
@@ -269,12 +276,14 @@ export const setMyFont = mutation({
 });
 
 // @deprecated legacy global sounds (kept only so old clients don't break).
-export const getSounds = query({
+export const getSounds = action({
   args: {},
   handler: async (ctx) => {
-    await requireUser(ctx);
-    const row = await ctx.db
-      .query("settings")
+    await requireActionUser(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const row = await db
+      .query<Doc<"settings">>("settings")
       .withIndex("by_key", (q) => q.eq("key", SOUNDS_KEY))
       .unique();
     const parsed = row?.value ? (JSON.parse(row.value) as Partial<SoundSettings>) : {};
@@ -287,11 +296,13 @@ export const getSounds = query({
 
 // The current Telegram settings (any signed-in user may read; the bot tokens
 // are masked — only their last 4 chars are returned, never the full secret).
-export const getTelegram = query({
+export const getTelegram = action({
   args: {},
   handler: async (ctx) => {
-    await requireUser(ctx);
-    const cfg = await getTelegramConfig(ctx);
+    await requireActionUser(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const cfg = await getTelegramConfigFromDb(db);
     return {
       botToken: cfg.botToken ? "••••" + cfg.botToken.slice(-4) : "",
       hasToken: Boolean(cfg.botToken),
@@ -370,6 +381,24 @@ export async function getTelegramConfig(ctx: QueryCtx): Promise<TelegramSettings
   };
 }
 
+// Action-side twin of {@link getTelegramConfig}: reads the same settings row
+// from Turso (with the identical env fallback) for the converted `getTelegram`
+// action, which cannot touch ctx.db.
+export async function getTelegramConfigFromDb(db: BridgeDb): Promise<TelegramSettings> {
+  const row = await db
+    .query<Doc<"settings">>("settings")
+    .withIndex("by_key", (q) => q.eq("key", TELEGRAM_KEY))
+    .unique();
+  if (row?.value) return JSON.parse(row.value) as TelegramSettings;
+  return {
+    botToken: process.env.TELEGRAM_BOT_TOKEN ?? "",
+    printerBotToken: process.env.TELEGRAM_PRINTER_BOT_TOKEN ?? "",
+    clubGroupChatId: process.env.TELEGRAM_CHAT_ID ?? "",
+    printerGroupChatId: process.env.TELEGRAM_PRINTER_CHAT_ID ?? "",
+    notificationsOn: true,
+  };
+}
+
 // Internal query used by the telegram action to read the config (actions
 // cannot touch ctx.db directly).
 export const getTelegramConfigQuery = internalQuery({
@@ -381,12 +410,14 @@ export const getTelegramConfigQuery = internalQuery({
 
 // Admin-set period (in hours) after which a member may send another return
 // request for the same rental. Defaults to 24h.
-export const getReturnCooldown = query({
+export const getReturnCooldown = action({
   args: {},
   handler: async (ctx) => {
-    await requireUser(ctx);
-    const row = await ctx.db
-      .query("settings")
+    await requireActionUser(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const row = await db
+      .query<Doc<"settings">>("settings")
       .withIndex("by_key", (q) => q.eq("key", COOLDOWN_KEY))
       .unique();
     return row?.value ? Number(JSON.parse(row.value)) : 24;

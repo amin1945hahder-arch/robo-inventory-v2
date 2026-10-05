@@ -22,7 +22,7 @@
  * nothing to show yet" (cold cache + never fetched).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useQuery as useConvexQuery } from "convex/react";
+import { useAction as useConvexAction, useQuery as useConvexQuery } from "convex/react";
 import type {
   FunctionArgs,
   FunctionReference,
@@ -39,6 +39,9 @@ import {
 import { loadQueryEntry, saveQueryEntry } from "@/lib/sync/queryStore";
 import { bumpDataSyncListen } from "@/lib/sync/bus";
 import { getAuthUserSync, subscribeAuthUser } from "@/hooks/use-auth";
+import { isTursoFunction } from "@/lib/sync/tursoFunctions";
+import { getHeads } from "@/lib/sync/heads";
+import { planRead, queryFetchGate } from "@/lib/sync/readPlan";
 
 /** Resolve the "parts/listMyRentals" identifier from a query reference. */
 function queryNameOf(query: unknown): string {
@@ -49,7 +52,37 @@ function queryNameOf(query: unknown): string {
   return `${parts[parts.length - 2] ?? "?"}/${parts[parts.length - 1] ?? "?"}`;
 }
 
-export function useOfflineQuery<Query extends FunctionReference<"query">>(
+/**
+ * Drop-in `useQuery` replacement with an IndexedDB read-through cache.
+ *
+ * Dispatches on the STATIC registry (`TURSO_FUNCTIONS`): a Turso-backed
+ * function is an action now and is fetched through {@link useOfflineTursoQuery};
+ * everything else stays on the Convex subscription below. While the registry is
+ * empty this is exactly the old Convex-only behavior.
+ */
+/** A function reference this hook accepts: still a Convex query, or already
+ *  a converted Turso action. */
+type QueryOrActionRef = FunctionReference<"query"> | FunctionReference<"action">;
+
+export function useOfflineQuery<Query extends QueryOrActionRef>(
+  query: Query,
+  ...args: [args?: FunctionArgs<Query> | "skip"]
+): FunctionReturnType<Query> | undefined {
+  // The branch is stable for a given call site (the registry is a build-time
+  // constant and pages pass literal refs), so hook order never changes.
+  if (isTursoFunction(queryNameOf(query))) {
+    return useOfflineTursoQuery(
+      query as FunctionReference<"action">,
+      args[0] as never,
+    ) as FunctionReturnType<Query>;
+  }
+  return useOfflineConvexQuery(
+    query as FunctionReference<"query">,
+    ...args,
+  ) as FunctionReturnType<Query>;
+}
+
+function useOfflineConvexQuery<Query extends FunctionReference<"query">>(
   query: Query,
   ...args: [args?: FunctionArgs<Query> | "skip"]
 ): FunctionReturnType<Query> | undefined {
@@ -179,4 +212,97 @@ export function useOfflineQuery<Query extends FunctionReference<"query">>(
     return cached!.value as FunctionReturnType<Query>;
   }
   return undefined;
+}
+
+/**
+ * The Turso-backed branch.
+ *
+ * Actions are NOT reactive, so instead of a subscription this does a one-shot
+ * call: hydrate from the same IndexedDB cache, fetch, and write back. It
+ * re-fetches only when the cache key changes or an interrupt fires — a write
+ * elsewhere (`bumpDataSync`) or a reconnect. `useTursoHeads` only bumps when a
+ * Turso head actually moved, so an idle client costs zero Turso reads.
+ */
+function useOfflineTursoQuery<Query extends FunctionReference<"action">>(
+  action: Query,
+  passedArgs: FunctionArgs<Query> | "skip" | undefined,
+): FunctionReturnType<Query> | undefined {
+  const run = useConvexAction(action);
+  const skip = passedArgs === "skip";
+
+  const [userId, setUserId] = useState<string | null>(() => getAuthUserSync()?._id ?? null);
+  useEffect(() => subscribeAuthUser((user) => setUserId(user?._id ?? null)), []);
+
+  const key = skip ? null : cacheKey(queryNameOf(action), passedArgs ?? {}, userId);
+
+  // Callers pass a fresh args object each render; keep it in a ref so the fetch
+  // effect depends on the stable cache key rather than the object identity.
+  const argsRef = useRef<unknown>(passedArgs);
+  argsRef.current = passedArgs;
+
+  const [result, setResult] = useState<CacheEntry | undefined>(undefined);
+  // Read the current entry inside effects without making it a dependency.
+  const resultRef = useRef<CacheEntry | undefined>(result);
+  resultRef.current = result;
+
+  // 1) Hydrate from IndexedDB on mount / key change.
+  useEffect(() => {
+    if (!key) return;
+    let alive = true;
+    (async () => {
+      const entry = await loadQueryEntry(key);
+      if (!alive) return;
+      setResult(entry ?? undefined);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [key]);
+
+  // 2) Interrupts: the write bus and reconnects.
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const bump = () => setTick((t) => t + 1);
+    const unsub = bumpDataSyncListen(bump);
+    const unsubNet = onConnectivityChange(bump);
+    return () => {
+      unsub();
+      unsubNet();
+    };
+  }, []);
+
+  // 3) Fetch — but ONLY when the change heads say something actually moved
+  //    (or there is no usable entry yet). This is the read-reduction rule: no
+  //    head movement → no read at all. Concurrent mounts of the same key share
+  //    one request through the fetch gate.
+  useEffect(() => {
+    if (skip || !key) return;
+    const entry = resultRef.current;
+    const decision = planRead({
+      entry,
+      headsAtFetch: entry?.heads,
+      headsNow: getHeads(),
+      now: Date.now(),
+      online: !isOffline(),
+    });
+    if (!decision.fetch) return;
+    let alive = true;
+    (async () => {
+      try {
+        const res = await queryFetchGate.run(key, () => run((argsRef.current ?? {}) as never));
+        if (!alive) return;
+        const storedAt = Date.now();
+        const heads = getHeads();
+        setResult({ value: res, storedAt, heads });
+        if (!shouldSkipPersist(key)) await saveQueryEntry(key, res, storedAt, heads);
+      } catch {
+        /* transient (offline / action error) — keep the cached value */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [key, skip, run, tick]);
+
+  return result ? (result.value as FunctionReturnType<Query>) : undefined;
 }

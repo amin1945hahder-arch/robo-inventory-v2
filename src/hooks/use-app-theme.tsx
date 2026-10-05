@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useQuery } from "convex/react";
+import { useOfflineQuery as useQuery } from "@/hooks/use-offline-query";
 import { api } from "@/convex/_generated/api";
 import { applyThemeState, type ThemeState } from "@/lib/appTheme";
 

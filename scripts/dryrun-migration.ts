@@ -13,6 +13,7 @@
 import { execFileSync } from "node:child_process";
 import { Database } from "bun:sqlite";
 import {
+  appTables,
   importDump,
   verifyDump,
   type Dump,
@@ -31,7 +32,9 @@ const picked = flag("tables")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
-const tables = all ? Object.keys(MIGRATION_TABLES) : picked;
+// `--all` means every DATA table. `appTables()` drops the Convex-only
+// infrastructure tables (`tursoHeads`), which must never be created in Turso.
+const tables = all ? appTables() : picked;
 
 if (tables.length === 0) {
   console.error("Nothing to do: pass --all or --tables=a,b,c");
