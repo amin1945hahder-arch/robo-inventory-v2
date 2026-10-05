@@ -1,0 +1,1 @@
+- [Offline Convex code generation](convex-codegen-offline.md) — local type files can be generated in an unauthenticated imported workspace without pushing deployment changes.

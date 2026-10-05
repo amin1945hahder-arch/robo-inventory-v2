@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { TURSO_FUNCTIONS, isTursoFunction } from "./tursoFunctions";
+import {
+  TURSO_FUNCTIONS,
+  TURSO_WRITES,
+  isTursoFunction,
+  isTursoWrite,
+} from "./tursoFunctions";
 
 /**
  * A Convex `query()` / `action()` / `mutation()` export carries its own kind as
@@ -68,6 +73,19 @@ describe("Turso function registry", () => {
         expect(value.isMutation).toBeFalsy();
         expect(isTursoFunction(`${module}/${fn}`)).toBe(true);
       }
+    }
+  });
+
+  it("every registered write really is an exported Convex action", async () => {
+    for (const name of TURSO_WRITES) {
+      const [module, fn] = name.split("/");
+      const mod = await loadModule(module);
+      const value = mod[fn] as KindFlagged;
+      expect(value, `${module}.${fn} is registered but not exported`).toBeDefined();
+      expect(value.isAction, `${module}.${fn} is registered but is not an action`).toBe(true);
+      expect(value.isQuery).toBeFalsy();
+      expect(value.isMutation).toBeFalsy();
+      expect(isTursoWrite(name)).toBe(true);
     }
   });
 });

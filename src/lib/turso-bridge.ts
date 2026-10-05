@@ -184,6 +184,21 @@ export class BridgeDb {
     if (this.autoBump) await this.data.bump(table);
   }
 
+  /**
+   * Run a read/modify/write operation atomically. Writes and their Turso change
+   * heads share the same transaction; aborted writes are not published.
+   */
+  async transaction<T>(fn: () => Promise<T>): Promise<T> {
+    const touchedBefore = new Set(this.touched);
+    try {
+      return await this.data.transaction(fn);
+    } catch (error) {
+      this.touched.clear();
+      for (const table of touchedBefore) this.touched.add(table);
+      throw error;
+    }
+  }
+
   /** Insert a document and return its id — exactly like `ctx.db.insert`. */
   async insert(table: string, doc: ConvexDoc): Promise<string> {
     const stored = await this.data.insert(table, doc);

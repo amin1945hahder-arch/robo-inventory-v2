@@ -505,6 +505,14 @@ export class TursoData {
     return res;
   }
 
+  /** Run a group of data operations atomically when the driver supports it. */
+  transaction<T>(fn: () => Promise<T>): Promise<T> {
+    if (!this.exec.transaction) {
+      throw new Error("The Turso driver does not support interactive transactions");
+    }
+    return this.exec.transaction(fn);
+  }
+
   /** Decode one stored row back into a Convex-shaped document. */
   decode(table: string, row: Record<string, unknown>): DataDoc {
     return decodeRow(row, columnsOf(table)) as DataDoc;

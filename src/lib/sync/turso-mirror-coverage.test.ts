@@ -75,6 +75,7 @@ const PENDING_WRITE_MIGRATION: Readonly<Record<string, readonly string[]>> = {
   "settings/getSounds": ["settings"],
   "settings/getTelegram": ["settings"],
   "settings/getReturnCooldown": ["settings"],
+  // Other keys in settings still have Convex-owned writers; appThemes uses its own key.
   "appThemes/get": ["settings"],
   "appBackup/getBackupSettings": ["settings"],
   // telegramTopics table — addTopic/updateTopic/deleteTopic still Convex.

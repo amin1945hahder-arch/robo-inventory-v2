@@ -1,10 +1,9 @@
 import { ConvexError, v } from "convex/values";
-import { action, mutation } from "./_generated/server";
-import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { action } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 import { defaultColors, TOKEN_KEYS, type ThemeMode } from "../lib/themeTokens";
-import { requireAdmin } from "./lib";
-import { loadTurso } from "./tursoDb";
+import { requireActionAdmin } from "./authActions";
+import { loadTurso, publishTouchedHeads } from "./tursoDb";
 import type { BridgeDb } from "../lib/turso-bridge";
 
 /**
@@ -78,15 +77,7 @@ function parseThemesDoc(value: string | undefined): ThemesDoc {
   }
 }
 
-async function readState(ctx: QueryCtx): Promise<ThemesDoc> {
-  const row = await ctx.db
-    .query("settings")
-    .withIndex("by_key", (q) => q.eq("key", KEY))
-    .unique();
-  return parseThemesDoc(row?.value);
-}
-
-/** Action-side twin of {@link readState}: reads the same settings row via Turso. */
+/** Read the app-theme settings row from Turso. */
 async function readStateDb(db: BridgeDb): Promise<ThemesDoc> {
   const row = await db
     .query<Doc<"settings">>("settings")
@@ -95,14 +86,14 @@ async function readStateDb(db: BridgeDb): Promise<ThemesDoc> {
   return parseThemesDoc(row?.value);
 }
 
-async function writeState(ctx: MutationCtx, state: ThemesDoc): Promise<void> {
+async function writeState(db: BridgeDb, state: ThemesDoc): Promise<void> {
   const value = JSON.stringify(state);
-  const row = await ctx.db
+  const row = await db
     .query("settings")
     .withIndex("by_key", (q) => q.eq("key", KEY))
     .unique();
-  if (row) await ctx.db.patch(row._id, { value });
-  else await ctx.db.insert("settings", { key: KEY, value });
+  if (row) await db.patch(row._id, { value });
+  else await db.insert("settings", { key: KEY, value });
 }
 
 /**
@@ -132,7 +123,7 @@ export const get = action({
 });
 
 /** Admin creates or updates a theme. Validates every color + key. */
-export const save = mutation({
+export const save = action({
   args: {
     id: v.optional(v.string()),
     name: v.string(),
@@ -141,94 +132,109 @@ export const save = mutation({
     radius: v.number(),
     icons: v.optional(v.record(v.string(), v.string())),
   },
-  handler: async (ctx, { id, name, mode, colors, radius, icons }): Promise<AppTheme> => {
-    await requireAdmin(ctx);
-    const cleanName = name.trim().slice(0, 40);
-    if (!cleanName) throw new ConvexError("A theme name is required");
+  handler: async (ctx, args): Promise<AppTheme> => {
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
 
-    const merged: Record<string, string> = { ...defaultColors(mode) };
-    for (const [key, value] of Object.entries(colors)) {
-      if (!(TOKEN_KEYS as readonly string[]).includes(key)) {
-        throw new ConvexError(`Unknown theme token: ${key}`);
-      }
-      if (!HEX_RE.test(value)) {
-        throw new ConvexError(`Invalid color for ${key}: ${value}`);
-      }
-      merged[key] = value.toLowerCase();
-    }
+    const result = await db.transaction(async () => {
+      const { id, name, mode, colors, radius, icons } = args;
+      const cleanName = name.trim().slice(0, 40);
+      if (!cleanName) throw new ConvexError("A theme name is required");
 
-    // Icon overrides: slot keys ("nav:/inventory" / "category:arduino") →
-    // catalog icon names. Empty → undefined (slot keeps its current icon).
-    let cleanIcons: Record<string, string> | undefined;
-    if (icons && Object.keys(icons).length > 0) {
-      if (Object.keys(icons).length > MAX_ICON_OVERRIDES) {
-        throw new ConvexError(`Too many icon overrides (max ${MAX_ICON_OVERRIDES})`);
-      }
-      cleanIcons = {};
-      for (const [slot, name] of Object.entries(icons)) {
-        if (!ICON_SLOT_RE.test(slot)) throw new ConvexError(`Invalid icon slot: ${slot}`);
-        if (!ICON_NAME_RE.test(name)) {
-          throw new ConvexError(`Invalid icon name for ${slot}: ${name}`);
+      const merged: Record<string, string> = { ...defaultColors(mode) };
+      for (const [key, value] of Object.entries(colors)) {
+        if (!(TOKEN_KEYS as readonly string[]).includes(key)) {
+          throw new ConvexError(`Unknown theme token: ${key}`);
         }
-        cleanIcons[slot] = name;
+        if (!HEX_RE.test(value)) {
+          throw new ConvexError(`Invalid color for ${key}: ${value}`);
+        }
+        merged[key] = value.toLowerCase();
       }
-    }
 
-    const cleanRadius = Math.min(4, Math.max(0, Number.isFinite(radius) ? radius : 0.625));
-    const state = await readState(ctx);
-    const now = Date.now();
+      // Icon overrides: slot keys ("nav:/inventory" / "category:arduino") →
+      // catalog icon names. Empty → undefined (slot keeps its current icon).
+      let cleanIcons: Record<string, string> | undefined;
+      if (icons && Object.keys(icons).length > 0) {
+        if (Object.keys(icons).length > MAX_ICON_OVERRIDES) {
+          throw new ConvexError(`Too many icon overrides (max ${MAX_ICON_OVERRIDES})`);
+        }
+        cleanIcons = {};
+        for (const [slot, name] of Object.entries(icons)) {
+          if (!ICON_SLOT_RE.test(slot)) throw new ConvexError(`Invalid icon slot: ${slot}`);
+          if (!ICON_NAME_RE.test(name)) {
+            throw new ConvexError(`Invalid icon name for ${slot}: ${name}`);
+          }
+          cleanIcons[slot] = name;
+        }
+      }
 
-    const existingIndex = id ? state.themes.findIndex((t) => t.id === id) : -1;
-    if (existingIndex >= 0) {
-      const prev = state.themes[existingIndex];
-      const next: AppTheme = {
-        ...prev,
+      const cleanRadius = Math.min(4, Math.max(0, Number.isFinite(radius) ? radius : 0.625));
+      const state = await readStateDb(db);
+      const now = Date.now();
+
+      const existingIndex = id ? state.themes.findIndex((t) => t.id === id) : -1;
+      if (existingIndex >= 0) {
+        const prev = state.themes[existingIndex];
+        const next: AppTheme = {
+          ...prev,
+          name: cleanName,
+          mode,
+          colors: merged,
+          radius: cleanRadius,
+          icons: cleanIcons,
+          updatedAt: now,
+        };
+        state.themes = state.themes.map((t, i) => (i === existingIndex ? next : t));
+        await writeState(db, state);
+        return next;
+      }
+
+      if (state.themes.length >= MAX_THEMES) {
+        throw new ConvexError(`Theme limit reached (${MAX_THEMES})`);
+      }
+      const newTheme: AppTheme = {
+        id: `theme_${now.toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
         name: cleanName,
         mode,
         colors: merged,
         radius: cleanRadius,
         icons: cleanIcons,
+        createdAt: now,
         updatedAt: now,
       };
-      state.themes = state.themes.map((t, i) => (i === existingIndex ? next : t));
-      await writeState(ctx, state);
-      return next;
-    }
+      state.themes = [...state.themes, newTheme];
+      await writeState(db, state);
+      return newTheme;
+    });
 
-    if (state.themes.length >= MAX_THEMES) {
-      throw new ConvexError(`Theme limit reached (${MAX_THEMES})`);
-    }
-    const newTheme: AppTheme = {
-      id: `theme_${now.toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
-      name: cleanName,
-      mode,
-      colors: merged,
-      radius: cleanRadius,
-      icons: cleanIcons,
-      createdAt: now,
-      updatedAt: now,
-    };
-    state.themes = [...state.themes, newTheme];
-    await writeState(ctx, state);
-    return newTheme;
+    await publishTouchedHeads(ctx, db);
+    return result;
   },
 });
 
 /** Admin deletes a custom theme (built-ins are client-side constants). */
-export const remove = mutation({
+export const remove = action({
   args: { id: v.string() },
   handler: async (ctx, { id }) => {
-    await requireAdmin(ctx);
-    const state = await readState(ctx);
-    const next = state.themes.filter((t) => t.id !== id);
-    if (next.length === state.themes.length) return { ok: true };
-    await writeState(ctx, {
-      themes: next,
-      activeId: state.activeId === id ? null : state.activeId,
-      defaultId: state.defaultId === id ? null : state.defaultId,
-      schedule: state.schedule?.themeId === id ? null : state.schedule,
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const result = await db.transaction(async () => {
+      const state = await readStateDb(db);
+      const next = state.themes.filter((t) => t.id !== id);
+      if (next.length === state.themes.length) return { ok: true };
+      await writeState(db, {
+        themes: next,
+        activeId: state.activeId === id ? null : state.activeId,
+        defaultId: state.defaultId === id ? null : state.defaultId,
+        schedule: state.schedule?.themeId === id ? null : state.schedule,
+      });
+      return { ok: true };
     });
-    return { ok: true };
+    await publishTouchedHeads(ctx, db);
+    return result;
   },
 });
 
@@ -238,14 +244,20 @@ export const remove = mutation({
  *   - a built-in preset id ("preset-…") — validated client-side
  *   - null → back to the shipped app default
  */
-export const setActive = mutation({
+export const setActive = action({
   args: { id: v.union(v.string(), v.null()) },
   handler: async (ctx, { id }) => {
-    await requireAdmin(ctx);
-    const state = await readState(ctx);
-    assertThemeExists(state, id);
-    await writeState(ctx, { ...state, activeId: id });
-    return { ok: true };
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const result = await db.transaction(async () => {
+      const state = await readStateDb(db);
+      assertThemeExists(state, id);
+      await writeState(db, { ...state, activeId: id });
+      return { ok: true };
+    });
+    await publishTouchedHeads(ctx, db);
+    return result;
   },
 });
 
@@ -262,14 +274,20 @@ function assertThemeExists(state: ThemesDoc, id: string | null): void {
  * published (activeId null) and no schedule window is running.
  * `id` = null → back to the shipped app default.
  */
-export const setDefault = mutation({
+export const setDefault = action({
   args: { id: v.union(v.string(), v.null()) },
   handler: async (ctx, { id }) => {
-    await requireAdmin(ctx);
-    const state = await readState(ctx);
-    assertThemeExists(state, id);
-    await writeState(ctx, { ...state, defaultId: id });
-    return { ok: true };
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const result = await db.transaction(async () => {
+      const state = await readStateDb(db);
+      assertThemeExists(state, id);
+      await writeState(db, { ...state, defaultId: id });
+      return { ok: true };
+    });
+    await publishTouchedHeads(ctx, db);
+    return result;
   },
 });
 
@@ -280,30 +298,36 @@ export const setDefault = mutation({
  * client flips itself at the boundary — no re-publish needed).
  * `themeId` = null → clear the schedule.
  */
-export const setSchedule = mutation({
+export const setSchedule = action({
   args: {
     themeId: v.union(v.string(), v.null()),
     from: v.optional(v.number()),
     to: v.optional(v.number()),
   },
   handler: async (ctx, { themeId, from, to }) => {
-    await requireAdmin(ctx);
-    const state = await readState(ctx);
-    if (themeId === null) {
-      await writeState(ctx, { ...state, schedule: null });
+    await requireActionAdmin(ctx);
+    const { db, problem } = loadTurso();
+    if (!db) throw new Error(problem ?? "Turso is not configured");
+    const result = await db.transaction(async () => {
+      const state = await readStateDb(db);
+      if (themeId === null) {
+        await writeState(db, { ...state, schedule: null });
+        return { ok: true };
+      }
+      assertThemeExists(state, themeId);
+      if (
+        typeof from !== "number" ||
+        typeof to !== "number" ||
+        !Number.isFinite(from) ||
+        !Number.isFinite(to) ||
+        to <= from
+      ) {
+        throw new ConvexError("Schedule needs an end time after its start time");
+      }
+      await writeState(db, { ...state, schedule: { themeId, from, to } });
       return { ok: true };
-    }
-    assertThemeExists(state, themeId);
-    if (
-      typeof from !== "number" ||
-      typeof to !== "number" ||
-      !Number.isFinite(from) ||
-      !Number.isFinite(to) ||
-      to <= from
-    ) {
-      throw new ConvexError("Schedule needs an end time after its start time");
-    }
-    await writeState(ctx, { ...state, schedule: { themeId, from, to } });
-    return { ok: true };
+    });
+    await publishTouchedHeads(ctx, db);
+    return result;
   },
 });

@@ -91,6 +91,8 @@ export default defineConfig({
   server: {
     // Bind to all interfaces so WebContainer's server-ready event fires.
     host: true,
+    // Replit serves the preview through a proxied hostname.
+    allowedHosts: true,
     port: 5173,
     // Keep HMR on, but disable full-screen error overlay
     hmr: {

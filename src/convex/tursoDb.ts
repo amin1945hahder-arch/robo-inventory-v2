@@ -67,10 +67,31 @@ export function tursoExecutor(): TursoExecutor {
     url: cfg.config.url.replace(/^libsql:\/\//, "https://"),
     authToken: cfg.config.authToken,
   });
+  let activeTransaction: Awaited<ReturnType<typeof client.transaction>> | null = null;
   const raw: SqlExecutor = {
     async execute(sql: string, args: unknown[] = []) {
-      const res = await client.execute({ sql, args: args as never });
+      const statement = { sql, args: args as never };
+      const res = activeTransaction
+        ? await activeTransaction.execute(statement)
+        : await client.execute(statement);
       return { rows: res.rows as unknown[] };
+    },
+    async transaction<T>(fn: () => Promise<T>): Promise<T> {
+      if (activeTransaction) {
+        throw new Error("Nested Turso transactions are not supported");
+      }
+      const transaction = await client.transaction();
+      activeTransaction = transaction;
+      try {
+        const result = await fn();
+        await transaction.commit();
+        return result;
+      } catch (error) {
+        await transaction.rollback();
+        throw error;
+      } finally {
+        activeTransaction = null;
+      }
     },
   };
   return { exec: withBudget(raw, budget), budget, problem: null };

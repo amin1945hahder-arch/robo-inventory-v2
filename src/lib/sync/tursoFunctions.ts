@@ -13,9 +13,8 @@
  * is that the read/write route is decided statically, so a page never has to
  * discover at runtime whether its data lives in Turso.
  *
- * It stays EMPTY until the conversion pass converts real functions; with an
- * empty set the dispatch is a no-op and every call site keeps the Convex path
- * unchanged. That is what lets this file land safely ahead of the codemod.
+ * The registry contains only functions already converted to Turso-backed
+ * actions. Unlisted functions keep their existing Convex path.
  */
 export const TURSO_FUNCTIONS: ReadonlySet<string> = new Set<string>([
   // Converted reads (Turso-backed actions):
@@ -121,7 +120,13 @@ export function isTursoFunction(name: string): boolean {
  * bus on success — it has to stand in for the subscription the old mutation
  * used to trigger.
  */
-export const TURSO_WRITES: ReadonlySet<string> = new Set<string>([]);
+export const TURSO_WRITES: ReadonlySet<string> = new Set<string>([
+  "appThemes/save",
+  "appThemes/remove",
+  "appThemes/setActive",
+  "appThemes/setDefault",
+  "appThemes/setSchedule",
+]);
 
 /** Is this `module/function` id a converted (Turso-backed) write? */
 export function isTursoWrite(name: string): boolean {

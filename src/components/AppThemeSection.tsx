@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useMutation } from "convex/react";
+import { useOfflineMutation } from "@/hooks/use-offline-mutation";
 import { useOfflineQuery as useQuery } from "@/hooks/use-offline-query";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
@@ -515,11 +515,11 @@ function ThemeCard({
 
 export function AppThemeSection() {
   const state = useQuery(api.appThemes.get, {});
-  const saveTheme = useMutation(api.appThemes.save);
-  const removeTheme = useMutation(api.appThemes.remove);
-  const setActiveTheme = useMutation(api.appThemes.setActive);
-  const setDefaultTheme = useMutation(api.appThemes.setDefault);
-  const setScheduleTheme = useMutation(api.appThemes.setSchedule);
+  const saveTheme = useOfflineMutation(api.appThemes.save);
+  const removeTheme = useOfflineMutation(api.appThemes.remove);
+  const setActiveTheme = useOfflineMutation(api.appThemes.setActive);
+  const setDefaultTheme = useOfflineMutation(api.appThemes.setDefault);
+  const setScheduleTheme = useOfflineMutation(api.appThemes.setSchedule);
   // Category names → their icon slots in the picker.
   const categories = useQuery(api.catalog.listCategories, {});
 

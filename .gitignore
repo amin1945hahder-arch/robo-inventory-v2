@@ -1,7 +1,6 @@
 .env.local
 node_modules
 dist
-src/convex/_generated
 
 # ---- Desktop (Electron) ----
 desktop/node_modules

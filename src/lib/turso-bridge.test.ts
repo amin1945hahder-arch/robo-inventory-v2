@@ -107,6 +107,29 @@ describe("bridgedb — ctx.db shape", () => {
     expect(b.stats.rowsWritten).toBeGreaterThan(0);
     expect(b.stats.rowsRead).toBeGreaterThan(0);
   });
+
+  it("rolls back grouped writes and discards their change-head publications", async () => {
+    const b = bridgedb(exec);
+    await expect(
+      b.transaction(async () => {
+        await b.insert("groups", { name: "uncommitted" });
+        throw new Error("abort");
+      }),
+    ).rejects.toThrow("abort");
+
+    expect(await b.query("groups").take(10)).toEqual([]);
+    expect(b.touchedTables).toEqual([]);
+  });
+
+  it("fails closed when the driver cannot guarantee atomic writes", async () => {
+    const noTransaction: SqlExecutor = {
+      execute: exec.execute,
+    };
+    const b = bridgedb(noTransaction);
+    await expect(b.transaction(async () => undefined)).rejects.toThrow(
+      "does not support interactive transactions",
+    );
+  });
 });
 
 describe("change-head signal — touched tables", () => {
