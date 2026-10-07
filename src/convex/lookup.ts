@@ -13,6 +13,8 @@ import { requireNonStudent } from "./lib";
 //   closet:<id>            — closet view
 //   proj:<id>              — project view
 //   rental:<rentalId>      — printed rent card: opens the unit + that rental
+//   package:<packageId>    — package card: opens the bundle at its exact
+//                            current status (Packages / Pick-up tab)
 export const resolve = query({
   args: { payload: v.string() },
   handler: async (ctx, { payload }) => {
@@ -70,21 +72,77 @@ export const resolve = query({
     }
 
     if (scheme === "rental") {
-      const rental = await ctx.db
+      const rental = (await ctx.db
         .query("rentals")
         .filter((q) => q.eq(q.field("_id"), value))
-        .first();
+        .first()) as any;
       if (!rental) return null;
       // Admins can open any rent card; members only their own.
       const me = await requireNonStudent(ctx);
       const isAdmin = me.role === "admin";
       if (!isAdmin && rental.userId !== me._id) return null;
       const part = await ctx.db.get(rental.partId);
-      if (!part) return null;
+      // Land on the tab that actually holds this record AT ITS CURRENT STATUS:
+      // pending → Pending, approved → Pick-up, active → Active, on-project →
+      // Projects, closed → History. Members land on their own rentals page
+      // (Active for live records, History for closed ones).
+      const status = String(rental.status ?? "pending");
+      const adminTab =
+        status === "pending"
+          ? "pending"
+          : status === "approved"
+            ? "pickup"
+            : status === "on_project"
+              ? "projects"
+              : status === "active"
+                ? "active"
+                : "history";
+      const closed = status === "returned" || status === "denied" || status === "canceled";
       return {
         type: "unit" as const,
-        id: part._id,
-        url: `/part/${part._id}?rental=${rental._id}`,
+        id: part?._id ?? rental.partId,
+        status,
+        url: isAdmin
+          ? `/admin/requests?tab=${adminTab}&rental=${rental._id}`
+          : `/rentals?tab=${closed ? "history" : "active"}&rental=${rental._id}`,
+      };
+    }
+
+    // Package card QR: `package:<id>` — opens the bundle at its EXACT current
+    // status: pending/active/returned in the Packages tab, approved (awaiting
+    // pick-up) in the Pick-up tab. Admins land in the console; a member lands
+    // on their own package on the My rentals page.
+    if (scheme === "package") {
+      const pkg = (await ctx.db.get(value as any)) as any;
+      if (!pkg) return null;
+      const me = await requireNonStudent(ctx);
+      const isAdmin = me.role === "admin";
+      if (!isAdmin && pkg.userId !== me._id) return null;
+      const lines = await ctx.db
+        .query("rentals")
+        .withIndex("by_package", (q) => q.eq("packageId", pkg._id))
+        .collect();
+      const activeUnits = lines.filter(
+        (r: any) => r.status === "active" || r.status === "on_project",
+      ).length;
+      const approvedUnits = lines.filter((r: any) => r.status === "approved").length;
+      const status =
+        pkg.status === "pending"
+          ? "pending"
+          : activeUnits > 0
+            ? "active"
+            : approvedUnits > 0
+              ? "approved"
+              : "returned";
+      // Approved bundles live in the Pick-up tab; everything else in Packages.
+      const tab = status === "approved" ? "pickup" : "packages";
+      return {
+        type: "package" as const,
+        id: pkg._id,
+        status,
+        url: isAdmin
+          ? `/admin/requests?tab=${tab}&package=${pkg._id}`
+          : `/rentals?tab=packages&package=${pkg._id}`,
       };
     }
 

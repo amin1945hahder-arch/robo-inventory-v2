@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ALARM_LIBRARY,
   DEFAULT_SOUNDS,
   MAX_MELODY_SECONDS,
   MAX_NOTES,
@@ -139,6 +140,31 @@ describe("DEFAULT_SOUNDS", () => {
     expect(DEFAULT_SOUNDS.sounds.denied.freq).toBeLessThan(300);
     const approved = DEFAULT_SOUNDS.sounds.approved.notes!;
     expect(approved[approved.length - 1].freq).toBeGreaterThan(approved[0].freq);
+  });
+});
+
+describe("ALARM_LIBRARY", () => {
+  it("ships a wide set of uniquely-named presets", () => {
+    expect(ALARM_LIBRARY.length).toBeGreaterThanOrEqual(10);
+    const ids = ALARM_LIBRARY.map((p) => p.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ALARM_LIBRARY.every((p) => p.label.length > 0)).toBe(true);
+  });
+
+  it("every preset is neutral, bounded and short (safe to persist)", () => {
+    for (const p of ALARM_LIBRARY) {
+      if (p.spec.notes) {
+        expect(p.spec.notes.length, p.id).toBeGreaterThan(1);
+        // Sliders start neutral after applying a preset.
+        expect(p.spec.freq, p.id).toBe(p.spec.notes[0].freq);
+        expect(p.spec.dur, p.id).toBe(p.spec.notes[0].dur);
+      }
+      expect(soundDuration(p.spec), p.id).toBeGreaterThan(0);
+      expect(soundDuration(p.spec), p.id).toBeLessThanOrEqual(MAX_MELODY_SECONDS);
+    }
+    // Round-trips through the sanitizer unchanged — nothing gets clamped.
+    const asMap = Object.fromEntries(ALARM_LIBRARY.map((p) => [p.id, p.spec]));
+    expect(sanitizeSounds(asMap)).toEqual(asMap);
   });
 });
 

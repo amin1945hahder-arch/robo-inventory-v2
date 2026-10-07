@@ -13,6 +13,7 @@
  * - `useOnline` (src/hooks/use-online.ts) subscribes via onConnectivityChange.
  */
 import { toast } from "sonner";
+import { markAnyWrite } from "@/lib/sync/write-sync";
 
 export const OFFLINE_WRITE_MESSAGE =
   "You're offline — this change was canceled. Browsing saved data still works; try again once you're back online.";
@@ -105,10 +106,25 @@ export type WriteClient = {
 /**
  * Patch a ConvexReactClient in place: mutations AND actions (all writes) are
  * guarded app-wide with this single call. Queries/watchers are not touched.
+ *
+ * The same seam also marks every SUCCESSFUL write (see write-sync.ts): the
+ * delta cache re-pulls its table delta at once, and sibling browser windows
+ * are told over BroadcastChannel — so two devices/windows never disagree for
+ * longer than one delta pull, even if a reactive head push is missed.
  */
 export function attachOfflineGuard(client: WriteClient): void {
   const rawMutation = client.mutation.bind(client);
   const rawAction = client.action.bind(client);
-  client.mutation = guardWrite(rawMutation) as unknown as typeof client.mutation;
-  client.action = guardWrite(rawAction) as unknown as typeof client.action;
+  const guardedMutation = guardWrite(rawMutation) as unknown as typeof client.mutation;
+  const guardedAction = guardWrite(rawAction) as unknown as typeof client.action;
+  client.mutation = ((...args: never[]) =>
+    (guardedMutation as (...a: never[]) => Promise<unknown>)(...args).then((result) => {
+      markAnyWrite();
+      return result;
+    })) as unknown as typeof client.mutation;
+  client.action = ((...args: never[]) =>
+    (guardedAction as (...a: never[]) => Promise<unknown>)(...args).then((result) => {
+      markAnyWrite();
+      return result;
+    })) as unknown as typeof client.action;
 }

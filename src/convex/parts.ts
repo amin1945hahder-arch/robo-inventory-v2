@@ -10,6 +10,7 @@ import { planMeasureTake, describePlan } from "../lib/measure-alloc";
 import { formatLineAmount, roundBulk } from "../lib/group-measure";
 import { sumUnitStock, assertGroupLendable, containerChainFromIndex } from "./catalog";
 import { touchPatch, recordTombstone } from "./sync";
+import { formatInZone, readClubTimeZone } from "./clubTime";
 
 /**
  * Per-execution memo for joined docs.
@@ -917,8 +918,103 @@ export const requestReturn = mutation({
       group,
       user,
       "active · return requested",
-      `↩️ ${user.name ?? user.email ?? "A member"} requested to return ${group?.name ?? "part"} (${part?.tag ?? "?"}) — process it in the Requests console.`,
+      `↩️ ${user.name ?? user.email ?? "A member"} requested to return ${group?.name ?? "part"} (${part?.tag ?? "?"}) — set a hand-over date in the Requests console, then process the return.`,
     );
+  },
+});
+
+/**
+ * Admin sets (or clears) the RETURN hand-over date for ONE rental.
+ *
+ * The mirror of the pick-up date: the member and the club group are notified
+ * in the CLUB's timezone, and the two sides meet at that time.
+ */
+export const setReturnMeetup = mutation({
+  args: {
+    rentalId: v.id("rentals"),
+    meetupAt: v.optional(v.number()),
+  },
+  handler: async (ctx, { rentalId, meetupAt }) => {
+    const admin = await requireAdmin(ctx);
+    const rental = await ctx.db.get(rentalId);
+    if (!rental) throw new ConvexError("Rental not found");
+    if (rental.status !== "active") throw new ConvexError("Only an active rental can be handed back");
+    const when =
+      meetupAt !== undefined && Number.isFinite(meetupAt) ? meetupAt : undefined;
+    await touchPatch(ctx, rentalId, { returnMeetupAt: when });
+
+    const student = await ctx.db.get(rental.userId);
+    const part = await ctx.db.get(rental.partId);
+    const group = part ? await ctx.db.get(part.groupId) : null;
+    const label = when ? formatInZone(when, await readClubTimeZone(ctx)) : null;
+    const item = `${group?.name ?? "part"} (${part?.tag ?? "?"})`;
+
+    if (student?.telegramChatId || student?.telegramUsername) {
+      await telegramDM(
+        ctx,
+        {
+          name: student.name ?? student.email,
+          telegramUsername: student.telegramUsername,
+          telegramChatId: student.telegramChatId,
+        },
+        label
+          ? `📅 Return hand-over scheduled for ${label}.\nPlease bring ${item} to the lab at that time — the admin takes it back and closes the rental.`
+          : `📅 The return hand-over time for ${item} was cleared. The admins will be in touch.`,
+        { name: admin.name ?? admin.email },
+        "rentals",
+      );
+    }
+    await telegramGroup(
+      ctx,
+      label
+        ? `📅 ${admin.name ?? admin.email} scheduled the return of ${item} from ${student?.name ?? student?.email ?? "a member"} for ${label}.`
+        : `📅 ${admin.name ?? admin.email} cleared the return hand-over time for ${item}.`,
+      undefined,
+      "rentals",
+    );
+    return { ok: true };
+  },
+});
+
+/**
+ * Admin marks the item physically HANDED BACK at the meet-up. This is the
+ * step that unlocks the normal return processing (destination, condition
+ * report, …) in the Requests console — both sides get a confirmation.
+ */
+export const markReturnHandedOver = mutation({
+  args: { rentalId: v.id("rentals") },
+  handler: async (ctx, { rentalId }) => {
+    const admin = await requireAdmin(ctx);
+    const rental = await ctx.db.get(rentalId);
+    if (!rental) throw new ConvexError("Rental not found");
+    if (rental.status !== "active") throw new ConvexError("Only an active rental can be handed back");
+    const now = Date.now();
+    await touchPatch(ctx, rentalId, { returnHandedOverAt: now });
+
+    const student = await ctx.db.get(rental.userId);
+    const part = await ctx.db.get(rental.partId);
+    const group = part ? await ctx.db.get(part.groupId) : null;
+    const item = `${group?.name ?? "part"} (${part?.tag ?? "?"})`;
+    if (student?.telegramChatId || student?.telegramUsername) {
+      await telegramDM(
+        ctx,
+        {
+          name: student.name ?? student.email,
+          telegramUsername: student.telegramUsername,
+          telegramChatId: student.telegramChatId,
+        },
+        `✅ ${item} was handed back to ${admin.name ?? admin.email}. The return is being processed now.`,
+        undefined,
+        "rentals",
+      );
+    }
+    await telegramGroup(
+      ctx,
+      `✅ ${admin.name ?? admin.email} took back ${item} from ${student?.name ?? student?.email ?? "a member"} — processing the return.`,
+      undefined,
+      "rentals",
+    );
+    return { ok: true };
   },
 });
 
@@ -1080,8 +1176,11 @@ export const adminRentalAction = mutation({
       }
       await touchPatch(ctx, rentalId, { status: "approved", decidedAt: now, pickupAt });
       const amountLabel = rental.amount !== undefined ? ` (${rental.amount} ${group?.measureUnit ?? ""})` : "";
+      // Format the scheduled pick-up in the CLUB's timezone, never the
+      // server's (UTC) — otherwise every member reads a shifted time.
+      const tz = await readClubTimeZone(ctx);
       const pickupLabel = pickupAt
-        ? new Date(pickupAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })
+        ? formatInZone(pickupAt, tz)
         : "as soon as the lab is open";
       if (student?.email) {
         await ctx.scheduler.runAfter(0, api.emails.sendRentalDecisionEmail, {
@@ -1101,14 +1200,14 @@ export const adminRentalAction = mutation({
         await telegramDM(
           ctx,
           { name: student.name ?? student.email, telegramUsername: student.telegramUsername, telegramChatId: student.telegramChatId },
-          `✅ Approved: ${group?.name ?? "a part"} (${part.tag}).\\n📅 Pick-up time: ${pickupLabel}.\\nThe admin hands it over when you arrive — then it counts as rented.`,
+          `✅ Approved: ${group?.name ?? "a part"} (${part.tag}).\n📅 Pick-up time: ${pickupLabel}.\nThe admin hands it over when you arrive — then it counts as rented.`,
           { name: admin.name ?? admin.email },
           "rentals",
         );
       }
       await telegramGroup(
         ctx,
-        `✅ ${admin.name ?? admin.email} approved ${student?.name ?? student?.email ?? "a member"}'s rental of ${group?.name ?? "a part"} (${part.tag}).\\n📅 Scheduled pick-up: ${pickupLabel} — waiting for handover.`,
+        `✅ ${admin.name ?? admin.email} approved ${student?.name ?? student?.email ?? "a member"}'s rental of ${group?.name ?? "a part"} (${part.tag}).\n📅 Scheduled pick-up: ${pickupLabel} — waiting for handover.`,
         undefined,
         "rentals",
       );
@@ -1313,6 +1412,10 @@ export const adminRentalAction = mutation({
         functional,
         conditionReport: conditionReport?.trim(),
         returnRequestedAt: undefined,
+        // Record the physical hand-back time even if the admin never used the
+        // explicit "handed over" step (keep the earlier stamp when they did).
+        returnHandedOverAt: rental.returnHandedOverAt ?? now,
+        returnMeetupAt: undefined,
       });
       if (isBulk) {
         // Distribute the recovered amount across the taken units in take
@@ -3012,7 +3115,7 @@ export const decidePackage = mutation({
 
     const summaryText = await summarize(ctx, pkg.lines);
     const pickupLabel = pickupAt
-      ? new Date(pickupAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })
+      ? formatInZone(pickupAt, await readClubTimeZone(ctx))
       : "as soon as the lab is open";
 
     if (approve) {
@@ -3359,6 +3462,8 @@ export const pickupReminders = internalMutation({
       .withIndex("by_status", (q) => q.eq("status", "approved"))
       .collect();
     const now = Date.now();
+    // Reminder times must read in the club's timezone (see clubTime.ts).
+    const tz = await readClubTimeZone(ctx);
     let sent = 0;
     for (const r of rows) {
       if (!r.pickupAt || r.pickupAt < now) continue;
@@ -3366,10 +3471,7 @@ export const pickupReminders = internalMutation({
       const part = await ctx.db.get(r.partId);
       const group = part ? await ctx.db.get(part.groupId) : null;
       const student = await ctx.db.get(r.userId);
-      const when = new Date(r.pickupAt).toLocaleString("en-GB", {
-        dateStyle: "medium",
-        timeStyle: "short",
-      });
+      const when = formatInZone(r.pickupAt, tz);
       const dm = async (text: string) => {
         if (student?.telegramChatId || student?.telegramUsername) {
           await telegramDM(

@@ -25,14 +25,22 @@ import {
 export default function Dashboard() {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
-  const overview = useQuery(api.stats.overview, {});
+  // Student accounts are blocked from the inventory modules SERVER-side
+  // (requireNonStudent). Firing those queries anyway made Convex reject them
+  // and the whole dashboard died with "Your account has student-level access".
+  // Students skip them entirely and get a smaller, always-renderable page.
+  const isStudent = user?.role === "student";
+  const overview = useQuery(api.stats.overview, isStudent ? "skip" : {});
   const pending = useQuery(
     api.parts.listAllRentals,
     isAdmin ? { status: "pending" } : "skip",
   );
   const my = useQuery(api.parts.listMyRentals, {});
-  const projects = useQuery(api.projects.listProjects, { status: "active" });
-  const closets = useQuery(api.catalog.listClosets, {});
+  const projects = useQuery(
+    api.projects.listProjects,
+    isStudent ? "skip" : { status: "active" },
+  );
+  const closets = useQuery(api.catalog.listClosets, isStudent ? "skip" : {});
 
 
   const myArr = Array.isArray(my) ? my : [];
@@ -40,7 +48,15 @@ export default function Dashboard() {
   const myPending = myArr.filter((r) => r?.rental?.status === "pending");
   const myOnProject = myArr.filter((r) => r?.rental?.status === "on_project");
 
-  const statCards = isAdmin
+  // `to` is optional: student cards never link into modules they can't open
+  // (that was the "tab I can't enter" trap), they just show the number.
+  const statCards: {
+    label: string;
+    value: number;
+    icon: typeof Clock;
+    to?: string;
+    tone: string;
+  }[] = isAdmin
     ? [
         { label: "Pending requests", value: overview?.pendingRequests ?? 0, icon: Clock, to: "/admin/requests", tone: "text-amber-400" },
         { label: "Units available", value: overview?.available ?? 0, icon: PackageCheck, to: "/inventory", tone: "text-emerald-400" },
@@ -49,12 +65,18 @@ export default function Dashboard() {
         { label: "Broken units", value: overview?.broken ?? 0, icon: Wrench, to: "/inventory", tone: "text-rose-400" },
         { label: "Active projects", value: overview?.projects ?? 0, icon: CircleDot, to: "/projects", tone: "text-primary" },
       ]
-    : [
-        { label: "My active rentals", value: myActive.length, icon: Package, to: "/rentals", tone: "text-sky-400" },
-        { label: "Awaiting approval", value: myPending.length, icon: Clock, to: "/rentals", tone: "text-amber-400" },
-        { label: "On my projects", value: myOnProject.length, icon: FolderKanban, to: "/projects", tone: "text-violet-400" },
-        { label: "Units available", value: overview?.available ?? 0, icon: PackageCheck, to: "/inventory", tone: "text-emerald-400" },
-      ];
+    : isStudent
+      ? [
+          { label: "My active rentals", value: myActive.length, icon: Package, tone: "text-sky-400" },
+          { label: "Awaiting approval", value: myPending.length, icon: Clock, tone: "text-amber-400" },
+          { label: "On my projects", value: myOnProject.length, icon: FolderKanban, tone: "text-violet-400" },
+        ]
+      : [
+          { label: "My active rentals", value: myActive.length, icon: Package, to: "/rentals", tone: "text-sky-400" },
+          { label: "Awaiting approval", value: myPending.length, icon: Clock, to: "/rentals", tone: "text-amber-400" },
+          { label: "On my projects", value: myOnProject.length, icon: FolderKanban, to: "/projects", tone: "text-violet-400" },
+          { label: "Units available", value: overview?.available ?? 0, icon: PackageCheck, to: "/inventory", tone: "text-emerald-400" },
+        ];
 
   return (
     <AppShell>
@@ -69,22 +91,30 @@ export default function Dashboard() {
             </h1>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" asChild>
-              <Link to="/rent-scan">
-                <ScanLine className="size-4" /> Scan to rent
-              </Link>
-            </Button>
-            <Button asChild>
-              <Link to="/inventory">Browse inventory</Link>
-            </Button>
+            {isStudent ? (
+              <Button variant="outline" asChild>
+                <Link to="/profile">My profile</Link>
+              </Button>
+            ) : (
+              <>
+                <Button variant="outline" asChild>
+                  <Link to="/rent-scan">
+                    <ScanLine className="size-4" /> Scan to rent
+                  </Link>
+                </Button>
+                <Button asChild>
+                  <Link to="/inventory">Browse inventory</Link>
+                </Button>
+              </>
+            )}
           </div>
         </header>
 
         {/* stat cards */}
         <section className="grid grid-cols-2 gap-4 lg:grid-cols-3">
-          {statCards.map(({ label, value, icon: Icon, to, tone }) => (
-            <Link key={label} to={to}>
-              <Card className="group relative overflow-hidden border-border/80">
+          {statCards.map(({ label, value, icon: Icon, to, tone }) => {
+            const card = (
+              <Card className="group relative h-full overflow-hidden border-border/80">
                 <CardContent className="flex items-center gap-4 p-5">
                   <div className={`icon-glass flex size-11 shrink-0 items-center justify-center rounded-lg ${tone}`}>
                     <Icon className="icon-3d size-5" />
@@ -95,8 +125,15 @@ export default function Dashboard() {
                   </div>
                 </CardContent>
               </Card>
-            </Link>
-          ))}
+            );
+            return to ? (
+              <Link key={label} to={to}>
+                {card}
+              </Link>
+            ) : (
+              <div key={label}>{card}</div>
+            );
+          })}
         </section>
 
         <div className="grid gap-6 lg:grid-cols-2">
@@ -107,17 +144,17 @@ export default function Dashboard() {
                 {isAdmin ? "Pending rental requests" : "My requests"}
               </h2>
               <Link
-                to={isAdmin ? "/admin/requests" : "/rentals"}
+                to={isAdmin ? "/admin/requests" : isStudent ? "/profile" : "/rentals"}
                 className="text-xs text-muted-foreground underline"
               >
                 View all
               </Link>
             </div>
-            {!Array.isArray(pending) || !Array.isArray(my) ? (
+            {!Array.isArray(my) || (isAdmin && !Array.isArray(pending)) ? (
               <LoadingGif size={40} label={null} />
-            ) : isAdmin && pending.length > 0 ? (
+            ) : isAdmin && (pending?.length ?? 0) > 0 ? (
               <ul className="divide-y">
-                {pending.slice(0, 5).map((r) => (
+                {(pending ?? []).slice(0, 5).map((r) => (
                   <li key={r.rental._id} className="flex items-center justify-between gap-3 px-5 py-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium">
@@ -136,7 +173,13 @@ export default function Dashboard() {
               <p className="px-5 py-6 text-sm text-muted-foreground">All caught up 🎉</p>
             ) : myPending.length === 0 && myActive.length === 0 ? (
               <p className="px-5 py-6 text-sm text-muted-foreground">
-                Nothing yet — <Link to="/inventory" className="underline">find a part</Link> and request it.
+                {isStudent ? (
+                  "Nothing here yet. Lab admins manage rentals for student accounts."
+                ) : (
+                  <>
+                    Nothing yet — <Link to="/inventory" className="underline">find a part</Link> and request it.
+                  </>
+                )}
               </p>
             ) : (
               <ul className="divide-y">
@@ -163,33 +206,50 @@ export default function Dashboard() {
           </section>
 
           {/* quick links */}
-          <section className="glass-3d rounded-lg">
-            <div className="border-b px-5 py-3">
-              <h2 className="text-sm font-semibold">Quick access</h2>
-            </div>
-            <div className="grid grid-cols-2 gap-px bg-border">
-              <Link to="/inventory" className="flex flex-col gap-1 bg-background px-5 py-4 transition-colors hover:bg-muted/60">
-                <Boxes className="size-4 text-primary" />
-                <p className="text-sm font-medium">Inventory</p>
-                <p className="text-xs text-muted-foreground">{overview?.groups ?? 0} component groups</p>
-              </Link>
-              <Link to="/closets" className="flex flex-col gap-1 bg-background px-5 py-4 transition-colors hover:bg-muted/60">
-                <Warehouse className="size-4 text-primary" />
-                <p className="text-sm font-medium">Storages</p>
-                <p className="text-xs text-muted-foreground">{closets?.length ?? 0} storage locations</p>
-              </Link>
-              <Link to="/projects" className="flex flex-col gap-1 bg-background px-5 py-4 transition-colors hover:bg-muted/60">
-                <FolderKanban className="size-4 text-primary" />
-                <p className="text-sm font-medium">Projects</p>
-                <p className="text-xs text-muted-foreground">{projects?.length ?? 0} active builds</p>
-              </Link>
-              <Link to="/rent-scan" className="flex flex-col gap-1 bg-background px-5 py-4 transition-colors hover:bg-muted/60">
-                <ScanLine className="size-4 text-primary" />
-                <p className="text-sm font-medium">Scan</p>
-                <p className="text-xs text-muted-foreground">Rent, return or explore via QR</p>
-              </Link>
-            </div>
-          </section>
+          {isStudent ? (
+            <section className="glass-3d rounded-lg">
+              <div className="border-b px-5 py-3">
+                <h2 className="text-sm font-semibold">Student access</h2>
+              </div>
+              <div className="flex flex-col gap-3 px-5 py-5 text-sm text-muted-foreground">
+                <p>
+                  Your account has student-level access. Inventory, storages, projects and
+                  rentals are managed by lab admins.
+                </p>
+                <Link to="/profile" className="font-medium text-primary underline">
+                  Open my profile
+                </Link>
+              </div>
+            </section>
+          ) : (
+            <section className="glass-3d rounded-lg">
+              <div className="border-b px-5 py-3">
+                <h2 className="text-sm font-semibold">Quick access</h2>
+              </div>
+              <div className="grid grid-cols-2 gap-px bg-border">
+                <Link to="/inventory" className="flex flex-col gap-1 bg-background px-5 py-4 transition-colors hover:bg-muted/60">
+                  <Boxes className="size-4 text-primary" />
+                  <p className="text-sm font-medium">Inventory</p>
+                  <p className="text-xs text-muted-foreground">{overview?.groups ?? 0} component groups</p>
+                </Link>
+                <Link to="/closets" className="flex flex-col gap-1 bg-background px-5 py-4 transition-colors hover:bg-muted/60">
+                  <Warehouse className="size-4 text-primary" />
+                  <p className="text-sm font-medium">Storages</p>
+                  <p className="text-xs text-muted-foreground">{closets?.length ?? 0} storage locations</p>
+                </Link>
+                <Link to="/projects" className="flex flex-col gap-1 bg-background px-5 py-4 transition-colors hover:bg-muted/60">
+                  <FolderKanban className="size-4 text-primary" />
+                  <p className="text-sm font-medium">Projects</p>
+                  <p className="text-xs text-muted-foreground">{projects?.length ?? 0} active builds</p>
+                </Link>
+                <Link to="/rent-scan" className="flex flex-col gap-1 bg-background px-5 py-4 transition-colors hover:bg-muted/60">
+                  <ScanLine className="size-4 text-primary" />
+                  <p className="text-sm font-medium">Scan</p>
+                  <p className="text-xs text-muted-foreground">Rent, return or explore via QR</p>
+                </Link>
+              </div>
+            </section>
+          )}
         </div>
 
         {/* admin: notifications preview */}

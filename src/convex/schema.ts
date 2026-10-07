@@ -87,6 +87,10 @@ const schema = defineSchema(
       appearance: v.optional(
         v.union(v.literal("dark"), v.literal("light"), v.literal("system")),
       ),
+      // Per-user custom theme id (builtin preset id or a stored custom theme
+      // id). Empty/undefined = follow the club's published theme. A scheduled
+      // theme still overrides this while its window is live.
+      themeId: v.optional(v.string()),
       // Delta-sync stamp (see sync.ts): bumped on every write so clients can
       // range-scan only what changed since their last pull.
       updatedAt: v.optional(v.number()),
@@ -430,6 +434,9 @@ const schema = defineSchema(
       returnRequestedAt: v.optional(v.number()),
       // When the admin processes the package return (all-or-nothing).
       returnDecidedAt: v.optional(v.number()),
+      // Admin-set RETURN hand-over date (mirror of the pick-up date): both
+      // sides are notified and meet then.
+      returnMeetupAt: v.optional(v.number()),
       updatedAt: v.optional(v.number()),
     })
       .index("by_user", ["userId"])
@@ -505,6 +512,12 @@ const schema = defineSchema(
       returnRequestedAt: v.optional(v.number()),
       // True when the member knowingly rented a unit flagged broken.
       rentBroken: v.optional(v.boolean()),
+      // Admin-set RETURN hand-over date (the return mirror of pickupAt): the
+      // member and the club group are notified and meet at that time.
+      returnMeetupAt: v.optional(v.number()),
+      // Set when the admin marks the item physically handed back at the
+      // meet-up — the step that unlocks the normal return processing.
+      returnHandedOverAt: v.optional(v.number()),
       updatedAt: v.optional(v.number()),
     })
       .index("by_user", ["userId"])

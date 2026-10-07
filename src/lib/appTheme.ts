@@ -344,7 +344,7 @@ export const BUILTIN_THEMES: AppTheme[] = [
 ];
 
 /**
- * Which theme id is live right now:
+ * Which theme id is live right now for the CLUB (ignores personal choice):
  *   scheduled window → schedule.themeId, else activeId, else defaultId.
  */
 export function effectiveThemeId(
@@ -358,9 +358,81 @@ export function effectiveThemeId(
   return state.defaultId ?? null;
 }
 
-/** Resolve the live theme (built-in preset or stored custom theme) → theme. */
+/** True when a scheduled club theme is live right now (forced for ALL users,
+ *  even those with their own custom theme). */
+export function isScheduledThemeLive(
+  state: ThemeState | null | undefined,
+  now = Date.now(),
+): boolean {
+  const s = state?.schedule;
+  return Boolean(s && now >= s.from && now < s.to && s.themeId);
+}
+
+/** True when `id` names a resolvable theme (built-in preset or stored theme). */
+export function themeExistsInState(
+  state: ThemeState | null | undefined,
+  id: string | null | undefined,
+): boolean {
+  if (!id) return false;
+  return Boolean(
+    BUILTIN_THEMES.some((t) => t.id === id) || state?.themes.some((t) => t.id === id),
+  );
+}
+
+/**
+ * Which theme id is live for ONE member:
+ *   scheduled club theme (forced) → the member's own custom theme → activeId
+ *   → defaultId.
+ */
+export function effectiveThemeIdForUser(
+  state: ThemeState | null | undefined,
+  userThemeId: string | null | undefined,
+  now = Date.now(),
+): string | null {
+  if (!state) return null;
+  const s = state.schedule;
+  if (s && now >= s.from && now < s.to && s.themeId) return s.themeId;
+  if (userThemeId && themeExistsInState(state, userThemeId)) return userThemeId;
+  if (state.activeId) return state.activeId;
+  return state.defaultId ?? null;
+}
+
+/**
+ * The member's own theme choice, cached + honored everywhere a theme is
+ * resolved (boot, subscription pushes, schedule timer, preview rollback).
+ * `null` = follow the club's published theme.
+ */
+const PREF_KEY = "roboShelf.appTheme.myTheme";
+let preferredUserThemeId: string | null = null;
+try {
+  const raw = typeof localStorage !== "undefined" ? localStorage.getItem(PREF_KEY) : null;
+  if (raw) preferredUserThemeId = raw;
+} catch {
+  /* storage unavailable */
+}
+
+/** Set (or clear) the member's custom theme, repainting immediately. */
+export function setUserThemePreference(id: string | null): void {
+  preferredUserThemeId = id;
+  try {
+    if (id) localStorage.setItem(PREF_KEY, id);
+    else localStorage.removeItem(PREF_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+  if (lastState && previewDepth === 0) applyThemeToDom(resolveTheme(lastState));
+}
+
+export function getUserThemePreference(): string | null {
+  return preferredUserThemeId;
+}
+
+/**
+ * Resolve the live theme (built-in preset or stored custom theme) → theme,
+ * honoring this member's own preference when they set one.
+ */
 export function resolveTheme(state: ThemeState | null | undefined): AppTheme | null {
-  const id = effectiveThemeId(state);
+  const id = effectiveThemeIdForUser(state, preferredUserThemeId);
   if (!id || !state) return null;
   return (
     BUILTIN_THEMES.find((t) => t.id === id) ??

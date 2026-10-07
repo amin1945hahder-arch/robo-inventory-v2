@@ -43,6 +43,9 @@ const SYNC_TABLES: readonly string[] = [
 const CHANNEL_NAME = "roboshelf-sync";
 const STORAGE_KEY = "roboshelf.syncWrite";
 
+/** Wildcard: a write whose exact table we could not attribute. */
+export const ANY_TABLE = "*";
+
 let channel: BroadcastChannel | null = null;
 
 function getChannel(): BroadcastChannel | null {
@@ -52,9 +55,7 @@ function getChannel(): BroadcastChannel | null {
       channel = new BroadcastChannel(CHANNEL_NAME);
       channel.onmessage = (ev: MessageEvent) => {
         const table = (ev.data as { table?: string } | null)?.table;
-        if (typeof table === "string" && isSyncTable(table)) {
-          notifyLocal(table);
-        }
+        if (typeof table === "string") notifyLocal(table);
       };
     } catch {
       channel = null;
@@ -64,7 +65,7 @@ function getChannel(): BroadcastChannel | null {
 }
 
 function isSyncTable(t: string): boolean {
-  return SYNC_TABLES.includes(t);
+  return t === ANY_TABLE || SYNC_TABLES.includes(t);
 }
 
 function notifyLocal(table: string): void {
@@ -77,13 +78,7 @@ function notifyLocal(table: string): void {
   }
 }
 
-/**
- * Mark a table as written. Local listeners fire immediately; sibling tabs
- * are told via BroadcastChannel (localStorage fallback).
- */
-export function markWritten(table: string): void {
-  if (!isSyncTable(table)) return;
-  notifyLocal(table);
+function broadcast(table: string): void {
   try {
     getChannel()?.postMessage({ table });
   } catch {
@@ -100,16 +95,44 @@ export function markWritten(table: string): void {
   }
 }
 
+/**
+ * Mark a table as written. Local listeners fire immediately; sibling tabs
+ * are told via BroadcastChannel (localStorage fallback).
+ */
+export function markWritten(table: string): void {
+  if (!isSyncTable(table)) return;
+  notifyLocal(table);
+  broadcast(table);
+}
+
+/**
+ * Mark an un-attributable write: every mounted table re-pulls a delta. Called
+ * after ANY successful mutation, so a write in one browser window is visible
+ * in every other window immediately instead of only when the server head
+ * push happens to arrive. Deltas are small and pulls are coalesced, so the
+ * breadth is cheap.
+ */
+export function markAnyWrite(): void {
+  notifyLocal(ANY_TABLE);
+  broadcast(ANY_TABLE);
+}
+
+let receiverInstalled = false;
+
 /** Install the cross-tab receiver once (no-op on the server / tests). */
 export function installWriteSyncReceiver(): void {
+  if (receiverInstalled) return;
   if (typeof window === "undefined") return;
   getChannel();
   if (typeof window.addEventListener !== "function") return;
+  receiverInstalled = true;
   window.addEventListener("storage", (ev: StorageEvent) => {
     if (ev.key !== STORAGE_KEY || !ev.newValue) return;
     try {
       const parsed = JSON.parse(ev.newValue) as { table?: string };
-      if (typeof parsed.table === "string") notifyLocal(parsed.table);
+      if (typeof parsed.table === "string" && isSyncTable(parsed.table)) {
+        notifyLocal(parsed.table);
+      }
     } catch {
       /* malformed payload — ignore */
     }
@@ -119,13 +142,14 @@ export function installWriteSyncReceiver(): void {
 /** Subscribe to write marks for one table (used by useCachedData). */
 export function writeSyncListen(table: string, fn: () => void): () => void {
   const wrapper = (t: string) => {
-    if (t === table) fn();
+    if (t === table || t === ANY_TABLE) fn();
   };
   listeners.add(wrapper);
   return () => listeners.delete(wrapper);
 }
 
-/** Reset all state (tests). */
+/** Reset all state (tests). The installed storage receiver stays attached
+ *  (it reads the live listener set), so re-installing is a no-op. */
 export function resetWriteSyncForTests(): void {
   listeners.clear();
   channel?.close();

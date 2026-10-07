@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { useMutation } from "convex/react";
 import { useOfflineQuery as useQuery } from "@/hooks/use-offline-query";
 import { api } from "@/convex/_generated/api";
@@ -13,8 +13,18 @@ import { EditRentalDialog } from "@/components/EditRentalDialog";
 import { containerChainOf } from "@/lib/container-chain";
 import { packageDisplayStatus } from "@/lib/package-status";
 import { PackageBuilderDialog } from "@/components/PackageBuilderDialog";
+import { PackageCardDialog } from "@/components/PackageCardDialog";
+import { type PackageCardData } from "@/components/PackageCardPaper";
 import { formatLineAmount } from "@/lib/group-measure";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { tabColor } from "@/lib/utils";
 import { toast } from "sonner";
@@ -58,8 +68,24 @@ export default function MyRentals() {
   const [editPkgId, setEditPkgId] = useState<string | null>(null);
   const [editRentalFor, setEditRentalFor] = useState<any>(null);
   // Bar of tabs: package bundles, everything live, and the closed records —
-  // one pane at a time like every other console page.
-  const [tab, setTab] = useState<"packages" | "active" | "history">("active");
+  // one pane at a time like every other console page. The initial tab honours
+  // a deep link (`/rentals?tab=packages&package=<id>`) so scanning a package
+  // QR lands on the exact status view instead of always the Active tab.
+  const [sp] = useSearchParams();
+  const focusPackageId = sp.get("package");
+  const focusRentalId = sp.get("rental");
+  const [tab, setTab] = useState<"packages" | "active" | "history">(() => {
+    const t = sp.get("tab");
+    return t === "packages" || t === "history" ? t : "active";
+  });
+  // Whole-package receipt dialog (same card the admin console prints).
+  const [pkgCard, setPkgCard] = useState<PackageCardData | null>(null);
+  // Return-request confirmation dialog: explains what happens before we ping
+  // the admins (hand-over date, who is notified).
+  const [returnConfirm, setReturnConfirm] = useState<{
+    kind: "single" | "package";
+    id: string;
+  } | null>(null);
   // Group index for resolving container chains on the admin rent cards.
   const groupsIndex = useQuery(api.catalog.childGroupOptions, {});
 
@@ -95,6 +121,57 @@ export default function MyRentals() {
   const pendingSingle = (rentals ?? []).filter(
     (r) => r.rental.status === "pending" && !r.rental.packageId,
   );
+
+  // Whole-package receipt — members can print/download the bundle card too,
+  // not only admins. Mirrors the admin console's pkgCardFor.
+  const pkgCardFor = (pkg: any, lines: any[]): PackageCardData => {
+    const unitDates = (lines ?? [])
+      .flatMap((l: any) => l.units ?? [])
+      .reduce(
+        (acc: { pickedUpAt?: number; returnedAt?: number; dueAt?: number }, u: any) => ({
+          pickedUpAt: acc.pickedUpAt ?? u.pickedUpAt,
+          returnedAt: acc.returnedAt ?? u.returnedAt,
+          dueAt: acc.dueAt ?? u.dueAt,
+        }),
+        {},
+      );
+    return {
+      packageId: pkg._id,
+      lines: (lines ?? []).map((l: any) => ({
+        groupName: l.groupName ?? "Unit",
+        units: (l.units ?? []).map((u: any) => ({ tag: u.tag ?? "—", status: String(u.status ?? "") })),
+      })),
+      holderName: user?.name ?? user?.email ?? "Member",
+      studentId: user?.studentId || undefined,
+      statusLabel: pkg.status,
+      requestedAt: pkg.requestedAt,
+      decidedAt: pkg.decidedAt,
+      pickupAt: pkg.pickupAt,
+      pickedUpAt: pkg.pickedUpAt ?? unitDates.pickedUpAt,
+      returnedAt: pkg.returnedAt ?? unitDates.returnedAt,
+      dueAt: pkg.dueAt ?? unitDates.dueAt,
+      note: pkg.note,
+    };
+  };
+
+  // Send the return request once the member confirms — with the explanation
+  // of what happens next (admins are notified, then a hand-over date).
+  const submitReturnRequest = async () => {
+    if (!returnConfirm) return;
+    const { kind, id } = returnConfirm;
+    setBusyId(id);
+    try {
+      if (kind === "package") await returnPkg({ packageId: id as any });
+      else await requestReturn({ rentalId: id as any });
+      playSound("returned");
+      toast.success("Return request sent — the admins will set a hand-over date");
+      setReturnConfirm(null);
+    } catch (e) {
+      toast.error(asMessage(e));
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   return (
     <AppShell>
@@ -153,7 +230,10 @@ export default function MyRentals() {
                       pkg.returnRequestedAt !== undefined &&
                       Date.now() - pkg.returnRequestedAt < cooldownMs;
                     return (
-                      <li key={pkg._id} className="glass-3d rounded-lg border p-4">
+                      <li
+                        key={pkg._id}
+                        className={`glass-3d rounded-lg border p-4${pkg._id === focusPackageId ? " ring-2 ring-primary/60" : ""}`}
+                      >
                         {/* Chip rows: info on top, actions on their own row —
                             side-by-side only with real width headroom. */}
                         <div className="flex items-start gap-3">
@@ -184,6 +264,14 @@ export default function MyRentals() {
                               packageDisplayStatus(pkg.status, { approvedUnits, activeUnits, returnedUnits })
                             }
                           />
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            title="Print the package card (QR opens this bundle)"
+                            onClick={() => setPkgCard(pkgCardFor(pkg, lines))}
+                          >
+                            <Printer className="size-4" /> Card
+                          </Button>
                           {isPending && (
                             <>
                               <Button
@@ -225,18 +313,7 @@ export default function MyRentals() {
                                   ? `Return already requested.${hoursLeft(pkg) > 0 ? ` You can send another in ${hoursLeft(pkg)}h.` : ""}`
                                   : "Ask the admins to process the return of the whole package"
                               }
-                              onClick={async () => {
-                                setBusyId(pkg._id);
-                                try {
-                                  await returnPkg({ packageId: pkg._id });
-                                  playSound("returned");
-                                  toast.success("Return request sent — bring the package to the lab");
-                                } catch (e) {
-                                  toast.error(asMessage(e));
-                                } finally {
-                                  setBusyId(null);
-                                }
-                              }}
+                              onClick={() => setReturnConfirm({ kind: "package", id: pkg._id })}
                             >
                               <RotateCcw className="size-4" />
                               {returnFlagged ? "Return requested" : "I want to return"}
@@ -316,7 +393,10 @@ export default function MyRentals() {
                   <h2 className="text-sm font-semibold">{title === "Awaiting approval" ? "Requests & scheduled pickups" : title}</h2>
                   <ul className="divide-y glass-3d rounded-lg border">
                     {visible.map(({ rental, part, group, projectName }) => (
-                      <li key={rental._id} className="flex flex-col gap-2 px-4 py-3 wide:flex-row wide:items-center">
+                      <li
+                        key={rental._id}
+                        className={`flex flex-col gap-2 px-4 py-3 wide:flex-row wide:items-center${rental._id === focusRentalId ? " rounded-lg ring-2 ring-primary/60" : ""}`}
+                      >
                         <div className="min-w-0 flex-1">
                           <p className="flex flex-wrap items-baseline gap-x-1.5 text-sm font-medium">
                             {group?.name ?? "Part"}
@@ -379,18 +459,7 @@ export default function MyRentals() {
                                 ? `You already asked to return this — the admin has been notified.${hoursLeft(rental) > 0 ? ` You can send another one in ${hoursLeft(rental)}h.` : ""}`
                                 : "Notify the admins that you want to return this part"
                             }
-                            onClick={async () => {
-                              setBusyId(rental._id);
-                              try {
-                                await requestReturn({ rentalId: rental._id });
-                                playSound("returned");
-                                toast.success("Return request sent — bring the part to the lab");
-                              } catch (e) {
-                                toast.error(asMessage(e));
-                              } finally {
-                                setBusyId(null);
-                              }
-                            }}
+                            onClick={() => setReturnConfirm({ kind: "single", id: rental._id })}
                           >
                             <RotateCcw className="size-4" />
                             {returnPending(rental) ? "Return requested" : "I want to return"}
@@ -473,6 +542,31 @@ export default function MyRentals() {
           onClose={() => setCard(null)}
         />
       )}
+
+      {/* Return-request explanation: shown BEFORE the admins are notified, so
+          the member knows a hand-over date will be arranged with them. */}
+      <Dialog open={returnConfirm !== null} onOpenChange={(v) => !v && setReturnConfirm(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Request a return</DialogTitle>
+            <DialogDescription>
+              The admins are notified right away. They will set a hand-over date, and BOTH of you
+              get that date. Bring the item at the agreed time — the admin marks it “handed over”
+              and then processes the return.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:justify-end">
+            <Button variant="outline" onClick={() => setReturnConfirm(null)}>
+              Cancel
+            </Button>
+            <Button disabled={busyId !== null} onClick={() => void submitReturnRequest()}>
+              <RotateCcw className="size-4" /> Send return request
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {pkgCard && <PackageCardDialog card={pkgCard} onClose={() => setPkgCard(null)} />}
 
       {editRentalFor && (
         <EditRentalDialog

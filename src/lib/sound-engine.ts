@@ -62,19 +62,29 @@ export const MAX_MELODY_SECONDS = 4;
 export const DEFAULT_SOUNDS: SoundSettings = {
   enabled: true,
   sounds: {
-    // Quick high blip — instant feedback, never annoying in a row.
-    scan: { freq: 1175, dur: 0.05, wave: "sine" },
-    // Rising two-note "ding-ding" — something new landed in the console.
-    rental_request: {
-      freq: 659,
-      dur: 0.09,
-      wave: "sine",
+    // A crisp two-click "shutter" — reads as a successful scan, gone in a
+    // tenth of a second so back-to-back scans never pile up.
+    scan: {
+      freq: 1200,
+      dur: 0.035,
+      wave: "square",
       notes: [
-        { freq: 659, dur: 0.09 },
-        { freq: 880, dur: 0.14, gap: 0.02 },
+        { freq: 1200, dur: 0.035 },
+        { freq: 1600, dur: 0.045, gap: 0.005 },
       ],
     },
-    // Major arpeggio C–E–G: unmistakably "yes, approved".
+    // Doorbell: a warm ascending/descending "ding-dong" — something new
+    // landed in the console and wants attention.
+    rental_request: {
+      freq: 988,
+      dur: 0.18,
+      wave: "sine",
+      notes: [
+        { freq: 988, dur: 0.18 },
+        { freq: 740, dur: 0.28, gap: 0.02 },
+      ],
+    },
+    // Short rising fanfare — unmistakably "yes, approved".
     approved: {
       freq: 523,
       dur: 0.09,
@@ -82,51 +92,219 @@ export const DEFAULT_SOUNDS: SoundSettings = {
       notes: [
         { freq: 523, dur: 0.09 },
         { freq: 659, dur: 0.09 },
-        { freq: 784, dur: 0.18, gap: 0.02 },
+        { freq: 784, dur: 0.09 },
+        { freq: 1047, dur: 0.22, gap: 0.02 },
       ],
     },
     // Descending low buzz — clearly "no", softly.
     denied: {
-      freq: 220,
-      dur: 0.14,
+      freq: 233,
+      dur: 0.16,
       wave: "square",
       notes: [
-        { freq: 220, dur: 0.14 },
-        { freq: 196, dur: 0.22, gap: 0.02 },
+        { freq: 233, dur: 0.16 },
+        { freq: 196, dur: 0.28, gap: 0.02 },
       ],
     },
-    // Upward pair — a unit came home.
+    // Warm rising three-note "welcome back" — a unit came home.
     returned: {
       freq: 587,
-      dur: 0.1,
+      dur: 0.09,
       wave: "sine",
       notes: [
-        { freq: 587, dur: 0.1 },
-        { freq: 880, dur: 0.16, gap: 0.02 },
+        { freq: 587, dur: 0.09 },
+        { freq: 784, dur: 0.09 },
+        { freq: 880, dur: 0.2, gap: 0.02 },
       ],
     },
     // Bright two-step — a part got a destination.
     assigned: {
       freq: 784,
-      dur: 0.08,
+      dur: 0.07,
       wave: "triangle",
       notes: [
-        { freq: 784, dur: 0.08 },
-        { freq: 1047, dur: 0.14, gap: 0.02 },
+        { freq: 784, dur: 0.07 },
+        { freq: 1319, dur: 0.16, gap: 0.02 },
       ],
     },
-    // Gentle bell — works for any other update.
+    // Ringing alert bell — works for any other update.
     notification: {
+      freq: 988,
+      dur: 0.07,
+      wave: "sine",
+      notes: [
+        { freq: 988, dur: 0.07 },
+        { freq: 1319, dur: 0.07 },
+        { freq: 988, dur: 0.18, gap: 0.02 },
+      ],
+    },
+  },
+};
+
+/**
+ * A wide, ready-to-pick library of short alarm-like cues. Members choose any
+ * preset for any event from Settings → My sounds, so they are never stuck
+ * hand-tuning sliders to find a distinct, meaningful sound.
+ *
+ * Every spec obeys the same invariants as DEFAULT_SOUNDS (freq/dur = first
+ * note; within sanitize bounds), so applying one is always safe to persist.
+ */
+export type AlarmPreset = { id: string; label: string; spec: SoundSpec };
+
+export const ALARM_LIBRARY: readonly AlarmPreset[] = [
+  { id: "blip", label: "Blip", spec: { freq: 1568, dur: 0.04, wave: "sine" } },
+  {
+    id: "click",
+    label: "Click",
+    spec: {
+      freq: 1200,
+      dur: 0.03,
+      wave: "square",
+      notes: [
+        { freq: 1200, dur: 0.03 },
+        { freq: 1600, dur: 0.04, gap: 0.005 },
+      ],
+    },
+  },
+  {
+    id: "double-beep",
+    label: "Double beep",
+    spec: {
       freq: 880,
       dur: 0.08,
       wave: "sine",
       notes: [
         { freq: 880, dur: 0.08 },
-        { freq: 1175, dur: 0.14, gap: 0.02 },
+        { freq: 880, dur: 0.12, gap: 0.06 },
       ],
     },
   },
-};
+  {
+    id: "doorbell",
+    label: "Doorbell",
+    spec: {
+      freq: 988,
+      dur: 0.18,
+      wave: "sine",
+      notes: [
+        { freq: 988, dur: 0.18 },
+        { freq: 740, dur: 0.3, gap: 0.03 },
+      ],
+    },
+  },
+  {
+    id: "chime",
+    label: "Chime",
+    spec: {
+      freq: 1047,
+      dur: 0.12,
+      wave: "sine",
+      notes: [
+        { freq: 1047, dur: 0.12 },
+        { freq: 784, dur: 0.12, gap: 0.04 },
+        { freq: 1047, dur: 0.2, gap: 0.04 },
+      ],
+    },
+  },
+  {
+    id: "success",
+    label: "Success",
+    spec: {
+      freq: 523,
+      dur: 0.09,
+      wave: "triangle",
+      notes: [
+        { freq: 523, dur: 0.09 },
+        { freq: 659, dur: 0.09, gap: 0.03 },
+        { freq: 784, dur: 0.09, gap: 0.03 },
+        { freq: 1047, dur: 0.22, gap: 0.03 },
+      ],
+    },
+  },
+  {
+    id: "coin",
+    label: "Coin",
+    spec: {
+      freq: 1319,
+      dur: 0.05,
+      wave: "square",
+      notes: [
+        { freq: 1319, dur: 0.05 },
+        { freq: 1760, dur: 0.2, gap: 0.01 },
+      ],
+    },
+  },
+  {
+    id: "alert-triad",
+    label: "Alert triad",
+    spec: {
+      freq: 880,
+      dur: 0.09,
+      wave: "triangle",
+      notes: [
+        { freq: 880, dur: 0.09 },
+        { freq: 1109, dur: 0.09, gap: 0.03 },
+        { freq: 1319, dur: 0.2, gap: 0.03 },
+      ],
+    },
+  },
+  {
+    id: "alarm-clock",
+    label: "Alarm clock",
+    spec: {
+      freq: 1000,
+      dur: 0.1,
+      wave: "square",
+      notes: [
+        { freq: 1000, dur: 0.1 },
+        { freq: 1000, dur: 0.1, gap: 0.08 },
+        { freq: 1000, dur: 0.1, gap: 0.08 },
+        { freq: 1000, dur: 0.18, gap: 0.08 },
+      ],
+    },
+  },
+  {
+    id: "siren",
+    label: "Siren",
+    spec: {
+      freq: 600,
+      dur: 0.18,
+      wave: "sawtooth",
+      notes: [
+        { freq: 600, dur: 0.18 },
+        { freq: 900, dur: 0.18, gap: 0.02 },
+        { freq: 600, dur: 0.18, gap: 0.02 },
+        { freq: 900, dur: 0.24, gap: 0.02 },
+      ],
+    },
+  },
+  {
+    id: "error",
+    label: "Error buzz",
+    spec: {
+      freq: 247,
+      dur: 0.14,
+      wave: "square",
+      notes: [
+        { freq: 247, dur: 0.14 },
+        { freq: 196, dur: 0.3, gap: 0.02 },
+      ],
+    },
+  },
+  {
+    id: "low-buzz",
+    label: "Low buzz",
+    spec: {
+      freq: 196,
+      dur: 0.24,
+      wave: "square",
+      notes: [
+        { freq: 196, dur: 0.24 },
+        { freq: 165, dur: 0.34, gap: 0.03 },
+      ],
+    },
+  },
+];
 
 /** Loose input shape (e.g. the Convex validator's `wave?: string`). */
 export type SoundSpecInput = {

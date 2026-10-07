@@ -15,6 +15,7 @@ import { LoadingGif } from "@/components/LoadingGif";
 import { PreviousLocationTracker } from "@/hooks/use-previous-location";
 import { CoverBackground } from "@/components/CoverBackground";
 import { attachOfflineGuard } from "@/lib/offline";
+import { installWriteSyncReceiver } from "@/lib/sync/write-sync";
 import {
   createStaleWatcher,
   installDynamicImportRecovery,
@@ -60,7 +61,7 @@ import ImportCSV from "./pages/ImportCSV";
 import Labels from "./pages/Labels";
 import AdminReports from "./pages/AdminReports";
 import ExportStudio from "./pages/ExportStudio";
-import AdminSettings from "./pages/AdminSettings";
+import Settings from "./pages/Settings";
 import Profile from "./pages/Profile";
 import PersonCard from "./pages/PersonCard";
 import Printing3D from "./pages/Printing3D";
@@ -132,6 +133,11 @@ class RootErrorBoundary extends React.Component<
 }
 
 const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string);
+
+// Cross-window delta-sync invalidation: another browser tab of this app
+// shares the same IndexedDB cache, so teach THIS tab to re-pull its deltas
+// the instant a sibling tab writes. Must be installed before any write.
+installWriteSyncReceiver();
 
 // Offline mode: one app-wide write guard. While the device is offline every
 // mutation/action is refused with a clear message (nothing hangs or silently
@@ -391,13 +397,13 @@ createRoot(document.getElementById("root")!).render(
                   </RequireAuth>
                 }
               />
+              {/* One Settings route for every role: admins get the lab
+                  console, members/students get their personal settings. */}
               <Route
                 path="/settings"
                 element={
                   <RequireAuth>
-                    <RequireAdmin>
-                      <AdminSettings />
-                    </RequireAdmin>
+                    <Settings />
                   </RequireAuth>
                 }
               />

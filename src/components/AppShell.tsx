@@ -49,13 +49,23 @@ import { useOnline } from "@/hooks/use-online";
 import { setBackendConnected } from "@/lib/offline";
 import { toast } from "sonner";
 
-const NAV = [
+const NAV: {
+  to: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  /** Hidden from the student role. */
+  studentBlocked?: boolean;
+  /** Shown only to non-admins (members/students) — admins use the console. */
+  memberOnly?: boolean;
+}[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/inventory", label: "Inventory", icon: Boxes, studentBlocked: true },
   { to: "/closets", label: "Storages", icon: Warehouse, studentBlocked: true },
   { to: "/projects", label: "Projects", icon: FolderKanban, studentBlocked: true },
   { to: "/rentals", label: "My rentals", icon: PackageSearch, studentBlocked: true },
   { to: "/3d-printing", label: "3D printing", icon: Box, studentBlocked: true },
+  // Personal settings for members/students (admins have the console link below).
+  { to: "/settings", label: "Settings", icon: Settings, memberOnly: true },
 ];
 
 /** Admin nav rows (mobile menu) — each has an icon-override slot:
@@ -234,7 +244,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </Link>
 
         <nav className="flex flex-1 flex-col gap-1 overflow-y-auto">
-          {NAV.filter(({ studentBlocked }) => !studentBlocked || !isStudent).map(
+          {NAV.filter(({ studentBlocked, memberOnly }) => (!studentBlocked || !isStudent) && (!memberOnly || !isAdmin)).map(
             ({ to, label, icon: Icon }) => {
             const active = location.pathname.startsWith(to);
             // Bubble count per tab: "My rentals" shows pending requests, the
@@ -361,9 +371,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           )}
         </nav>
 
-        <Button className="press-3d mt-4 w-full gap-2" onClick={() => setScanOpen(true)}>
-          <ScanLine className="size-4" /> Scan QR
-        </Button>
+        {!isStudent && (
+          <Button className="press-3d mt-4 w-full gap-2" onClick={() => setScanOpen(true)}>
+            <ScanLine className="size-4" /> Scan QR
+          </Button>
+        )}
         </aside>
       </div>
 
@@ -389,7 +401,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             >
               {mobileMenuOpen ? <X className="size-5" /> : <Menu className="size-5" />}
             </Button>
-            {NAV.filter(({ studentBlocked }) => !studentBlocked || !isStudent)
+            {NAV.filter(({ studentBlocked, memberOnly }) => (!studentBlocked || !isStudent) && (!memberOnly || !isAdmin))
               .slice(0, 3)
               .map(({ to, label, icon: Icon }) => (
               <Link
@@ -417,9 +429,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 Offline
               </span>
             )}
-            <Button variant="outline" size="sm" className="gap-2 md:hidden" onClick={() => setScanOpen(true)}>
-              <ScanLine className="size-4" />
-            </Button>
+            {!isStudent && (
+              <Button variant="outline" size="sm" className="gap-2 md:hidden" onClick={() => setScanOpen(true)}>
+                <ScanLine className="size-4" />
+              </Button>
+            )}
             {isAdmin && (
               <Button variant="ghost" size="icon" className="relative" asChild>
                 <Link to="/admin/requests" title="Notifications">
@@ -482,7 +496,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {mobileMenuOpen && (
           <div className="glass-strong overflow-hidden rounded-xl border md:hidden">
             <nav className="flex max-h-[70dvh] flex-col gap-1 overflow-y-auto px-4 py-3">
-              {NAV.filter(({ studentBlocked }) => !studentBlocked || !isStudent).map(
+              {NAV.filter(({ studentBlocked, memberOnly }) => (!studentBlocked || !isStudent) && (!memberOnly || !isAdmin)).map(
                 ({ to, label, icon: Icon }) => {
                   const active = location.pathname.startsWith(to);
                   const bubble =
@@ -538,15 +552,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   ))}
                 </>
               )}
-              <Button
-                className="mt-2 w-full gap-2"
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  setScanOpen(true);
-                }}
-              >
-                <ScanLine className="size-4" /> Scan QR
-              </Button>
+              {!isStudent && (
+                <Button
+                  className="mt-2 w-full gap-2"
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    setScanOpen(true);
+                  }}
+                >
+                  <ScanLine className="size-4" /> Scan QR
+                </Button>
+              )}
             </nav>
           </div>
         )}

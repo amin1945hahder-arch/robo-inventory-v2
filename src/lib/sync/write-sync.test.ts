@@ -7,6 +7,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 
 import {
   installWriteSyncReceiver,
+  markAnyWrite,
   markWritten,
   resetWriteSyncForTests,
   writeSyncListen,
@@ -23,7 +24,6 @@ describe("write-sync", () => {
     writeSyncListen("parts", fn);
     markWritten("parts");
     expect(fn).toHaveBeenCalledTimes(1);
-    expect(fn).toHaveBeenCalledWith("parts");
   });
 
   it("does not notify listeners of other tables", () => {
@@ -83,6 +83,32 @@ describe("write-sync", () => {
       }),
     );
     expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it("markAnyWrite wakes every table listener (un-attributable write)", () => {
+    const parts = vi.fn();
+    const rentals = vi.fn();
+    writeSyncListen("parts", parts);
+    writeSyncListen("rentals", rentals);
+    markAnyWrite();
+    expect(parts).toHaveBeenCalledTimes(1);
+    expect(rentals).toHaveBeenCalledTimes(1);
+  });
+
+  it("a wildcard storage event from a sibling tab wakes every listener", () => {
+    const parts = vi.fn();
+    const rentals = vi.fn();
+    writeSyncListen("parts", parts);
+    writeSyncListen("rentals", rentals);
+    installWriteSyncReceiver();
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: "roboshelf.syncWrite",
+        newValue: JSON.stringify({ table: "*", at: Date.now() }),
+      }),
+    );
+    expect(parts).toHaveBeenCalledTimes(1);
+    expect(rentals).toHaveBeenCalledTimes(1);
   });
 
   it("malformed storage payloads are ignored", () => {

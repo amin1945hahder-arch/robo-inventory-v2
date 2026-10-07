@@ -268,6 +268,33 @@ export const setMyFont = mutation({
   },
 });
 
+// ---- Per-user custom theme ------------------------------------------------
+// Every member may pick their OWN theme (a builtin preset or a stored custom
+// theme id), which wins over the admin's published theme. "" (empty) means
+// follow the published theme. A SCHEDULED theme still overrides this while its
+// window is live, so seasonal club themes stay forced for everyone.
+
+export const getMyTheme = query({
+  args: {},
+  handler: async (ctx): Promise<string> => {
+    const me = await requireUser(ctx);
+    return me.themeId ?? "";
+  },
+});
+
+export const setMyTheme = mutation({
+  args: { id: v.union(v.string(), v.null()) },
+  handler: async (ctx, { id }) => {
+    const me = await requireUser(ctx);
+    // Only shape-check here: the id is validated against the live theme list
+    // by the client (builtin presets) — a stale id simply resolves to nothing
+    // and falls back to the published theme.
+    const clean = typeof id === "string" ? id.trim().slice(0, 80) : "";
+    await ctx.db.patch(me._id, { themeId: clean || undefined });
+    return { ok: true };
+  },
+});
+
 // @deprecated legacy global sounds (kept only so old clients don't break).
 export const getSounds = query({
   args: {},

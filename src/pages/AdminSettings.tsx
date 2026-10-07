@@ -11,7 +11,7 @@ import { setThemeModeOverride } from "@/lib/appTheme";
 import { rankRoleEntriesToMap } from "@/lib/rank-role-map";
 import { FontPicker } from "@/components/FontPicker";
 import { previewSound } from "@/hooks/use-sound";
-import { SOUND_WAVES, type SoundSpec } from "@/lib/sound-engine";
+import { ALARM_LIBRARY, SOUND_WAVES, type SoundSpec } from "@/lib/sound-engine";
 import { PermissionsManager } from "@/components/PermissionsManager";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -764,7 +764,7 @@ function TopicsPanel({ bot }: { bot: BotId }) {
 /* Per-user notification sounds                                               */
 /* ========================================================================= */
 
-function MySoundsSection() {
+export function MySoundsSection() {
   const cfg = useQuery(api.settings.getMySounds, {});
   const saveSounds = useMutation(api.settings.setMySounds);
   const [enabled, setEnabled] = useState(true);
@@ -918,6 +918,34 @@ function MySoundsSection() {
                       ))}
                     </div>
                   </div>
+                  {/* Alarm library — one tap swaps this event to a distinct,
+                      ready-made alarm cue (the sliders then fine-tune it). */}
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Alarm library
+                    </span>
+                    <div className="flex flex-wrap gap-1">
+                      {ALARM_LIBRARY.map((preset) => (
+                        <Button
+                          key={preset.id}
+                          size="sm"
+                          variant="outline"
+                          className="h-6 px-2 text-[10px]"
+                          title={`Use the "${preset.label}" alarm`}
+                          onClick={() => {
+                            const next: SoundSpec = {
+                              ...preset.spec,
+                              ...(spec.vol !== undefined ? { vol: spec.vol } : {}),
+                            };
+                            void patch(key, next);
+                            previewSound(next);
+                          }}
+                        >
+                          {preset.label}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
                   {spec.notes && spec.notes.length > 1 && (
                     <p className="text-[11px] text-muted-foreground">
                       🎵 Melody — {spec.notes.length} notes. Pitch and Length
@@ -938,7 +966,7 @@ function MySoundsSection() {
 /* Per-user appearance (app mode)                                              */
 /* ========================================================================= */
 
-function AppearanceSection() {
+export function AppearanceSection() {
   const cfg = useQuery(api.settings.getMyAppearance, {});
   const save = useMutation(api.settings.setMyAppearance);
   const [value, setValue] = useState<"dark" | "light" | "system">("dark");

@@ -13,6 +13,7 @@ import { loadTable, saveTable } from "@/lib/sync/store";
 import { SYNC_TABLES, TOMBSTONE_RETENTION_MS } from "@/lib/sync/tables";
 import { bumpDataSyncListen } from "@/lib/sync/bus";
 import { writeSyncListen } from "@/lib/sync/write-sync";
+import { isOffline } from "@/lib/offline";
 
 // Dev-only instrumentation: one line per sync cycle so the read pattern is
 // observable without dragging a profiler into production bundles.
@@ -178,7 +179,10 @@ export function useCachedData(table: string) {
       if (isOffline()) return;
       const now = Date.now();
       const failures = headFailureRef.current;
-      const last = failures.attempts.at(-1);
+      const last =
+        failures.attempts.length > 0
+          ? failures.attempts[failures.attempts.length - 1]
+          : undefined;
       if (last === undefined || now - last > RESYNC_WINDOW_MS) {
         failures.attempts = [now];
       } else {

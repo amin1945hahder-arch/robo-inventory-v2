@@ -35,7 +35,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { asMessage } from "@/components/EditRentalDialog";
-import { Award, Bell, BellRing, Boxes, Check, FileText, History, IdCard, Inbox, PackageCheck, PackagePlus, Printer, RotateCcw, ScanLine, Search, SquarePen, Trash2, Warehouse, X } from "lucide-react";
+import { Award, Bell, BellRing, Boxes, CalendarClock, Check, FileText, History, IdCard, Inbox, PackageCheck, PackagePlus, Printer, RotateCcw, ScanLine, Search, SquarePen, Trash2, Warehouse, X } from "lucide-react";
 import { EditRentalDialog } from "@/components/EditRentalDialog";
 import { EditPackageDialog } from "@/components/EditPackageDialog";
 import { PackageCardDialog } from "@/components/PackageCardDialog";
@@ -162,6 +162,8 @@ export default function AdminRequests() {
   }, [unread.length]);
 
   const act = useMutation(api.parts.adminRentalAction);
+  const setReturnMeetupM = useMutation(api.parts.setReturnMeetup);
+  const markReturnHandedOverM = useMutation(api.parts.markReturnHandedOver);
   const decidePkg = useMutation(api.parts.decidePackage);
   const bulkDeleteRecords = useMutation(api.bulk.bulkDeleteRentalRecords);
   const markPkgTaken = useMutation(api.parts.markPackageTaken);
@@ -199,6 +201,11 @@ export default function AdminRequests() {
   const groupsIndex = useQuery(api.catalog.childGroupOptions, {});
   const [approvePkgFor, setApprovePkgFor] = useState<{ key: string; unitCount: number } | null>(null);
   const [pickupLocal, setPickupLocal] = useState("");
+  // Return hand-over scheduling (mirror of the pick-up date) + the explicit
+  // "handed over" step that unlocks the normal return processing.
+  const [meetupFor, setMeetupFor] = useState<Row | null>(null);
+  const [meetupLocal, setMeetupLocal] = useState("");
+  const [meetupBusy, setMeetupBusy] = useState(false);
   const [approveBusy, setApproveBusy] = useState(false);
   const [returnFor, setReturnFor] = useState<Row | null>(null);
   const [destination, setDestination] = useState<"shelf" | "project" | "transferred">("shelf");
@@ -837,6 +844,40 @@ export default function AdminRequests() {
     }
   };
 
+  // Return hand-over: schedule the meet-up (mirror of pick-up) and mark the
+  // physical hand-back. Both notify the member + the club group.
+  const submitMeetup = async () => {
+    if (!meetupFor) return;
+    setMeetupBusy(true);
+    try {
+      const meetupAt = meetupLocal ? new Date(meetupLocal).getTime() : undefined;
+      await setReturnMeetupM({
+        rentalId: meetupFor.rental._id,
+        meetupAt: Number.isFinite(meetupAt as number) ? meetupAt : undefined,
+      });
+      toast.success(
+        meetupLocal
+          ? "Return hand-over scheduled — member and group notified"
+          : "Return hand-over time cleared",
+      );
+      setMeetupFor(null);
+      setMeetupLocal("");
+    } catch (e) {
+      toast.error(asMessage(e));
+    } finally {
+      setMeetupBusy(false);
+    }
+  };
+
+  const markHandedOver = async (rentalId: string) => {
+    try {
+      await markReturnHandedOverM({ rentalId: rentalId as any });
+      toast.success("Marked handed over — process the return now");
+    } catch (e) {
+      toast.error(asMessage(e));
+    }
+  };
+
   const decidePackageAction = async (approve: boolean) => {
     if (!approvePkgFor) return;
     setApproveBusy(true);
@@ -1131,6 +1172,18 @@ export default function AdminRequests() {
           <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs font-medium text-amber-500">
             <RotateCcw className="size-3.5 shrink-0" />
             Member asked to return this · {new Date(row.rental.returnRequestedAt).toLocaleString()}
+            {row.rental.returnMeetupAt ? (
+              <span className="text-sky-400">
+                · 📅 hand-over{" "}
+                {new Date(row.rental.returnMeetupAt).toLocaleString("en-GB", {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                })}
+              </span>
+            ) : null}
+            {row.rental.returnHandedOverAt ? (
+              <span className="text-emerald-400">· ✅ handed over</span>
+            ) : null}
           </p>
         )}
       </div>
@@ -2123,6 +2176,43 @@ export default function AdminRequests() {
                         <Button size="sm" variant="ghost" onClick={() => setEditRentalFor(row.rental)} title="Edit or delete this record">
                           <SquarePen className="size-4" />
                         </Button>
+                        {row.rental.returnRequestedAt !== undefined && (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              title={
+                                row.rental.returnMeetupAt
+                                  ? "Change the return hand-over date"
+                                  : "Set the return hand-over date"
+                              }
+                              onClick={() => {
+                                setMeetupFor(row as Row);
+                                if (row.rental.returnMeetupAt) {
+                                  const d = new Date(row.rental.returnMeetupAt);
+                                  const pad = (n: number) => String(n).padStart(2, "0");
+                                  setMeetupLocal(
+                                    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`,
+                                  );
+                                } else {
+                                  setMeetupLocal("");
+                                }
+                              }}
+                            >
+                              <CalendarClock className="size-4" />
+                              {row.rental.returnMeetupAt ? "Return date" : "Set return date"}
+                            </Button>
+                            {row.rental.returnMeetupAt && row.rental.returnHandedOverAt === undefined && (
+                              <Button
+                                size="sm"
+                                title="Mark the item physically handed back — this unlocks the normal return processing"
+                                onClick={() => void markHandedOver(row.rental._id)}
+                              >
+                                <PackageCheck className="size-4" /> Handed over
+                              </Button>
+                            )}
+                          </>
+                        )}
                         <Button size="sm" variant="outline" onClick={() => {
                         setReturnFor(row as Row);
                         setDestination("shelf");
@@ -2661,7 +2751,49 @@ export default function AdminRequests() {
           />
         )}
 
-        {pkgCard && <PackageCardDialog card={pkgCard} onClose={() => setPkgCard(null)} />}
+        {/* Return hand-over date — the mirror of the pick-up scheduling dialog. */}
+      <Dialog open={Boolean(meetupFor)} onOpenChange={(v) => !v && setMeetupFor(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Return hand-over</DialogTitle>
+            <DialogDescription>
+              {meetupFor && (
+                <>
+                  {meetupFor.group?.name ?? "Part"} ({meetupFor.part?.tag}) from{" "}
+                  {meetupFor.student?.name ?? meetupFor.student?.email ?? "a member"}.
+                </>
+              )}{" "}
+              The member and the club group are both notified with the date, shown in the club
+              timezone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <div className="grid gap-2">
+              <Label htmlFor="return-meetup-at">Hand-over date &amp; time</Label>
+              <Input
+                id="return-meetup-at"
+                type="datetime-local"
+                value={meetupLocal}
+                onChange={(e) => setMeetupLocal(e.target.value)}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              When they arrive, tap “Handed over” on the row, then process the return. Leave the date
+              empty to clear it.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMeetupFor(null)}>
+              Cancel
+            </Button>
+            <Button onClick={() => void submitMeetup()} disabled={meetupBusy}>
+              {meetupBusy ? "Saving…" : "Save hand-over date"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {pkgCard && <PackageCardDialog card={pkgCard} onClose={() => setPkgCard(null)} />}
 
         {/* Clear rental history — processed tail by default, everything with
             the explicit live toggle (units optionally released to the shelf). */}
