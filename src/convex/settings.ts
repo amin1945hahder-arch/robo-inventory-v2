@@ -9,6 +9,7 @@ import {
 import type { QueryCtx } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { requireAdmin, requireUser } from "./lib";
+import { getCurrentUser } from "./users";
 
 /**
  * Admin-editable app settings, stored in the settings table as JSON values.
@@ -226,9 +227,12 @@ export type Appearance = "dark" | "light" | "system";
 // the app was designed dark-first.
 export const getMyAppearance = query({
   args: {},
+  // Public-safe: signed-out visitors (public landing page) get the default
+  // instead of a server error — per-user preferences are only meaningful once
+  // someone is signed in.
   handler: async (ctx): Promise<Appearance> => {
-    const me = await requireUser(ctx);
-    return me.appearance ?? "dark";
+    const me = await getCurrentUser(ctx);
+    return me?.appearance ?? "dark";
   },
 });
 
@@ -249,9 +253,10 @@ export const setMyAppearance = mutation({
 
 export const getMyFont = query({
   args: {},
+  // Public-safe (see getMyAppearance).
   handler: async (ctx): Promise<string> => {
-    const me = await requireUser(ctx);
-    return me.font ?? "";
+    const me = await getCurrentUser(ctx);
+    return me?.font ?? "";
   },
 });
 
@@ -276,9 +281,12 @@ export const setMyFont = mutation({
 
 export const getMyTheme = query({
   args: {},
+  // Public-safe: this is subscribed app-wide (AppThemeProvider, landing
+  // included). Signed-out visitors read the published theme with no personal
+  // override instead of a server error.
   handler: async (ctx): Promise<string> => {
-    const me = await requireUser(ctx);
-    return me.themeId ?? "";
+    const me = await getCurrentUser(ctx);
+    return me?.themeId ?? "";
   },
 });
 

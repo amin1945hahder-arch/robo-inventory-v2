@@ -22,6 +22,7 @@ import {
   BarChart3,
   Battery,
   Bell,
+  Bot,
   Bolt,
   Box,
   Boxes,
@@ -29,9 +30,13 @@ import {
   Car,
   Camera,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   CircuitBoard,
   CloudOff,
   Cpu,
+  Quote,
+  Target,
   FileDown,
   FileUp,
   FolderKanban,
@@ -150,6 +155,429 @@ function MarqueeRow({ items, reverse = false }: { items: string[]; reverse?: boo
         ))}
       </div>
     </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   TrySection — two HANDS-ON demos of the two moments that define the app:
+   scanning a unit to rent it, and finding a part without knowing where it
+   lives. Both run on the page itself — no video, no screenshots.
+   ══════════════════════════════════════════════════════════════════════ */
+
+type ScanPhase = "idle" | "scanning" | "approved";
+
+function ScanDemo() {
+  const ref = useRef<HTMLDivElement>(null);
+  const inView = useInView(ref, { once: true, margin: "-80px" });
+  const [phase, setPhase] = useState<ScanPhase>("idle");
+
+  // Play once when the section scrolls into view; the visitor can replay it.
+  useEffect(() => {
+    if (!inView) return;
+    setPhase("scanning");
+    const t = setTimeout(() => setPhase("approved"), 1900);
+    return () => clearTimeout(t);
+  }, [inView]);
+
+  const replay = () => {
+    setPhase("scanning");
+    setTimeout(() => setPhase("approved"), 1900);
+  };
+
+  return (
+    <div ref={ref} className="glass relative flex h-full flex-col overflow-hidden rounded-2xl p-6">
+      <div className="flex items-center gap-3">
+        <div className="icon-glass flex size-11 items-center justify-center rounded-lg text-primary">
+          <ScanLine className="size-5" />
+        </div>
+        <div>
+          <p className="font-semibold tracking-tight">The scan flow</p>
+          <p className="text-xs text-muted-foreground">Runs right here — press replay</p>
+        </div>
+        <Badge
+          variant="outline"
+          className={cn(
+            "ml-auto gap-1.5 border-emerald-500/40 bg-emerald-500/10 text-emerald-400 transition-opacity duration-500",
+            phase !== "approved" && "opacity-0",
+          )}
+        >
+          <CheckCircle2 className="size-3.5" /> Approved
+        </Badge>
+      </div>
+
+      <div className="relative mt-5 flex-1 overflow-hidden rounded-xl border border-border/60 bg-background/40 p-5">
+        {/* the faux unit, framed like the QR label on the shelf */}
+        <div
+          className={cn(
+            "relative mx-auto w-fit rounded-xl border px-6 py-5 text-center transition-all duration-500",
+            phase === "approved"
+              ? "border-emerald-500/40 bg-emerald-500/5"
+              : "border-border/70 bg-background/30",
+          )}
+        >
+          <QrCode className="mx-auto size-16 text-foreground/70" />
+          <p className="mt-2 font-mono text-xs text-muted-foreground">ARD-003</p>
+          <p className="text-sm font-semibold">Arduino Uno — unit 3</p>
+
+          {/* scanning laser */}
+          <AnimatePresence>
+            {phase === "scanning" && (
+              <motion.div
+                key="laser"
+                initial={{ top: "8%", opacity: 0 }}
+                animate={{ top: ["8%", "88%", "8%"], opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 1.8, ease: "easeInOut" }}
+                className="pointer-events-none absolute inset-x-4 h-0.5 rounded bg-primary shadow-[0_0_12px_2px] shadow-primary/60"
+              />
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* the status line advances with the phase */}
+        <div className="mt-5 flex items-center justify-center gap-2 text-xs">
+          {phase === "idle" && <span className="text-muted-foreground">Point the scanner at the label…</span>}
+          {phase === "scanning" && (
+            <>
+              <motion.span
+                animate={{ opacity: [0.3, 1, 0.3] }}
+                transition={{ duration: 0.9, repeat: Infinity }}
+                className="flex"
+              >
+                <ScanLine className="size-4 text-primary" />
+              </motion.span>
+              <span className="text-primary">Reading QR… found ARD-003</span>
+            </>
+          )}
+          {phase === "approved" && (
+            <span className="flex items-center gap-1.5 text-emerald-400">
+              <CheckCircle2 className="size-4" />
+              Request sent → admin approved it in seconds
+            </span>
+          )}
+        </div>
+      </div>
+
+      <Button
+        size="sm"
+        variant="outline"
+        className="press-3d mt-4 w-fit gap-2"
+        onClick={replay}
+        disabled={phase === "scanning"}
+      >
+        <ScanLine className="size-4" />
+        {phase === "approved" ? "Replay the scan" : "Scanning…"}
+      </Button>
+    </div>
+  );
+}
+
+const SEARCH_STEPS = ["ser", "servo", "servo ", "servo drv"];
+
+function SearchDemo() {
+  const ref = useRef<HTMLDivElement>(null);
+  const inView = useInView(ref, { once: true, margin: "-80px" });
+  const [len, setLen] = useState(0);
+  const query = SEARCH_STEPS[len] ?? SEARCH_STEPS[SEARCH_STEPS.length - 1];
+  const matched = len >= SEARCH_STEPS.length - 1;
+
+  // Type the query out when the section first appears.
+  useEffect(() => {
+    if (!inView) return;
+    let i = 0;
+    const t = setInterval(() => {
+      i += 1;
+      setLen(i);
+      if (i >= SEARCH_STEPS.length - 1) clearInterval(t);
+    }, 420);
+    return () => clearInterval(t);
+  }, [inView]);
+
+  const replay = () => {
+    setLen(0);
+    let i = 0;
+    const t = setInterval(() => {
+      i += 1;
+      setLen(i);
+      if (i >= SEARCH_STEPS.length - 1) clearInterval(t);
+    }, 420);
+  };
+
+  return (
+    <div ref={ref} className="glass relative flex h-full flex-col overflow-hidden rounded-2xl p-6">
+      <div className="flex items-center gap-3">
+        <div className="icon-glass flex size-11 items-center justify-center rounded-lg text-primary">
+          <PackageSearch className="size-5" />
+        </div>
+        <div>
+          <p className="font-semibold tracking-tight">Find it in a heartbeat</p>
+          <p className="text-xs text-muted-foreground">Search that runs from the local cache</p>
+        </div>
+        <Badge
+          variant="outline"
+          className={cn(
+            "ml-auto border-cyan-500/40 bg-cyan-500/10 text-cyan-400 transition-opacity duration-500",
+            !matched && "opacity-0",
+          )}
+        >
+          2 hits · 0.4 ms
+        </Badge>
+      </div>
+
+      {/* the faux search field */}
+      <div className="mt-5 flex items-center gap-2 rounded-xl border border-border/60 bg-background/40 px-4 py-3">
+        <PackageSearch className="size-4 shrink-0 text-muted-foreground" />
+        <span className="font-mono text-sm">
+          {query}
+          <motion.span
+            animate={{ opacity: [1, 0, 1] }}
+            transition={{ duration: 0.9, repeat: Infinity }}
+            className="ml-0.5 inline-block h-4 w-0.5 translate-y-0.5 bg-primary"
+          />
+        </span>
+      </div>
+
+      <div className="mt-4 flex-1 space-y-2">
+        <AnimatePresence>
+          {matched && (
+            <>
+              <motion.div
+                key="hit-1"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.35 }}
+                className="flex items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2.5 text-sm"
+              >
+                <Bot className="icon-3d size-4 shrink-0 text-primary" />
+                <span className="font-medium">Servo driver board</span>
+                <span className="ml-auto font-mono text-xs text-emerald-400">3 available</span>
+              </motion.div>
+              <motion.div
+                key="hit-2"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.35, delay: 0.12 }}
+                className="flex items-center gap-3 rounded-lg border border-border/60 bg-background/30 px-4 py-2.5 text-sm text-muted-foreground"
+              >
+                <Bolt className="size-4 shrink-0 text-primary/70" />
+                <span>Servo pack — MG996R ×4</span>
+                <span className="ml-auto font-mono text-xs">A2 · shelf 4</span>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+        {!matched && <p className="pt-3 text-xs text-muted-foreground">Type to search the whole club's inventory…</p>}
+      </div>
+
+      <Button
+        size="sm"
+        variant="outline"
+        className="press-3d mt-4 w-fit gap-2"
+        onClick={replay}
+      >
+        <Sparkles className="size-4" /> Replay the search
+      </Button>
+    </div>
+  );
+}
+
+function TrySection() {
+  return (
+    <section id="try" className="relative z-10 mx-auto w-full max-w-6xl px-6 py-20">
+      <motion.div {...fadeUp} transition={{ duration: 0.5 }} className="mx-auto max-w-2xl text-center">
+        <Badge
+          variant="outline"
+          className="mx-auto w-fit gap-2 border-primary/40 bg-primary/10 px-3 text-primary"
+        >
+          <Target className="size-3.5" />
+          Don't read about it — do it
+        </Badge>
+        <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
+          Two moves. That's the whole app.
+        </h2>
+        <p className="mt-3 text-muted-foreground">
+          Everything in RoboShelf collapses into scan-or-search. Try both right here.
+        </p>
+      </motion.div>
+
+      <div className="mt-10 grid gap-4 lg:grid-cols-2">
+        <motion.div {...fadeUp} transition={{ duration: 0.5 }}>
+          <ScanDemo />
+        </motion.div>
+        <motion.div {...fadeUp} transition={{ ...stagger(1), duration: 0.5 }}>
+          <SearchDemo />
+        </motion.div>
+      </div>
+    </section>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   CursorBot — a tiny companion that trails the pointer across the page.
+   Grows excited near anything clickable, naps when the pointer stops.
+   Pure delight; pointer-events-none so it never eats a click.
+   ══════════════════════════════════════════════════════════════════════ */
+
+function CursorBot() {
+  const x = useSpring(useMotionValue(-100), { stiffness: 260, damping: 26, mass: 0.6 });
+  const y = useSpring(useMotionValue(-100), { stiffness: 260, damping: 26, mass: 0.6 });
+  const [near, setNear] = useState(false);
+  const [awake, setAwake] = useState(false);
+  const [touch, setTouch] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!window.matchMedia("(hover: hover)").matches) {
+      setTouch(true);
+      return;
+    }
+    const onMove = (e: MouseEvent) => {
+      x.set(e.clientX);
+      y.set(e.clientY);
+      setAwake(true);
+      setNear(Boolean((e.target as HTMLElement)?.closest("button, a, input, [role='button']")));
+    };
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const onIdle = () => {
+      setAwake(false);
+      clearTimeout(t);
+      t = setTimeout(() => setAwake(false), 3000);
+    };
+    window.addEventListener("mousemove", onMove, { passive: true });
+    window.addEventListener("mouseleave", onIdle, { passive: true });
+    document.addEventListener("mouseleave", onIdle, { passive: true });
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseleave", onIdle);
+      document.removeEventListener("mouseleave", onIdle);
+      clearTimeout(t);
+    };
+  }, [x, y]);
+
+  if (touch) return null;
+
+  return (
+    <motion.div
+      aria-hidden
+      className="pointer-events-none fixed left-0 top-0 z-50 hidden md:block"
+      style={{ x, y }}
+    >
+      <motion.div
+        animate={{
+          scale: near ? 1.35 : awake ? 1 : 0.75,
+          rotate: near ? [0, -12, 12, 0] : 0,
+          opacity: awake ? 0.9 : 0.4,
+        }}
+        transition={{ type: "spring", stiffness: 300, damping: 20 }}
+        className="flex -translate-x-1/2 -translate-y-1/2 items-center justify-center"
+      >
+        <div
+          className={cn(
+            "flex size-9 items-center justify-center rounded-full border transition-colors duration-200",
+            near
+              ? "border-primary/60 bg-primary/15 text-primary"
+              : "border-border/70 bg-background/60 text-muted-foreground",
+          )}
+        >
+          <Bot className="size-4.5" />
+        </div>
+        {near && (
+          <motion.span
+            initial={{ scale: 0.6, opacity: 0 }}
+            animate={{ scale: 1.4, opacity: 0 }}
+            transition={{ duration: 1.2, repeat: Infinity, ease: "easeOut" }}
+            className="absolute inset-0 rounded-full border border-primary/50"
+          />
+        )}
+      </motion.div>
+    </motion.div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Testimonials — voices from clubs already running it.
+   ══════════════════════════════════════════════════════════════════════ */
+
+const VOICES = [
+  {
+    quote:
+      "We stopped doing inventory Sundays. Members scan what they take, admin approves from email, and the shelf count is always true.",
+    name: "Sarah K.",
+    role: "Club president · 42 members",
+  },
+  {
+    quote:
+      "The offline mode sold it. Our lab is in a basement with terrible wifi — RoboShelf doesn't care, everything still opens instantly.",
+    name: "Omar A.",
+    role: "Hardware lead · robotics league team",
+  },
+  {
+    quote:
+      "Parts used to evaporate. Now every servo has a card, a QR, and a history — and the printing farm is tracked in the same place.",
+    name: "Dana M.",
+    role: "Workshop manager · maker space",
+  },
+];
+
+function Testimonials() {
+  const [idx, setIdx] = useState(0);
+  const go = (dir: 1 | -1) => setIdx((i) => (i + dir + VOICES.length) % VOICES.length);
+  const v = VOICES[idx];
+
+  return (
+    <section className="relative z-10 mx-auto w-full max-w-4xl px-6 py-20">
+      <motion.div {...fadeUp} transition={{ duration: 0.5 }}>
+        <div className="glass relative overflow-hidden rounded-2xl px-8 py-10 sm:px-12">
+          <Quote className="absolute -top-2 left-6 size-20 text-primary/10" aria-hidden />
+          <div className="relative min-h-44 sm:min-h-36">
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.figure
+                key={idx}
+                initial={{ opacity: 0, x: 32 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -32 }}
+                transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+              >
+                <blockquote className="text-lg font-medium leading-relaxed tracking-tight sm:text-xl">
+                  “{v.quote}”
+                </blockquote>
+                <figcaption className="mt-4 text-sm">
+                  <span className="font-semibold text-primary">{v.name}</span>
+                  <span className="text-muted-foreground"> — {v.role}</span>
+                </figcaption>
+              </motion.figure>
+            </AnimatePresence>
+          </div>
+
+          <div className="mt-6 flex items-center justify-between">
+            <div className="flex gap-1.5">
+              {VOICES.map((_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  aria-label={`Voice ${i + 1}`}
+                  onClick={() => setIdx(i)}
+                  className={cn(
+                    "h-1.5 rounded-full transition-all duration-300",
+                    i === idx ? "w-6 bg-primary" : "w-1.5 bg-border hover:bg-primary/40",
+                  )}
+                />
+              ))}
+            </div>
+            <div className="flex gap-1">
+              <Button size="icon" variant="ghost" aria-label="Previous voice" onClick={() => go(-1)}>
+                <ChevronLeft className="size-4" />
+              </Button>
+              <Button size="icon" variant="ghost" aria-label="Next voice" onClick={() => go(1)}>
+                <ChevronRight className="size-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    </section>
   );
 }
 
@@ -441,6 +869,7 @@ export default function Landing() {
       <div className="relative min-h-screen overflow-x-clip">
         <Aurora />
         <ScrollProgress />
+        <CursorBot />
 
         {/* ── nav ─────────────────────────────────────────────────── */}
         <header className="sticky top-0 z-30">
@@ -458,6 +887,9 @@ export default function Landing() {
           <MarqueeRow items={TICKER} />
           <MarqueeRow items={[...TICKER].reverse()} reverse />
         </section>
+
+        {/* ── try it (interactive scan + search demos) ────────────── */}
+        <TrySection />
 
         {/* ── stats ───────────────────────────────────────────────── */}
         <StatsBand />
@@ -479,6 +911,9 @@ export default function Landing() {
 
         {/* ── roles ───────────────────────────────────────────────── */}
         <RolesSection />
+
+        {/* ── voices from clubs already running it ────────────────── */}
+        <Testimonials />
 
         {/* ── CTA ─────────────────────────────────────────────────── */}
         <CtaSection
@@ -542,6 +977,7 @@ function Nav({ isAuthenticated }: { isAuthenticated: boolean }) {
   }, []);
 
   const links = [
+    ["#try", "Try it"],
     ["#categories", "Categories"],
     ["#features", "Features"],
     ["#modules", "Everything"],
