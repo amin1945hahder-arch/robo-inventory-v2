@@ -76,7 +76,11 @@ const stagger = (i: number, step = 0.06) => ({
   ease: [0.16, 1, 0.3, 1] as const,
 });
 
-/** A card that lights up around the cursor — the "it responds to you" cue. */
+/**
+ * A card that lights up around the cursor AND tilts toward it — the "it
+ * responds to you" cue. The tilt is pointer-driven, so reduced-motion users
+ * get the glow but a perfectly still card.
+ */
 function SpotlightCard({
   children,
   className,
@@ -84,9 +88,15 @@ function SpotlightCard({
   children: ReactNode;
   className?: string;
 }) {
+  const reduce = useReducedMotion();
   const mx = useMotionValue(-300);
   const my = useMotionValue(-300);
   const glow = useMotionTemplate`radial-gradient(260px circle at ${mx}px ${my}px, color-mix(in oklab, var(--primary) 15%, transparent), transparent 72%)`;
+
+  const rx = useMotionValue(0);
+  const ry = useMotionValue(0);
+  const tiltX = useSpring(rx, { stiffness: 170, damping: 18, mass: 0.4 });
+  const tiltY = useSpring(ry, { stiffness: 170, damping: 18, mass: 0.4 });
 
   return (
     <div
@@ -94,6 +104,13 @@ function SpotlightCard({
         const box = e.currentTarget.getBoundingClientRect();
         mx.set(e.clientX - box.left);
         my.set(e.clientY - box.top);
+        if (reduce) return;
+        ry.set(((e.clientX - box.left) / box.width - 0.5) * 7);
+        rx.set(-((e.clientY - box.top) / box.height - 0.5) * 6);
+      }}
+      onPointerLeave={() => {
+        rx.set(0);
+        ry.set(0);
       }}
       className={cn(
         "group relative overflow-hidden rounded-2xl border border-border/70 bg-card/40 transition-colors duration-300 hover:border-primary/40",
@@ -105,7 +122,12 @@ function SpotlightCard({
         className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
         style={{ background: glow }}
       />
-      <div className="relative">{children}</div>
+      <motion.div
+        style={{ rotateX: tiltX, rotateY: tiltY, transformPerspective: 900 }}
+        className="relative h-full"
+      >
+        {children}
+      </motion.div>
     </div>
   );
 }
@@ -137,10 +159,10 @@ function CountUp({ to, suffix = "" }: { to: number; suffix?: string }) {
 /** Endless ticker. The list is rendered twice so -50% loops seamlessly. */
 function MarqueeRow({ items, reverse = false }: { items: string[]; reverse?: boolean }) {
   return (
-    <div className="mask-fade-x flex overflow-hidden">
+    <div className="group mask-fade-x flex overflow-hidden">
       <div
         className={cn(
-          "flex w-max shrink-0 items-center gap-3 pr-3",
+          "flex w-max shrink-0 items-center gap-3 pr-3 group-hover:[animation-play-state:paused]",
           reverse ? "animate-marquee-rev" : "animate-marquee",
         )}
       >
@@ -165,6 +187,83 @@ function MarqueeRow({ items, reverse = false }: { items: string[]; reverse?: boo
    ══════════════════════════════════════════════════════════════════════ */
 
 type ScanPhase = "idle" | "scanning" | "approved";
+
+/** What's moving through the lab right now — a tiny vertical word flip. */
+const TRACKING = ["servos", "filament", "Arduinos", "fasteners", "PCBs"];
+function TrackingFlip() {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    const t = window.setInterval(() => setI((v) => (v + 1) % TRACKING.length), 2000);
+    return () => window.clearInterval(t);
+  }, []);
+  return (
+    <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+      now tracking
+      <span className="relative inline-block h-4 w-20 overflow-hidden text-left align-bottom">
+        <AnimatePresence mode="wait">
+          <motion.span
+            key={TRACKING[i]}
+            initial={{ y: 12, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -12, opacity: 0 }}
+            transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
+            className="absolute inset-x-0 top-0 font-medium text-primary"
+          >
+            {TRACKING[i]}
+          </motion.span>
+        </AnimatePresence>
+      </span>
+    </span>
+  );
+}
+
+/**
+ * A PCB trace that solders itself together as it scrolls into view, with a
+ * signal pulse running the wire forever after — the page's connective tissue
+ * between big ideas.
+ */
+function CircuitTrace({ className }: { className?: string }) {
+  return (
+    <div className={cn("relative z-10 mx-auto w-full max-w-5xl px-6", className)} aria-hidden>
+      <svg viewBox="0 0 800 56" fill="none" className="w-full text-primary">
+        <motion.path
+          d="M0 28 H140 L176 12 H300 L330 28 H470 L500 44 H624 L660 28 H800"
+          stroke="currentColor"
+          strokeOpacity={0.45}
+          strokeWidth={1.5}
+          initial={{ pathLength: 0, opacity: 0 }}
+          whileInView={{ pathLength: 1, opacity: 1 }}
+          viewport={{ once: true, margin: "-60px" }}
+          transition={{ duration: 1.6, ease: "easeInOut" }}
+        />
+        {/* the signal: a bright dash running the whole trace, forever */}
+        <motion.path
+          d="M0 28 H140 L176 12 H300 L330 28 H470 L500 44 H624 L660 28 H800"
+          stroke="currentColor"
+          strokeWidth={2.5}
+          strokeLinecap="round"
+          pathLength={1}
+          strokeDasharray="0.045 0.955"
+          initial={{ strokeDashoffset: 1, opacity: 0 }}
+          whileInView={{ strokeDashoffset: 0, opacity: 0.9 }}
+          viewport={{ once: true, margin: "-60px" }}
+          transition={{
+            strokeDashoffset: { duration: 2.6, repeat: Infinity, ease: "linear", delay: 1.2 },
+            opacity: { duration: 0.4, delay: 1.2 },
+          }}
+        />
+        {[
+          [140, 28],
+          [330, 28],
+          [500, 44],
+          [660, 28],
+        ].map(([cx, cy]) => (
+          <circle key={cx} cx={cx} cy={cy} r={3.5} fill="currentColor" className="animate-breathe" />
+        ))}
+      </svg>
+    </div>
+  );
+}
 
 function ScanDemo() {
   const ref = useRef<HTMLDivElement>(null);
@@ -805,6 +904,9 @@ export default function Landing() {
           <MarqueeRow items={[...TICKER].reverse()} reverse />
         </section>
 
+        {/* signature PCB trace — draws itself, then signals forever */}
+        <CircuitTrace className="pt-6" />
+
         {/* ── try it (interactive scan + search demos) ────────────── */}
         <TrySection />
 
@@ -832,6 +934,8 @@ export default function Landing() {
         {/* ── voices from clubs already running it ────────────────── */}
         <Testimonials />
 
+        <CircuitTrace className="pt-8" />
+
         {/* ── CTA ─────────────────────────────────────────────────── */}
         <CtaSection
           onPrimary={() => navigate("/auth")}
@@ -841,7 +945,16 @@ export default function Landing() {
         <footer className="relative z-10 border-t border-border/60 py-8">
           <div className="mx-auto flex w-full max-w-6xl flex-col items-center justify-between gap-2 px-6 text-xs text-muted-foreground sm:flex-row">
             <p>RC — Robotics Club Inventory</p>
-            <p>Scan first. Spreadsheet never. 🤖</p>
+            <p>
+              Scan first. Spreadsheet never.{" "}
+              <motion.span
+                animate={{ y: [0, -4, 0] }}
+                transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
+                className="inline-block"
+              >
+                🤖
+              </motion.span>
+            </p>
           </div>
         </footer>
       </div>
@@ -959,6 +1072,12 @@ function Nav({ isAuthenticated }: { isAuthenticated: boolean }) {
    and a live "available" pill breathes.
    ══════════════════════════════════════════════════════════════════════ */
 
+const STATUS_LINES = [
+  "Reading QR tag — ARD-003…",
+  "Request sent — the admin sees it live.",
+  "Admin approved — pick it up from the lab.",
+];
+
 function Hero({ onCta, onScan }: { onCta: () => void; onScan: () => void }) {
   const px = useMotionValue(0);
   const py = useMotionValue(0);
@@ -966,6 +1085,22 @@ function Hero({ onCta, onScan }: { onCta: () => void; onScan: () => void }) {
   const sy = useSpring(py, { stiffness: 120, damping: 20 });
   const rotateX = useTransform(sy, [-1, 1], [7, -7]);
   const rotateY = useTransform(sx, [-1, 1], [-9, 9]);
+
+  // The faux scanner tells its little story on loop: read → sent → approved.
+  // Reduced-motion users land on the final state and stay there.
+  const reduceMotion = useReducedMotion();
+  const [phase, setPhase] = useState(0);
+  useEffect(() => {
+    if (reduceMotion) {
+      setPhase(2);
+      return;
+    }
+    const t = window.setInterval(
+      () => setPhase((p) => (p + 1) % STATUS_LINES.length),
+      2600,
+    );
+    return () => window.clearInterval(t);
+  }, [reduceMotion]);
 
   const headline = ["Every", "part", "accounted", "for."];
 
@@ -979,6 +1114,47 @@ function Hero({ onCta, onScan }: { onCta: () => void; onScan: () => void }) {
       }}
       className="relative z-10 mx-auto flex w-full max-w-6xl flex-col items-center px-6 pb-20 pt-14 text-center md:pt-24"
     >
+      {/* drifting part-icons — quiet depth flanking the scanner card */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 hidden md:block">
+        {[
+          { Icon: Cpu, pos: "left-[4%] bottom-[34%]", delay: 0, tilt: 1 },
+          { Icon: Bolt, pos: "right-[5%] bottom-[38%]", delay: 0.9, tilt: -1 },
+          { Icon: Radio, pos: "left-[8%] bottom-[14%]", delay: 1.7, tilt: -1 },
+          { Icon: Gauge, pos: "right-[8%] bottom-[16%]", delay: 2.4, tilt: 1 },
+        ].map(({ Icon, pos, delay, tilt }, i) => (
+          <motion.span
+            key={i}
+            className={cn(
+              "icon-glass absolute flex size-11 items-center justify-center rounded-xl text-primary/70",
+              pos,
+            )}
+            initial={{ opacity: 0, scale: 0.5 }}
+            animate={{
+              opacity: 0.85,
+              scale: 1,
+              y: [0, -14, 0],
+              rotate: [0, 7 * tilt, 0],
+            }}
+            transition={{
+              opacity: { delay: 0.8 + delay * 0.1, duration: 0.5 },
+              scale: { delay: 0.8 + delay * 0.1, duration: 0.5, ease: [0.16, 1, 0.3, 1] },
+              y: { duration: 5.5 + i, repeat: Infinity, ease: "easeInOut", delay },
+              rotate: { duration: 6.5 + i, repeat: Infinity, ease: "easeInOut", delay },
+            }}
+          >
+            <Icon className="size-5" />
+          </motion.span>
+        ))}
+      </div>
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.1 }}
+        className="mb-4"
+      >
+        <TrackingFlip />
+      </motion.div>
+
       <motion.div
         initial={{ opacity: 0, y: 14 }}
         animate={{ opacity: 1, y: 0 }}
@@ -1064,7 +1240,15 @@ function Hero({ onCta, onScan }: { onCta: () => void; onScan: () => void }) {
         transition={{ duration: 0.55, delay: 0.4 }}
         className="mt-8 flex flex-col gap-3 sm:flex-row"
       >
-        <Button size="lg" className="neon-glow press-3d gap-2" onClick={onCta}>
+        <Button
+          size="lg"
+          className="neon-glow press-3d relative gap-2 overflow-hidden"
+          onClick={onCta}
+        >
+          <span
+            aria-hidden
+            className="animate-glint pointer-events-none absolute inset-y-0 left-0 w-1/3 bg-gradient-to-r from-transparent via-white/35 to-transparent"
+          />
           Enter the lab <ArrowRight className="size-4" />
         </Button>
         <Button size="lg" variant="outline" className="press-3d gap-2" onClick={onScan}>
@@ -1080,8 +1264,29 @@ function Hero({ onCta, onScan }: { onCta: () => void; onScan: () => void }) {
         transition={{ duration: 0.7, delay: 0.5, ease: [0.16, 1, 0.3, 1] }}
         className="mt-14 w-full max-w-xl"
       >
-        <div className="glass rounded-2xl p-6 text-left">
-          <div className="flex items-center gap-3 border-b border-border/60 pb-4">
+        <div className="glass relative overflow-hidden rounded-2xl p-6 text-left">
+          {/* viewfinder corners + a laser bar sweeping the unit */}
+          <span
+            aria-hidden
+            className="animate-laser pointer-events-none absolute inset-x-5 top-3 h-14 rounded-full bg-gradient-to-b from-transparent via-primary/25 to-transparent blur-md"
+          />
+          <span
+            aria-hidden
+            className="pointer-events-none absolute left-3 top-3 h-5 w-5 rounded-tl-md border-l-2 border-t-2 border-primary/70"
+          />
+          <span
+            aria-hidden
+            className="pointer-events-none absolute right-3 top-3 h-5 w-5 rounded-tr-md border-r-2 border-t-2 border-primary/70"
+          />
+          <span
+            aria-hidden
+            className="pointer-events-none absolute bottom-3 left-3 h-5 w-5 rounded-bl-md border-b-2 border-l-2 border-primary/70"
+          />
+          <span
+            aria-hidden
+            className="pointer-events-none absolute bottom-3 right-3 h-5 w-5 rounded-br-md border-b-2 border-r-2 border-primary/70"
+          />
+          <div className="relative flex items-center gap-3 border-b border-border/60 pb-4">
             <div className="icon-glass flex size-11 items-center justify-center rounded-lg text-primary">
               <motion.span
                 animate={{ rotate: [0, 90, 180, 270, 360] }}
@@ -1120,12 +1325,34 @@ function Hero({ onCta, onScan }: { onCta: () => void; onScan: () => void }) {
             ))}
           </div>
 
-          <div className="mt-4 flex items-center gap-2 overflow-hidden rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-xs text-primary">
-            <CheckCircle2 className="size-4 shrink-0" />
-            <span className="relative">
-              Request sent — Admin approved it in no time.
-              <span className="absolute inset-x-0 bottom-0 h-px origin-left bg-primary/40 animate-sweep" />
-            </span>
+          <div
+            className={cn(
+              "mt-4 flex items-center gap-2 overflow-hidden rounded-lg border px-4 py-3 text-xs transition-colors duration-500",
+              phase === 2
+                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
+                : phase === 1
+                  ? "border-sky-500/40 bg-sky-500/10 text-sky-400"
+                  : "border-primary/30 bg-primary/5 text-primary",
+            )}
+          >
+            <AnimatePresence mode="wait">
+              <motion.span
+                key={phase}
+                initial={{ y: 14, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: -14, opacity: 0 }}
+                transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+                className="relative flex items-center gap-2"
+              >
+                {phase === 0 && <ScanLine className="size-4 shrink-0" />}
+                {phase === 1 && <Zap className="size-4 shrink-0" />}
+                {phase === 2 && <CheckCircle2 className="size-4 shrink-0" />}
+                <span className="relative">
+                  {STATUS_LINES[phase]}
+                  <span className="animate-sweep absolute inset-x-0 bottom-0 h-px origin-left bg-current opacity-50" />
+                </span>
+              </motion.span>
+            </AnimatePresence>
           </div>
         </div>
       </motion.div>
@@ -1659,7 +1886,15 @@ function CtaSection({ onPrimary, label }: { onPrimary: () => void; label: string
           once you're in, the app keeps working even when the wifi doesn't.
         </p>
         <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
-          <Button size="lg" className="neon-glow press-3d gap-2" onClick={onPrimary}>
+          <Button
+            size="lg"
+            className="neon-glow press-3d relative gap-2 overflow-hidden"
+            onClick={onPrimary}
+          >
+            <span
+              aria-hidden
+              className="animate-glint pointer-events-none absolute inset-y-0 left-0 w-1/3 bg-gradient-to-r from-transparent via-white/35 to-transparent"
+            />
             {label} <ArrowRight className="size-4" />
           </Button>
           <Button size="lg" variant="outline" className="press-3d gap-2" onClick={onPrimary}>

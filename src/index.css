@@ -509,6 +509,8 @@ html:not(.dark) .neon-glow {
   --animate-sweep: sweep-x 2.4s ease-in-out infinite;
   --animate-breathe: breathe 5s ease-in-out infinite;
   --animate-orbit: orbit 18s linear infinite;
+  --animate-laser: laser-y 3.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  --animate-glint: glint-x 3.8s ease-in-out infinite;
 }
 
 @keyframes marquee-x {
@@ -586,6 +588,35 @@ html:not(.dark) .neon-glow {
   }
 }
 
+/* Scanner beam: a soft laser bar that sweeps down the hero's faux unit card. */
+@keyframes laser-y {
+  0% {
+    transform: translateY(-16px);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(260px);
+    opacity: 0;
+  }
+}
+
+/* Shine streak that periodically sweeps across primary buttons. */
+@keyframes glint-x {
+  0% {
+    transform: translateX(-160%) skewX(-16deg);
+  }
+  55%,
+  100% {
+    transform: translateX(420%) skewX(-16deg);
+  }
+}
+
 /* Respect the OS "reduce motion" setting. framer-motion animations are
    already covered by <MotionConfig reducedMotion="user">; these are the
    pure-CSS ones (tickers, aurora, pulses). */
@@ -597,7 +628,9 @@ html:not(.dark) .neon-glow {
   .animate-ping-ring,
   .animate-grid-pan,
   .animate-sweep,
-  .animate-breathe {
+  .animate-breathe,
+  .animate-laser,
+  .animate-glint {
     animation: none !important;
   }
   html {
