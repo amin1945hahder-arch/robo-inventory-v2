@@ -62,6 +62,8 @@ import Labels from "./pages/Labels";
 import AdminReports from "./pages/AdminReports";
 import ExportStudio from "./pages/ExportStudio";
 import Settings from "./pages/Settings";
+import MemberSettings from "./pages/MemberSettings";
+import AdminSettings from "./pages/AdminSettings";
 import Profile from "./pages/Profile";
 import PersonCard from "./pages/PersonCard";
 import Printing3D from "./pages/Printing3D";
