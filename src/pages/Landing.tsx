@@ -7,6 +7,7 @@ import {
   useInView,
   useMotionTemplate,
   useMotionValue,
+  useReducedMotion,
   useScroll,
   useSpring,
   useTransform,
@@ -22,7 +23,6 @@ import {
   BarChart3,
   Battery,
   Bell,
-  Bot,
   Bolt,
   Box,
   Boxes,
@@ -349,7 +349,7 @@ function SearchDemo() {
                 transition={{ duration: 0.35 }}
                 className="flex items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2.5 text-sm"
               >
-                <Bot className="icon-3d size-4 shrink-0 text-primary" />
+                <Cpu className="icon-3d size-4 shrink-0 text-primary" />
                 <span className="font-medium">Servo driver board</span>
                 <span className="ml-auto font-mono text-xs text-emerald-400">3 available</span>
               </motion.div>
@@ -411,88 +411,6 @@ function TrySection() {
         </motion.div>
       </div>
     </section>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════════════════
-   CursorBot — a tiny companion that trails the pointer across the page.
-   Grows excited near anything clickable, naps when the pointer stops.
-   Pure delight; pointer-events-none so it never eats a click.
-   ══════════════════════════════════════════════════════════════════════ */
-
-function CursorBot() {
-  const x = useSpring(useMotionValue(-100), { stiffness: 260, damping: 26, mass: 0.6 });
-  const y = useSpring(useMotionValue(-100), { stiffness: 260, damping: 26, mass: 0.6 });
-  const [near, setNear] = useState(false);
-  const [awake, setAwake] = useState(false);
-  const [touch, setTouch] = useState(false);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!window.matchMedia("(hover: hover)").matches) {
-      setTouch(true);
-      return;
-    }
-    const onMove = (e: MouseEvent) => {
-      x.set(e.clientX);
-      y.set(e.clientY);
-      setAwake(true);
-      setNear(Boolean((e.target as HTMLElement)?.closest("button, a, input, [role='button']")));
-    };
-    let t: ReturnType<typeof setTimeout> | undefined;
-    const onIdle = () => {
-      setAwake(false);
-      clearTimeout(t);
-      t = setTimeout(() => setAwake(false), 3000);
-    };
-    window.addEventListener("mousemove", onMove, { passive: true });
-    window.addEventListener("mouseleave", onIdle, { passive: true });
-    document.addEventListener("mouseleave", onIdle, { passive: true });
-    return () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseleave", onIdle);
-      document.removeEventListener("mouseleave", onIdle);
-      clearTimeout(t);
-    };
-  }, [x, y]);
-
-  if (touch) return null;
-
-  return (
-    <motion.div
-      aria-hidden
-      className="pointer-events-none fixed left-0 top-0 z-50 hidden md:block"
-      style={{ x, y }}
-    >
-      <motion.div
-        animate={{
-          scale: near ? 1.35 : awake ? 1 : 0.75,
-          rotate: near ? [0, -12, 12, 0] : 0,
-          opacity: awake ? 0.9 : 0.4,
-        }}
-        transition={{ type: "spring", stiffness: 300, damping: 20 }}
-        className="flex -translate-x-1/2 -translate-y-1/2 items-center justify-center"
-      >
-        <div
-          className={cn(
-            "flex size-9 items-center justify-center rounded-full border transition-colors duration-200",
-            near
-              ? "border-primary/60 bg-primary/15 text-primary"
-              : "border-border/70 bg-background/60 text-muted-foreground",
-          )}
-        >
-          <Bot className="size-4.5" />
-        </div>
-        {near && (
-          <motion.span
-            initial={{ scale: 0.6, opacity: 0 }}
-            animate={{ scale: 1.4, opacity: 0 }}
-            transition={{ duration: 1.2, repeat: Infinity, ease: "easeOut" }}
-            className="absolute inset-0 rounded-full border border-primary/50"
-          />
-        )}
-      </motion.div>
-    </motion.div>
   );
 }
 
@@ -869,7 +787,6 @@ export default function Landing() {
       <div className="relative min-h-screen overflow-x-clip">
         <Aurora />
         <ScrollProgress />
-        <CursorBot />
 
         {/* ── nav ─────────────────────────────────────────────────── */}
         <header className="sticky top-0 z-30">
@@ -1107,16 +1024,39 @@ function Hero({ onCta, onScan }: { onCta: () => void; onScan: () => void }) {
         </span>
       </h1>
 
-      <motion.p
+      {/* one drifting chip row instead of a paragraph */}
+      <motion.div
         initial={{ opacity: 0, y: 18 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.55, delay: 0.3 }}
-        className="mt-6 max-w-2xl text-base text-muted-foreground sm:text-lg"
+        transition={{ duration: 0.55, delay: 0.28 }}
+        className="mt-6 flex max-w-xl flex-wrap items-center justify-center gap-2"
       >
-        RoboShelf is the robotics club's inventory autopilot — rentals, returns,
-        condition, project assemblies, labels, exports and a built-in 3D slicer,
-        all driven by QR codes and all readable with no signal at all.
-      </motion.p>
+        {["Rentals", "Returns", "Projects", "Packages", "Labels", "Exports", "3D slicer"].map(
+          (chip, i) => (
+            <motion.span
+              key={chip}
+              animate={{ y: [0, -4, 0] }}
+              transition={{
+                duration: 3,
+                repeat: Infinity,
+                ease: "easeInOut",
+                delay: i * 0.45,
+              }}
+              className="rounded-full border border-border/60 bg-background/50 px-3 py-1.5 text-xs font-medium text-muted-foreground backdrop-blur-sm"
+            >
+              {chip}
+            </motion.span>
+          ),
+        )}
+        <motion.span
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.6 }}
+          className="flex items-center gap-1.5 text-xs text-primary"
+        >
+          <WifiOff className="size-3.5" /> works offline
+        </motion.span>
+      </motion.div>
 
       <motion.div
         initial={{ opacity: 0, y: 18 }}
@@ -1215,18 +1155,29 @@ function StatsBand() {
   );
 }
 
-/* ══════════════════════════════════════════════════════════════════════
-   Category explorer — the motion showpiece. Filter chips slide a shared
-   underline (layoutId), the grid re-flows with AnimatePresence, and every
-   card lights up under the cursor.
+/* ══════════════════════════════════════════════════════════════════
+   Category explorer — a wall of living chips. Every category is ONE chip
+   (icon + name + count); tapping (or auto-touring) animates its story
+   through a single shared stage below. Zero text walls.
    ══════════════════════════════════════════════════════════════════════ */
 
 function CategoryExplorer() {
-  const [group, setGroup] = useState<(typeof CATEGORY_GROUPS)[number]>("All");
-  const visible = useMemo(
-    () => (group === "All" ? CATEGORIES : CATEGORIES.filter((c) => c.group === group)),
-    [group],
-  );
+  const [active, setActive] = useState(CATEGORIES[0].name);
+  const [touched, setTouched] = useState(false);
+  const reduceMotion = useReducedMotion();
+  const cat = CATEGORIES.find((c) => c.name === active) ?? CATEGORIES[0];
+
+  // Auto-tour: cycle through the categories until the visitor takes over.
+  useEffect(() => {
+    if (touched || reduceMotion) return;
+    const t = setInterval(() => {
+      setActive((cur) => {
+        const i = CATEGORIES.findIndex((c) => c.name === cur);
+        return CATEGORIES[(i + 1) % CATEGORIES.length].name;
+      });
+    }, 3200);
+    return () => clearInterval(t);
+  }, [touched, reduceMotion]);
 
   return (
     <section id="categories" className="relative z-10 mx-auto w-full max-w-6xl px-6 py-20">
@@ -1241,78 +1192,107 @@ function CategoryExplorer() {
         <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
           Your club's shelves, sorted and searchable.
         </h2>
-        <p className="mt-3 text-muted-foreground">
-          Categories aren't folders here — they're QR-coded, countable and live. Filter the way your
-          club actually stores things.
-        </p>
+        <p className="mt-2 text-muted-foreground">Tap a chip — each one is a live, QR-coded shelf.</p>
       </motion.div>
 
+      {/* the chip wall */}
       <motion.div
         {...fadeUp}
         transition={{ duration: 0.5, delay: 0.1 }}
-        className="mt-8 flex flex-wrap items-center justify-center gap-2"
+        className="mt-8 flex flex-wrap items-stretch justify-center gap-2.5"
       >
-        {CATEGORY_GROUPS.map((name) => {
-          const active = group === name;
+        {CATEGORIES.map(({ icon: Icon, name, units }, i) => {
+          const on = name === active;
           return (
-            <button
+            <motion.button
               key={name}
               type="button"
-              onClick={() => setGroup(name)}
+              onClick={() => {
+                setTouched(true);
+                setActive(name);
+              }}
+              {...fadeUp}
+              transition={stagger(i, 0.04)}
+              whileHover={{ scale: 1.06, y: -3 }}
+              whileTap={{ scale: 0.94 }}
+              animate={on ? { scale: 1.04 } : { scale: 1 }}
               className={cn(
-                "relative rounded-full border border-border/70 bg-background/50 px-4 py-2 text-sm transition-colors",
-                active ? "text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+                "relative flex items-center gap-2.5 rounded-2xl border px-4 py-2.5 text-sm transition-colors duration-300",
+                on
+                  ? "border-primary/60 bg-primary/10 text-foreground shadow-lg shadow-primary/10"
+                  : "border-border/70 bg-background/40 text-muted-foreground hover:border-primary/30 hover:text-foreground",
               )}
             >
-              {active && (
+              {on && (
                 <motion.span
-                  layoutId="category-pill"
-                  className="absolute inset-0 rounded-full bg-primary"
-                  transition={{ type: "spring", stiffness: 380, damping: 32 }}
+                  layoutId="category-glow"
+                  className="absolute inset-0 -z-10 rounded-2xl bg-primary/10 blur-md"
+                  transition={{ type: "spring", stiffness: 320, damping: 30 }}
                 />
               )}
-              <span className="relative z-10">{name}</span>
-            </button>
+              <span
+                className={cn(
+                  "flex size-8 items-center justify-center rounded-lg transition-colors duration-300",
+                  on ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary",
+                )}
+              >
+                <Icon className="size-4" />
+              </span>
+              <span className="font-medium">{name}</span>
+              <span
+                className={cn(
+                  "rounded-full px-1.5 py-0.5 font-mono text-[10px] tabular-nums transition-colors duration-300",
+                  on ? "bg-primary text-primary-foreground" : "bg-border/60 text-muted-foreground",
+                )}
+              >
+                {units}
+              </span>
+            </motion.button>
           );
         })}
       </motion.div>
 
-      <motion.div layout className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <AnimatePresence mode="popLayout" initial={false}>
-          {visible.map(({ icon: Icon, name, group: g, units, blurb }) => (
-            <motion.div
-              key={name}
-              layout
-              initial={{ opacity: 0, scale: 0.92, y: 12 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.92, y: -8 }}
-              transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
-            >
-              <SpotlightCard className="h-full">
-                <div className="flex h-full flex-col p-5">
-                  <div className="flex items-start justify-between">
-                    <div className="icon-glass flex size-10 items-center justify-center rounded-lg text-primary">
-                      <Icon className="icon-3d size-5" />
-                    </div>
-                    <span className="font-mono text-xs text-muted-foreground">{g}</span>
-                  </div>
-                  <h3 className="mt-3 font-semibold tracking-tight">{name}</h3>
-                  <p className="mt-1 flex-1 text-xs leading-5 text-muted-foreground">{blurb}</p>
-                  <p className="mt-3 flex items-baseline gap-1.5 border-t border-border/60 pt-3">
-                    <span className="text-xl font-bold tabular-nums text-primary">{units}</span>
-                    <span className="text-xs text-muted-foreground">units tracked</span>
-                  </p>
+      {/* the shared stage: one animated panel tells the active chip's story */}
+      <div className="relative mx-auto mt-10 min-h-[240px] max-w-3xl">
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={cat.name}
+            initial={{ opacity: 0, y: 18, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -14, scale: 0.98 }}
+            transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <div className="glass-3d relative flex flex-col items-center gap-6 overflow-hidden rounded-3xl p-8 sm:flex-row sm:p-10">
+              <div
+                aria-hidden
+                className="absolute -right-10 -top-10 size-40 rounded-full bg-primary/10 blur-3xl animate-breathe"
+              />
+              <div className="relative flex size-24 shrink-0 items-center justify-center">
+                <span className="absolute inset-0 rounded-3xl border border-primary/30 animate-ping-ring" />
+                <div className="icon-glass flex size-20 items-center justify-center rounded-2xl text-primary">
+                  <cat.icon className="icon-3d size-9" />
                 </div>
-              </SpotlightCard>
-            </motion.div>
-          ))}
-        </AnimatePresence>
-      </motion.div>
+              </div>
 
-      <p className="mt-6 text-center text-xs text-muted-foreground">
-        Sample shelf from a working club — categories are yours to define, and each one is QR-coded on
-        its own label.
-      </p>
+              <div className="relative min-w-0 text-center sm:text-left">
+                <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+                  <h3 className="text-2xl font-bold tracking-tight">{cat.name}</h3>
+                  <Badge variant="outline" className="border-primary/40 font-mono text-xs text-primary">
+                    {cat.units} units
+                  </Badge>
+                  <Badge variant="outline" className="font-mono text-xs text-muted-foreground">
+                    {cat.group}
+                  </Badge>
+                </div>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">{cat.blurb}</p>
+                <p className="mt-3 flex items-center justify-center gap-2 text-xs text-primary sm:justify-start">
+                  <QrCode className="size-4" /> Scan its label on the shelf to rent a unit
+                </p>
+              </div>
+            </div>
+          </motion.div>
+        </AnimatePresence>
+      </div>
     </section>
   );
 }
