@@ -12,10 +12,20 @@ import {
 import { loadTable, saveTable } from "@/lib/sync/store";
 import { SYNC_TABLES, TOMBSTONE_RETENTION_MS } from "@/lib/sync/tables";
 import { bumpDataSyncListen } from "@/lib/sync/bus";
+import { writeSyncListen } from "@/lib/sync/write-sync";
 
 // Dev-only instrumentation: one line per sync cycle so the read pattern is
 // observable without dragging a profiler into production bundles.
 const DEV = import.meta.env?.DEV === true;
+
+// Failed-pull recovery: how long a burst of failures counts as ONE episode,
+// how many re-arm attempts we allow per episode, and the pause between them.
+// The reactive head re-fires on ANY write, so this only matters for the
+// broken-watch case (auth expiry, mid-pagination failure) — it must retry
+// hard for a few seconds, then stand down and wait for the next interrupt.
+const RESYNC_WINDOW_MS = 15_000;
+const HEAD_RESYNC_MAX_ATTEMPTS = 3;
+const HEAD_RESYNC_DELAY_MS = 2_500;
 
 function logSyncCycle(table: string, info: { docs: number; bytes: number; more: boolean }) {
   if (!DEV) return;
@@ -54,6 +64,10 @@ export function useCachedData(table: string) {
   const fetchedUpToRef = useRef(0); // latest serverNow we've fully pulled
   const pullingRef = useRef(false);
   const pendingRef = useRef(false);
+  const headFailureRef = useRef<{ attempts: number[]; reattach: () => void }>({
+    attempts: [],
+    reattach: () => undefined,
+  });
 
   // 1) Hydrate from IndexedDB first.
   useEffect(() => {
@@ -133,7 +147,17 @@ export function useCachedData(table: string) {
         });
         setCache((prev) => {
           const next = applyDelta(prev, res.rows as SyncedRow[], deletedIds);
-          sinceRef.current = Math.max(sinceRef.current, next.latestUpdatedAt);
+          // The delta cursor comes from the SERVER stamps, not the merged
+          // map. If a page contains no rows the merged cache has nothing
+          // newer to offer — deriving the cursor from it would wedge the
+          // table at 0 until the first row write. serverNow must NOT be
+          // used either: server clocks can sit slightly ahead and skipping
+          // rows stamped in that gap would drop real changes forever.
+          const pageMax = (res.rows as SyncedRow[]).reduce(
+            (m, r) => Math.max(m, typeof r.updatedAt === "number" ? r.updatedAt : 0),
+            0,
+          );
+          sinceRef.current = Math.max(sinceRef.current, next.latestUpdatedAt, pageMax);
           void saveTable(table, next);
           return next;
         });
@@ -142,8 +166,32 @@ export function useCachedData(table: string) {
           break;
         }
       }
-    } catch {
-      /* offline / transient — the reactive head will re-trigger us */
+    } catch (err) {
+      // A FAILED pull used to be swallowed as "offline/transient" — but a
+      // page that fails mid-pagination leaves sinceRef advanced past rows
+      // the client never merged, so retrying from the same cursor could
+      // never recover them. And an expired/invalidated auth token errors
+      // EVERY query: after sign-in the head watch stays broken until the
+      // next write. Detect query failures (server error vs. genuine
+      // offline) and force the head watch to re-subscribe — one retry
+      // window, capped so a permanently failing table can't loop.
+      if (isOffline()) return;
+      const now = Date.now();
+      const failures = headFailureRef.current;
+      const last = failures.attempts.at(-1);
+      if (last === undefined || now - last > RESYNC_WINDOW_MS) {
+        failures.attempts = [now];
+      } else {
+        failures.attempts.push(now);
+      }
+      if (failures.attempts.length > HEAD_RESYNC_MAX_ATTEMPTS) return;
+      if (DEV) {
+        // eslint-disable-next-line no-console
+        console.warn(`[sync] ${table}: pull failed (${String(err)}) — re-arming the head watch`);
+      }
+      setTimeout(() => {
+        if (headFailureRef.current.reattach) headFailureRef.current.reattach();
+      }, HEAD_RESYNC_DELAY_MS);
     } finally {
       pullingRef.current = false;
       if (pendingRef.current) {
@@ -156,12 +204,17 @@ export function useCachedData(table: string) {
   }, [convex, table]);
 
   // 2) The interrupt: one tiny reactive read that flips on every write.
-  const head = useConvexHead(table);
+  //    `rearmKey` re-subscribes the watch after a failed pull (see above).
+  const [rearmKey, setRearmKey] = useState(0);
+  const head = useConvexHead(table, rearmKey);
   useEffect(() => {
     if (status !== "hydrated" && status !== "ready") return;
     if (head === undefined) return; // first query round-trip
     void pullDelta();
   }, [head, status, pullDelta]);
+  // Failed-pull recovery wiring: pullDelta registers its reattach callback
+  // here (setRearmKey bumps the watch's key so it re-subscribes).
+  headFailureRef.current.reattach = () => setRearmKey((k) => k + 1);
 
   // Expose the same status contract as a normal useQuery.
   useEffect(() => {
@@ -178,15 +231,28 @@ export function useCachedData(table: string) {
     });
   }, [pullDelta]);
 
+  // 4) WRITE-driven interrupt: this device's own mutations invalidate the
+  //    touched tables immediately, so a second device (or another browser
+  //    window) sees the change on its next wake even if its head watch
+  //    hiccups. Bumped from src/lib/sync/write-sync.ts (patched mutations).
+  useEffect(() => {
+    return writeSyncListen(table, () => {
+      void pullDelta();
+    });
+  }, [table, pullDelta]);
+
   return { data, status: data === undefined ? "loading" : status };
 }
 
 // One shared reactive head subscription per table (module-level cache so N
-// components using the same table share a single subscription).
+// components using the same table share a single subscription). `rearmKey`
+// in the key bumps the subscription: after a failed pull the watch is
+// re-created, which re-issues the query — the only reliable way to recover
+// a watch that died from an auth/session error.
 const headListeners = new Map<string, Set<(v: unknown) => void>>();
 const headValues = new Map<string, unknown>();
 
-function useConvexHead(table: string) {
+function useConvexHead(table: string, rearmKey = 0) {
   const convex = useConvex();
   const [value, setValue] = useState<unknown>(() => headValues.get(table));
 
@@ -221,7 +287,7 @@ function useConvexHead(table: string) {
         headValues.delete(table);
       }
     };
-  }, [convex, table]);
+  }, [convex, table, rearmKey]);
 
   return value;
 }

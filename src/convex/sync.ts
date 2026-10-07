@@ -180,6 +180,13 @@ export const getUpdatedRecords = query({
     const projected = page.map((row: any) => {
       const out: Record<string, unknown> = {};
       for (const f of fields) if (row[f] !== undefined) out[f] = row[f];
+      // The cursor stamp MUST ride every row: clients derive their `since`
+      // cursor from max(row.updatedAt). Projection-only fields would leave
+      // the cursor at 0 forever — every wake then re-downloads the whole
+      // table ("sync never settles") and — far worse — merge conflicts
+      // resolve against a 0 stamp so newer server rows could be overwritten
+      // by stale cached ones. updatedAt is 8 bytes; bandwidth cost is nil.
+      if (row.updatedAt !== undefined) out.updatedAt = row.updatedAt;
       return out;
     });
     return {
