@@ -5,8 +5,8 @@
  * that browser's localStorage. The backend stores only its SHA-256 hash, so
  * the database holds no usable credential.
  */
-export const DEVICE_TOKEN_KEY = "roboshelf.deviceToken";
-export const DEVICE_ACCOUNT_KEY = "roboshelf.deviceAccount";
+export const DEVICE_TOKEN_KEY = "rc.deviceToken";
+export const DEVICE_ACCOUNT_KEY = "rc.deviceAccount";
 
 export type SavedAccount = {
   token: string;

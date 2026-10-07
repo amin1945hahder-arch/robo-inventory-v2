@@ -26,7 +26,7 @@ export type LiveUser = NonNullable<ReturnType<typeof useQuery<typeof api.users.c
  * up, the live query value always wins.
  */
 
-const USER_KEY = "roboshelf.authUser.v1";
+const USER_KEY = "rc.authUser.v1";
 
 /**
  * The persisted identity mirrors the live user document's shape. Deriving it

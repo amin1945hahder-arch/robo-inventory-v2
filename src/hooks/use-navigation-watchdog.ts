@@ -26,7 +26,7 @@ import {
  * flag blocks further ones, leaving remounts — which are invisible to the
  * user — as the only escalation.
  */
-const RELOAD_FLAG = "roboshelf.navWatchdogReload";
+const RELOAD_FLAG = "rc.navWatchdogReload";
 
 export function useNavigationWatchdog(settleMs = SETTLE_MS): number {
   const location = useLocation();

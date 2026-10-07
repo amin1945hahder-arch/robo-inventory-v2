@@ -351,7 +351,7 @@ export const save = mutation({
     await ctx.scheduler.runAfter(0, internal.push.pushToAdmins, {
       title: "README edit request",
       body,
-      tag: "roboshelf-readme",
+      tag: "rc-readme",
       url: "/admin/requests?tab=readme",
     });
     return { mode: "request" as const, requestId };
@@ -402,7 +402,7 @@ async function notifyReviewOutcome(
     userId: submitter._id,
     title,
     body: detail,
-    tag: "roboshelf-readme",
+    tag: "rc-readme",
     url: `/projects/${req.projectId}?tab=readme`,
   });
   if (submitter.telegramChatId || submitter.telegramUsername) {

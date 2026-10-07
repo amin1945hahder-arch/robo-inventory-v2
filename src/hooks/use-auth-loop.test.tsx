@@ -135,7 +135,7 @@ describe("useAuth identity sync (stuck-navigation root cause)", () => {
   it("a cached seed and the live document converge to the same object", async () => {
     localStorage.clear();
     localStorage.setItem(
-      "roboshelf.authUser.v1",
+      "rc.authUser.v1",
       JSON.stringify({
         _id: "u1",
         name: "Ada",

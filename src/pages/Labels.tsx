@@ -72,7 +72,7 @@ const PACK_SAFETY_MM = 1;
 /** Which text lines print alongside each QR chip (admin's choice). */
 type LabelFields = { title: boolean; sub: boolean; code: boolean };
 const ALL_FIELDS: LabelFields = { title: true, sub: true, code: true };
-const FIELDS_KEY = "roboShelf.labelFields";
+const FIELDS_KEY = "rc.labelFields";
 
 const MmLabel = memo(function MmLabel({
   value,

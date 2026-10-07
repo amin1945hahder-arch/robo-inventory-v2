@@ -402,7 +402,7 @@ export function effectiveThemeIdForUser(
  * resolved (boot, subscription pushes, schedule timer, preview rollback).
  * `null` = follow the club's published theme.
  */
-const PREF_KEY = "roboShelf.appTheme.myTheme";
+const PREF_KEY = "rc.appTheme.myTheme";
 let preferredUserThemeId: string | null = null;
 try {
   const raw = typeof localStorage !== "undefined" ? localStorage.getItem(PREF_KEY) : null;
@@ -484,7 +484,7 @@ export function setThemeAwareUserMode(mode: "dark" | "light" | "system") {
 // base mode on every theme re-apply. Members who never touch the mode still
 // get exactly the theme's mode, as before.
 
-const MODE_OVERRIDE_KEY = "roboShelf.appTheme.modeOverride";
+const MODE_OVERRIDE_KEY = "rc.appTheme.modeOverride";
 let modeOverride: "dark" | "light" | "system" | null = null;
 try {
   const raw =
@@ -562,7 +562,7 @@ export function applyThemeToDom(theme: AppTheme | null): void {
 // Server-state application + cache
 // ---------------------------------------------------------------------------
 
-const CACHE_KEY = "roboShelf.appTheme.v1";
+const CACHE_KEY = "rc.appTheme.v1";
 
 let lastState: ThemeState | null = null;
 let previewDepth = 0;

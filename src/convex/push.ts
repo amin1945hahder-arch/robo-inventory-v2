@@ -143,7 +143,7 @@ export const pushToUser = internalMutation({
     if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
       return { attempted: subs.length, scheduled: 0 };
     }
-    const payload = JSON.stringify({ title, body, tag: tag ?? "roboshelf", url });
+    const payload = JSON.stringify({ title, body, tag: tag ?? "rc", url });
     // Deliveries are scheduled (mutations can't await actions); a dead
     // endpoint simply fails on the push service and is dropped on the next
     // subscription refresh.
@@ -158,6 +158,35 @@ export const pushToUser = internalMutation({
       scheduled++;
     }
     return { attempted: subs.length, scheduled };
+  },
+});
+
+/**
+ * Send a real OS push to THIS user's subscribed devices — the "Send test"
+ * button in Settings → push card. Any signed-in member can ping their own
+ * devices; never anyone else's.
+ */
+export const sendTestPush = mutation({
+  args: {},
+  handler: async (ctx): Promise<{ sent: number; reason?: string }> => {
+    const user = await requireUser(ctx);
+    if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
+      return { sent: 0, reason: "Push keys not configured on the server (VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY)." };
+    }
+    const subs = await ctx.runQuery(internal.push.subscriptionsForUser, {
+      userId: user._id,
+    });
+    if (subs.length === 0) {
+      return { sent: 0, reason: "No subscribed devices — enable push on this device first." };
+    }
+    await ctx.scheduler.runAfter(0, internal.push.pushToUser, {
+      userId: user._id,
+      title: "RC",
+      body: "Test notification — pushes are working 🎉",
+      tag: "rc-test",
+      url: "/dashboard",
+    });
+    return { sent: subs.length };
   },
 });
 

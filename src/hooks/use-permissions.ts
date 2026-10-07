@@ -27,7 +27,7 @@ import { useCallback, useEffect, useState } from "react";
 export type PermissionKind = "notifications" | "camera" | "storage" | "sound";
 export type PermissionStatus = "granted" | "denied" | "prompt" | "unsupported";
 
-const KEY_PREFIX = "roboShelf.permissions.";
+const KEY_PREFIX = "rc.permissions.";
 
 function readLocal(kind: PermissionKind): string | null {
   try {
@@ -63,9 +63,11 @@ export function isStandalone(): boolean {
   return (
     window.matchMedia?.("(display-mode: standalone)").matches === true ||
     (window.navigator as Navigator & { standalone?: boolean }).standalone === true ||
-    // Common Android WebView / Capacitor-style shells expose these markers.
-    (window as unknown as { RoboShelfNative?: unknown }).RoboShelfNative !== undefined ||
-    /\b(roboshelf|capacitor)\b/i.test(navigator.userAgent)
+    // Common Android WebView / Capacitor-style shells expose these markers —
+    // including the FreeWebToApk wrapper, whose shell injects window.WebToApk.
+    (window as unknown as { RCNative?: unknown }).RCNative !== undefined ||
+    (window as unknown as { WebToApk?: unknown }).WebToApk !== undefined ||
+    /\bcapacitor\b/i.test(navigator.userAgent)
   );
 }
 

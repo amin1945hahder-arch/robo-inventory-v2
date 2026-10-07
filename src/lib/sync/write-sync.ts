@@ -40,8 +40,8 @@ const SYNC_TABLES: readonly string[] = [
   "rentals",
 ];
 
-const CHANNEL_NAME = "roboshelf-sync";
-const STORAGE_KEY = "roboshelf.syncWrite";
+const CHANNEL_NAME = "rc-sync";
+const STORAGE_KEY = "rc.syncWrite";
 
 /** Wildcard: a write whose exact table we could not attribute. */
 export const ANY_TABLE = "*";

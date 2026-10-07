@@ -152,7 +152,7 @@ export function createStaleWatcher(opts: WatcherOptions): Watcher {
  */
 export function installDynamicImportRecovery(
   reload: () => void,
-  storageKey = "roboshelf.importRecovery",
+  storageKey = "rc.importRecovery",
 ): () => void {
   let fired = false;
   const onError = (event: ErrorEvent) => {

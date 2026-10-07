@@ -117,7 +117,7 @@ describe("published-state + preview protocol", () => {
   it("caches the latest server state for boot-time rehydration", () => {
     const t = theme({ id: "cached-1" });
     applyThemeState({ themes: [t], activeId: "cached-1" });
-    const raw = localStorage.getItem("roboShelf.appTheme.v1");
+    const raw = localStorage.getItem("rc.appTheme.v1");
     expect(raw).toBeTruthy();
     const parsed = JSON.parse(raw as string) as ThemeState;
     expect(parsed.activeId).toBe("cached-1");
@@ -230,7 +230,7 @@ describe("corner radius persistence (publish regression)", () => {
       themes: [theme({ id: "cached-radius", radius: 1.25 })],
       activeId: "cached-radius",
     });
-    const parsed = JSON.parse(localStorage.getItem("roboShelf.appTheme.v1") as string) as ThemeState;
+    const parsed = JSON.parse(localStorage.getItem("rc.appTheme.v1") as string) as ThemeState;
     expect(parsed.themes[0].radius).toBe(1.25);
     // Simulate a fresh boot: scrub the DOM, re-apply from the cache.
     applyThemeToDom(null);
@@ -246,7 +246,7 @@ describe("corner radius persistence (publish regression)", () => {
     const legacy = theme({ id: "legacy-1" });
     delete (legacy as Partial<AppTheme>).radius;
     localStorage.setItem(
-      "roboShelf.appTheme.v1",
+      "rc.appTheme.v1",
       JSON.stringify({ themes: [legacy], activeId: "legacy-1" }),
     );
     applyThemeToDom(null);
@@ -279,7 +279,7 @@ describe("per-theme icon overrides", () => {
       defaultId: "preset-christmas-eve",
       schedule: { themeId: "preset-ramadan-crescent", from: now, to: now + 5_000 },
     });
-    const parsed = JSON.parse(localStorage.getItem("roboShelf.appTheme.v1") as string) as ThemeState;
+    const parsed = JSON.parse(localStorage.getItem("rc.appTheme.v1") as string) as ThemeState;
     expect(parsed.defaultId).toBe("preset-christmas-eve");
     expect(parsed.schedule).toEqual({
       themeId: "preset-ramadan-crescent",

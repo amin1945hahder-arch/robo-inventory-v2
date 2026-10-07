@@ -79,7 +79,7 @@ function blockOfflineToast(): void {
   const now = Date.now();
   if (now - lastBlockToast < 1500) return;
   lastBlockToast = now;
-  toast.error(OFFLINE_WRITE_MESSAGE, { id: "roboshelf-offline-block", duration: 5000 });
+  toast.error(OFFLINE_WRITE_MESSAGE, { id: "rc-offline-block", duration: 5000 });
 }
 
 /**

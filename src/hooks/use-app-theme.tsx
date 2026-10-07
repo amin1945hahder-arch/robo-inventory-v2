@@ -10,7 +10,7 @@ import {
 } from "@/lib/appTheme";
 
 /** Remembers the last published theme we told this member about. */
-const SEEN_PUBLISHED_KEY = "roboShelf.appTheme.seenPublished";
+const SEEN_PUBLISHED_KEY = "rc.appTheme.seenPublished";
 
 function readSeen(): string | null {
   try {

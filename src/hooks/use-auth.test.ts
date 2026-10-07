@@ -12,7 +12,7 @@ const asUser = (id: string): CachedUser => ({ _id: id } as unknown as CachedUser
 
 const seed = (user: CachedUser | null) =>
   localStorage.setItem(
-    "roboshelf.authUser.v1",
+    "rc.authUser.v1",
     user ? JSON.stringify(user) : "null",
   );
 
@@ -36,7 +36,7 @@ describe("persisted identity", () => {
   });
 
   it("survives corrupt JSON", () => {
-    localStorage.setItem("roboshelf.authUser.v1", "{not json");
+    localStorage.setItem("rc.authUser.v1", "{not json");
     expect(readCachedUser()).toBeNull();
   });
 });

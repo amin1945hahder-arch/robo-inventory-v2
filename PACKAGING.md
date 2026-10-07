@@ -1,12 +1,12 @@
-# RoboShelf — packaging (Android APK + Windows/Linux desktop)
+# RC — packaging (Android APK + Windows/Linux desktop)
 
 This repo can produce **installable apps** from source:
 
 | Platform | Output | Built by |
 |---|---|---|
-| Android | `RoboShelf-debug.apk` (+ `RoboShelf-release.apk` when signing is configured) | Capacitor → Gradle |
-| Windows | `RoboShelf-Setup-<ver>-x64.exe` / `-arm64.exe` (installer) | Electron → electron-builder (NSIS) |
-| Linux | `RoboShelf-<ver>-<arch>.AppImage` and `.deb` | Electron → electron-builder |
+| Android | `RC-debug.apk` (+ `RC-release.apk` when signing is configured) | Capacitor → Gradle |
+| Windows | `RC-Setup-<ver>-x64.exe` / `-arm64.exe` (installer) | Electron → electron-builder (NSIS) |
+| Linux | `RC-<ver>-<arch>.AppImage` and `.deb` | Electron → electron-builder |
 
 ## Where the install files come from
 
@@ -53,12 +53,12 @@ bun run desktop:dist          # or: desktop:dist:win / desktop:dist:linux
 
 ## Android
 
-- **Package id:** `club.roboshelf.app` · **min Android:** 7.0 (API 24) · **target:** API 36
+- **Package id:** `club.rc.app` · **min Android:** 7.0 (API 24) · **target:** API 36
 - One **universal APK** contains every CPU ABI (`armeabi-v7a`, `arm64-v8a`,
   `x86`, `x86_64`), so a single file installs on essentially any device.
 - Installing: transfer the `.apk` to the phone, tap it, and allow
   “Install unknown apps” for your browser/file manager (the APK is not from the
-  Play Store). Or use `adb install RoboShelf-debug.apk`.
+  Play Store). Or use `adb install RC-debug.apk`.
 - Declared permissions (all actually used — see
   `android/app/src/main/AndroidManifest.xml`):
   `INTERNET`, `ACCESS_NETWORK_STATE`, `CAMERA` (QR + unit photos),
@@ -86,7 +86,7 @@ which is fine for side-loading. For a proper release build add these repository
 Create a keystore once with:
 
 ```bash
-keytool -genkey -v -keystore release.keystore -alias roboshelf \
+keytool -genkey -v -keystore release.keystore -alias rc \
   -keyalg RSA -keysize 2048 -validity 10000
 ```
 
@@ -95,10 +95,10 @@ keytool -genkey -v -keystore release.keystore -alias roboshelf \
 - The Electron shell serves the built web app from an internal localhost server
   (so React Router, IndexedDB and the Convex websocket all work exactly like in
   a browser), opens external links in the real browser, and ships no source.
-- **Windows:** run the `RoboShelf-Setup-*.exe`; it installs per-user (no admin
+- **Windows:** run the `RC-Setup-*.exe`; it installs per-user (no admin
   needed) and can create Desktop/Start Menu shortcuts.
-- **Linux:** `chmod +x RoboShelf-*.AppImage && ./RoboShelf-*.AppImage`, or
-  `sudo dpkg -i RoboShelf-*.deb`.
+- **Linux:** `chmod +x RC-*.AppImage && ./RC-*.AppImage`, or
+  `sudo dpkg -i RC-*.deb`.
 - macOS (`dmg`) is configured but is **not** built by the default workflow —
   it requires a macOS runner (Apple's tooling cannot cross-compile from Linux).
 

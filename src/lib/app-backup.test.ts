@@ -99,7 +99,7 @@ describe("redactSecrets", () => {
 describe("backupFileName", () => {
   it("formats the zip name", () => {
     const name = backupFileName(new Date(2026, 8, 19, 9, 5).getTime());
-    expect(name).toBe("RoboShelf_Full_Backup_2026-09-19_0905.zip");
+    expect(name).toBe("RC_Full_Backup_2026-09-19_0905.zip");
   });
 });
 
@@ -110,7 +110,7 @@ describe("buildBackupZip", () => {
         parts: [{ _id: "a", tag: "ARD-1" }],
         emptyTable: [],
       },
-      { app: "RoboShelf", generatedAt: 1_700_000_000_000, version: 1 },
+      { app: "RC", generatedAt: 1_700_000_000_000, version: 1 },
     );
     const zip = await JSZip.loadAsync(Buffer.from(b64, "base64"));
     const names = Object.keys(zip.files).sort();
@@ -124,7 +124,7 @@ describe("buildBackupZip", () => {
       ]),
     );
     const json = JSON.parse(await zip.file("data.json")!.async("string"));
-    expect(json.meta.app).toBe("RoboShelf");
+    expect(json.meta.app).toBe("RC");
     expect(json.tables.parts.rows[0].tag).toBe("ARD-1");
     expect(json.tables.parts.columns).toEqual(["_id", "tag"]);
   });

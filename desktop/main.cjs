@@ -1,5 +1,5 @@
 /**
- * RoboShelf desktop shell (Electron).
+ * RC desktop shell (Electron).
  *
  * The web app is a Vite SPA that uses the History API (React Router) and
  * IndexedDB/localStorage. Loading it from `file://` would break routing and
@@ -95,7 +95,7 @@ async function createWindow() {
     minHeight: 600,
     backgroundColor: "#09090b",
     autoHideMenuBar: true,
-    title: "RoboShelf",
+    title: "RC",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,

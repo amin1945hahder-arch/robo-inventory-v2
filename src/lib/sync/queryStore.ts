@@ -9,7 +9,7 @@
 import { get, set, del, createStore } from "idb-keyval";
 import type { CacheEntry } from "./queryCache";
 
-const store = typeof indexedDB !== "undefined" ? createStore("roboshelf-query", "results") : undefined;
+const store = typeof indexedDB !== "undefined" ? createStore("rc-query", "results") : undefined;
 
 function keyOf(key: string): string {
   return `q:${key}`;

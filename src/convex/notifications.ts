@@ -138,7 +138,7 @@ export const requestProfileChange = mutation({
     await ctx.scheduler.runAfter(0, internal.push.pushToAdmins, {
       title: "New profile request",
       body: `${user.name ?? user.email ?? "A member"} requested a profile change`,
-      tag: "roboshelf-profile",
+      tag: "rc-profile",
       url: "/admin/requests?tab=profiles",
     });
   },
@@ -207,7 +207,7 @@ export const decideProfileRequest = mutation({
         body: approve
           ? `${who}, your changes are live now.`
           : `${who}, your profile request was not approved.`,
-        tag: "roboshelf-profile",
+        tag: "rc-profile",
         url: "/profile",
       });
     }

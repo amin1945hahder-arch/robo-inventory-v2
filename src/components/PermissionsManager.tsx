@@ -7,6 +7,10 @@
  * platform (browser, installed PWA, APK/desktop wrapper) and explains exactly
  * how to recover when something was denied.
  */
+import { useState } from "react";
+import { useMutation } from "convex/react";
+import { toast } from "sonner";
+import { api } from "@/convex/_generated/api";
 import { AlertTriangle, Bell, BellRing, Camera, Check, Database, RotateCw, ShieldCheck, Volume2, X } from "lucide-react";
 import { usePermissions, type PermissionKind, type PermissionStatus } from "@/hooks/use-permissions";
 import { usePushSubscription } from "@/hooks/use-push";
@@ -33,8 +37,8 @@ const ROWS: Row[] = [
     why: "Get notified when a request is approved, a return is due, or the printers need attention — even with the app in the background.",
     recover: {
       web: "Click the lock/site icon in your browser's address bar → Notifications → Allow.",
-      apk: "Android Settings → Apps → RoboShelf → Notifications → Allow.",
-      ios: "iOS Settings → RoboShelf → Notifications → Allow.",
+      apk: "Android Settings → Apps → RC → Notifications → Allow.",
+      ios: "iOS Settings → RC → Notifications → Allow.",
       desktop: "Click the bell/padlock icon in the title bar → Allow notifications.",
     },
   },
@@ -45,8 +49,8 @@ const ROWS: Row[] = [
     why: "Scan the QR labels on parts, storages and projects for instant renting, returning and browsing.",
     recover: {
       web: "Click the lock/site icon in your address bar → Camera → Allow, then reload.",
-      apk: "Android Settings → Apps → RoboShelf → Permissions → Camera → Allow.",
-      ios: "iOS Settings → RoboShelf → Camera → Allow.",
+      apk: "Android Settings → Apps → RC → Permissions → Camera → Allow.",
+      ios: "iOS Settings → RC → Camera → Allow.",
       desktop: "Click the camera icon in the address bar → Allow, then reload.",
     },
   },
@@ -57,7 +61,7 @@ const ROWS: Row[] = [
     why: "Keeps your offline cache, downloads and app data safe from automatic cleanup when device space runs low.",
     recover: {
       web: "If the grant doesn't stick, install the app (Add to Home Screen) and allow it there — browsers persist data for installed apps.",
-      apk: "The app's storage is built into the APK itself — if the app complains about storage, grant the wrapper's file permission: Android Settings → Apps → RoboShelf → Permissions → Storage/Files → Allow (on Android 11+ choose “All files access”), then fully close and reopen the app.",
+      apk: "The app's storage is built into the APK itself — if the app complains about storage, grant the wrapper's file permission: Android Settings → Apps → RC → Permissions → Storage/Files → Allow (on Android 11+ choose “All files access”), then fully close and reopen the app.",
       ios: "Managed by iOS — the app requests it on first launch.",
       desktop: "Granted automatically by the desktop runtime.",
     },
@@ -191,6 +195,8 @@ export function PermissionsManager() {
  */
 function PushCard({ platform }: { platform: Platform }) {
   const push = usePushSubscription();
+  const sendTest = useMutation(api.push.sendTestPush);
+  const [testing, setTesting] = useState(false);
   if (!push.supported) return null; // platform has no Push API — in-app only
   if (push.state === "unconfigured") {
     return (
@@ -205,6 +211,19 @@ function PushCard({ platform }: { platform: Platform }) {
       </div>
     );
   }
+  const runTest = async () => {
+    setTesting(true);
+    try {
+      const res = await sendTest({});
+      if (res.sent > 0) toast.success("Test notification sent — check your devices");
+      else toast.error(res.reason ?? "Could not send a test push");
+    } catch {
+      toast.error("Test notification failed to send");
+    } finally {
+      setTesting(false);
+    }
+  };
+
   return (
     <div className="glass-3d flex flex-col gap-3 rounded-lg border border-primary/30 p-4 wide:flex-row wide:items-center">
       <AppIcon fallback={BellRing} className="size-9" />
@@ -239,9 +258,14 @@ function PushCard({ platform }: { platform: Platform }) {
         {push.state === "working" ? (
           <LoadingGifInline size={18} className="size-4" />
         ) : push.state === "on" ? (
-          <Button variant="outline" size="sm" onClick={() => void push.disable()}>
-            Turn off
-          </Button>
+          <>
+            <Button variant="outline" size="sm" disabled={testing} onClick={() => void runTest()}>
+              {testing ? "Sending…" : "Send test"}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => void push.disable()}>
+              Turn off
+            </Button>
+          </>
         ) : (
           <Button size="sm" onClick={() => void push.enable()}>
             <BellRing className="size-3.5" /> Enable push

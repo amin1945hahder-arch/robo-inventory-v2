@@ -6,7 +6,7 @@
  */
 const { contextBridge } = require("electron");
 
-contextBridge.exposeInMainWorld("roboshelfDesktop", {
+contextBridge.exposeInMainWorld("rcDesktop", {
   isDesktop: true,
   platform: process.platform,
   version: process.versions.electron,

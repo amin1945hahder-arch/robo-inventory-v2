@@ -1,6 +1,6 @@
 {
-  "appId": "club.roboshelf.app",
-  "appName": "RoboShelf",
+  "appId": "club.rc.app",
+  "appName": "RC",
   "webDir": "dist",
   "android": {
     "allowMixedContent": false,

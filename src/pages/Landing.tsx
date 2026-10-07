@@ -398,7 +398,7 @@ function TrySection() {
           Two moves. That's the whole app.
         </h2>
         <p className="mt-3 text-muted-foreground">
-          Everything in RoboShelf collapses into scan-or-search. Try both right here.
+          Everything in RC collapses into scan-or-search. Try both right here.
         </p>
       </motion.div>
 
@@ -427,7 +427,7 @@ const VOICES = [
   },
   {
     quote:
-      "The offline mode sold it. Our lab is in a basement with terrible wifi — RoboShelf doesn't care, everything still opens instantly.",
+      "The offline mode sold it. Our lab is in a basement with terrible wifi — RC doesn't care, everything still opens instantly.",
     name: "Omar A.",
     role: "Hardware lead · robotics league team",
   },
@@ -529,7 +529,7 @@ const CATEGORY_GROUPS = [
 ] as const;
 
 /** Example shelf from a working club — every row is a real category shape
- *  RoboShelf stores: a QR-coded group of units with a live availability. */
+ *  RC stores: a QR-coded group of units with a live availability. */
 const CATEGORIES = [
   {
     icon: Cpu,
@@ -799,7 +799,7 @@ export default function Landing() {
         {/* ── ticker ──────────────────────────────────────────────── */}
         <section className="relative z-10 flex flex-col gap-3 border-y border-border/50 bg-background/30 py-6 backdrop-blur-sm">
           <p className="px-6 text-center text-[11px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">
-            What sits on a RoboShelf
+            What sits on the RC shelf
           </p>
           <MarqueeRow items={TICKER} />
           <MarqueeRow items={[...TICKER].reverse()} reverse />
@@ -835,12 +835,12 @@ export default function Landing() {
         {/* ── CTA ─────────────────────────────────────────────────── */}
         <CtaSection
           onPrimary={() => navigate("/auth")}
-          label={isAuthenticated ? "Open the dashboard" : "Sign in to RoboShelf"}
+          label={isAuthenticated ? "Open the dashboard" : "Sign in to RC"}
         />
 
         <footer className="relative z-10 border-t border-border/60 py-8">
           <div className="mx-auto flex w-full max-w-6xl flex-col items-center justify-between gap-2 px-6 text-xs text-muted-foreground sm:flex-row">
-            <p>RoboShelf — Robotics Club Inventory</p>
+            <p>RC — Robotics Club Inventory</p>
             <p>Scan first. Spreadsheet never. 🤖</p>
           </div>
         </footer>
@@ -912,12 +912,12 @@ function Nav({ isAuthenticated }: { isAuthenticated: boolean }) {
       <Link to="/" className="flex items-center gap-2.5">
         <motion.img
           src={logo}
-          alt="RoboShelf logo"
+          alt="RC logo"
           className="size-9 rounded-lg"
           animate={{ rotate: [0, -6, 6, 0] }}
           transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
         />
-        <span className="text-lg font-bold tracking-tight">RoboShelf</span>
+        <span className="text-lg font-bold tracking-tight">RC</span>
       </Link>
 
       <nav className="hidden items-center gap-6 text-sm text-muted-foreground md:flex">
@@ -1356,7 +1356,7 @@ function ModulesSection() {
         </h2>
         <p className="mt-3 text-muted-foreground">
           From a single QR scan to a slicer job, from your desk to the lab and back again offline —
-          RoboShelf covers the whole inventory story.
+          RC covers the whole inventory story.
         </p>
       </motion.div>
 
@@ -1378,7 +1378,7 @@ function FeaturesSection() {
           Built for makers, not spreadsheets
         </h2>
         <p className="mt-3 text-muted-foreground">
-          Hardware lives in storages, parts go missing, projects hoard components. RoboShelf keeps the
+          Hardware lives in storages, parts go missing, projects hoard components. RC keeps the
           whole story straight — and does it on your phone, in the lab, offline.
         </p>
       </motion.div>
@@ -1485,7 +1485,7 @@ function OfflineBand() {
           The database is always on your side.
         </h2>
         <p className="mx-auto mt-3 max-w-3xl text-muted-foreground">
-          The first time you open RoboShelf, the entire database for your club is synced and stored
+          The first time you open RC, the entire database for your club is synced and stored
           locally on your device. Every page reads from that cache — nothing waits on the network, and
           your tabs stay fast even with zero signal.
         </p>

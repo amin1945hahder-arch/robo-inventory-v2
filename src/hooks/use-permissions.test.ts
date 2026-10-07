@@ -29,7 +29,7 @@ beforeEach(() => {
   // Drop per-test navigator stubs + any saved answer from a previous test.
   delete (navigator as unknown as Record<string, unknown>).storage;
   delete (navigator as unknown as Record<string, unknown>).permissions;
-  window.localStorage.removeItem("roboShelf.permissions.storage");
+  window.localStorage.removeItem("rc.permissions.storage");
 });
 
 describe("storageWorks", () => {

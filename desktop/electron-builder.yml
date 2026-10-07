@@ -1,9 +1,9 @@
-# electron-builder configuration for the RoboShelf desktop installers.
+# electron-builder configuration for the RC desktop installers.
 # The Vite build output (`dist/`) is copied in as an extra resource and served
 # by desktop/main.cjs, so no source ships inside the installer.
-appId: club.roboshelf.app
-productName: RoboShelf
-copyright: RoboShelf
+appId: club.rc.app
+productName: RC
+copyright: RC
 
 directories:
   output: release
@@ -28,7 +28,7 @@ win:
         - x64
         - arm64
   icon: build/icon.png
-  artifactName: RoboShelf-Setup-${version}-${arch}.${ext}
+  artifactName: RC-Setup-${version}-${arch}.${ext}
 
 nsis:
   oneClick: false
@@ -36,7 +36,7 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: RoboShelf
+  shortcutName: RC
 
 # ---- Linux ---------------------------------------------------------------
 linux:
@@ -46,9 +46,9 @@ linux:
   category: Utility
   synopsis: Robotics club inventory
   description: Component rentals, returns and project assemblies for the robotics club.
-  maintainer: RoboShelf
+  maintainer: RC
   icon: build/icon.png
-  artifactName: RoboShelf-${version}-${arch}.${ext}
+  artifactName: RC-${version}-${arch}.${ext}
 
 # ---- macOS (built only when a runner is available) -----------------------
 mac:

@@ -19,10 +19,10 @@ if (keystorePropsFile.exists()) {
 def hasReleaseSigning = keystorePropsFile.exists()
 
 android {
-    namespace = "club.roboshelf.app"
+    namespace = "club.rc.app"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "club.roboshelf.app"
+        applicationId "club.rc.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode = (System.getenv("VERSION_CODE") ?: "1").toInteger()

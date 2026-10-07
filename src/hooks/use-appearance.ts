@@ -30,7 +30,7 @@ function applyMode(mode: AppearanceValue, userId?: string) {
   // Mirror for the index.html no-flash bootstrap (last member's choice).
   try {
     if (userId) {
-      localStorage.setItem(`roboShelf.appearance.${userId}`, mode);
+      localStorage.setItem(`rc.appearance.${userId}`, mode);
     }
   } catch {
     /* storage unavailable */

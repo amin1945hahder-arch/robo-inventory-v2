@@ -669,7 +669,7 @@ export const requestRental = mutation({
     await ctx.scheduler.runAfter(0, internal.push.pushToAdmins, {
       title: "New rental request",
       body: `${studentLabel} requested to rent ${group?.name ?? "a part"} (${part.tag})`,
-      tag: "roboshelf-request",
+      tag: "rc-request",
       url: "/admin/requests",
     });
     await notifyAdminsByEmail(
@@ -781,7 +781,7 @@ export const requestRentalQuantity = mutation({
       await ctx.scheduler.runAfter(0, internal.push.pushToAdmins, {
         title: "New package request",
         body: `${label} requested a package rental (${summary})`,
-        tag: "roboshelf-request",
+        tag: "rc-request",
         url: "/admin/requests",
       });
       const admins = await listAdmins(ctx); // by_role index — not every user
@@ -2442,7 +2442,7 @@ export const createPackage = mutation({
     await ctx.scheduler.runAfter(0, internal.push.pushToAdmins, {
       title: "New package request",
       body: `${label} requested a package rental (${summary})`,
-      tag: "roboshelf-request",
+      tag: "rc-request",
       url: "/admin/requests",
     });
     const admins = await listAdmins(ctx); // by_role index — not every user

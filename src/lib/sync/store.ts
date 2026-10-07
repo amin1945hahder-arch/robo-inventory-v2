@@ -9,7 +9,7 @@
 import { get, set, del, createStore } from "idb-keyval";
 import { emptyTableCache, persistCache, reviveCache, type TableCache } from "./delta";
 
-const store = typeof indexedDB !== "undefined" ? createStore("roboshelf-sync", "cache") : undefined;
+const store = typeof indexedDB !== "undefined" ? createStore("rc-sync", "cache") : undefined;
 
 const key = (table: string) => `table:${table}`;
 

@@ -129,7 +129,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [askedNotif, setAskedNotif] = useState(true);
   useEffect(() => {
     try {
-      setAskedNotif(window.localStorage.getItem("roboShelf.notifAsked") === "1");
+      setAskedNotif(window.localStorage.getItem("rc.notifAsked") === "1");
     } catch {
       setAskedNotif(false);
     }
@@ -137,7 +137,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const askNotifications = async () => {
     const res = await notifPerm.request();
     try {
-      window.localStorage.setItem("roboShelf.notifAsked", "1");
+      window.localStorage.setItem("rc.notifAsked", "1");
     } catch {
       /* private mode */
     }
@@ -148,7 +148,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const showNotifBanner = async (title: string, body: string) => {
     const sw = "serviceWorker" in navigator ? await navigator.serviceWorker.getRegistration() : undefined;
     if (sw && typeof Notification !== "undefined" && Notification.permission === "granted") {
-      sw.active?.postMessage({ type: "SHOW_NOTIFICATION", title, body, tag: "roboshelf-activity", url: "/admin/requests" });
+      sw.active?.postMessage({ type: "SHOW_NOTIFICATION", title, body, tag: "rc-activity", url: "/admin/requests" });
       return;
     }
     toast(title, { description: body, duration: 8000 });
@@ -173,7 +173,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [askedStorage, setAskedStorage] = useState(true);
   useEffect(() => {
     try {
-      setAskedStorage(window.localStorage.getItem("roboShelf.storageAsked") === "1");
+      setAskedStorage(window.localStorage.getItem("rc.storageAsked") === "1");
     } catch {
       setAskedStorage(false);
     }
@@ -181,7 +181,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const askStorage = async () => {
     const res = await storagePerm.request();
     try {
-      window.localStorage.setItem("roboShelf.storageAsked", "1");
+      window.localStorage.setItem("rc.storageAsked", "1");
     } catch {
       /* private mode */
     }
@@ -191,6 +191,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       toast.error("Storage was declined — the app works, but the browser may clear offline data when space runs low");
   };
 
+  // The first-open permissions dialog answers notifications + storage in one
+  // shot — re-read both flags when it finishes so these fallback strips
+  // disappear immediately instead of lingering until a reload.
+  useEffect(() => {
+    const sync = () => {
+      try {
+        setAskedNotif(window.localStorage.getItem("rc.notifAsked") === "1");
+        setAskedStorage(window.localStorage.getItem("rc.storageAsked") === "1");
+      } catch {
+        /* private mode */
+      }
+    };
+    window.addEventListener("rc:permissions-answered", sync);
+    return () => window.removeEventListener("rc:permissions-answered", sync);
+  }, []);
+
   // Play the notification sound when new admin notifications arrive while
   // the shell is open (Convex pushes updates automatically — no reload).
   useEffect(() => {
@@ -198,7 +214,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const prev = prevNotifs.current;
     if (prev !== null && notifData > prev) {
       playSound("notification");
-      void showNotifBanner("RoboShelf", "New activity in the requests console");
+      void showNotifBanner("RC", "New activity in the requests console");
     }
     prevNotifs.current = notifData;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -238,7 +254,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Boxes className="icon-3d size-4" />
           </div>
           <div className="leading-tight">
-            <p className="text-sm font-semibold">RoboShelf</p>
+            <p className="text-sm font-semibold">RC</p>
             <p className="text-xs text-muted-foreground">Robotics club inventory</p>
           </div>
         </Link>

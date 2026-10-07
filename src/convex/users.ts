@@ -641,7 +641,7 @@ export const requestRankUpgrade = mutation({
     await ctx.scheduler.runAfter(0, internal.push.pushToAdmins, {
       title: "New rank request",
       body: `${user.name ?? user.email ?? "A member"} requests: ${clean.join(", ")}`,
-      tag: "roboshelf-rank",
+      tag: "rc-rank",
       url: "/admin/requests",
     });
   },
@@ -687,7 +687,7 @@ export const requestRoleUpgrade = mutation({
     await ctx.scheduler.runAfter(0, internal.push.pushToAdmins, {
       title: "New role request",
       body: `${user.name ?? user.email ?? "A member"} requested the ${role} role`,
-      tag: "roboshelf-role",
+      tag: "rc-role",
       url: "/admin/requests?tab=ranks",
     });
   },
@@ -774,7 +774,7 @@ export const decideRankRequest = mutation({
             ? `You are now ${appliedRole ?? "the requested role"} in the app.`
             : `Your positions: ${req.requestedRoles.join(", ")}`
           : `Your request (${req.requestedRoles.join(", ")}) was not approved this time.`,
-        tag: "roboshelf-rank",
+        tag: "rc-rank",
         url: "/profile",
       });
       if (member.telegramChatId) {
@@ -842,7 +842,7 @@ export const requestPrinterRole = mutation({
     await ctx.scheduler.runAfter(0, internal.push.pushToAdmins, {
       title: "New printer request",
       body: `${user.name ?? user.email ?? "A member"} requested printer access`,
-      tag: "roboshelf-printer",
+      tag: "rc-printer",
       url: "/admin/requests",
     });
   },
@@ -1012,7 +1012,7 @@ export const requestInventoryRole = mutation({
     await ctx.scheduler.runAfter(0, internal.push.pushToAdmins, {
       title: "New inventory request",
       body: `${user.name ?? user.email ?? "A member"} requested inventory manager access`,
-      tag: "roboshelf-inventory",
+      tag: "rc-inventory",
       url: "/admin/requests?tab=printers",
     });
   },
@@ -1146,7 +1146,7 @@ export const decideInventoryRequest = mutation({
         body: approve
           ? "You can now manage inventory items — ask an admin to fine-tune your permissions."
           : "Your inventory manager request was not approved this time.",
-        tag: "roboshelf-inventory",
+        tag: "rc-inventory",
         url: "/inventory",
       });
       if (user.telegramChatId || user.telegramUsername) {
@@ -1233,7 +1233,7 @@ export const submitMyProfile = mutation({
       userId: user._id,
       title: "Profile submitted 📝",
       body: `Thanks ${cleanName} — an admin will review it shortly.`,
-      tag: "roboshelf-profile",
+      tag: "rc-profile",
       url: "/profile",
     });
     if (user.telegramChatId || user.telegramUsername) {
@@ -1259,7 +1259,7 @@ export const submitMyProfile = mutation({
     await ctx.scheduler.runAfter(0, internal.push.pushToAdmins, {
       title: "Profile awaiting approval",
       body: `${cleanName} submitted their profile for approval`,
-      tag: "roboshelf-profile",
+      tag: "rc-profile",
       url: "/admin/requests",
     });
     return { ok: true };
@@ -1287,7 +1287,7 @@ export const approveProfile = mutation({
         userId,
         title: "Welcome to the club 🎉",
         body: `Hi ${member.name ?? member.email ?? "there"} — your profile is approved, full access is unlocked.`,
-        tag: "roboshelf-welcome",
+        tag: "rc-welcome",
         url: "/dashboard",
       });
     } else {
@@ -1295,7 +1295,7 @@ export const approveProfile = mutation({
         userId,
         title: "Profile review update",
         body: "Your profile approval was revoked — contact an admin for details.",
-        tag: "roboshelf-profile",
+        tag: "rc-profile",
         url: "/profile",
       });
     }

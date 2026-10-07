@@ -45,7 +45,7 @@ export type ConvexBackupTables = Record<string, Record<string, unknown>[]>;
 export function convexBackupFileName(generatedAt: number): string {
   const d = new Date(generatedAt);
   const pad = (x: number) => String(x).padStart(2, "0");
-  return `roboshelf-convex-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(
+  return `rc-convex-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(
     d.getHours(),
   )}-${pad(d.getMinutes())}.zip`;
 }
@@ -62,7 +62,7 @@ export async function buildConvexBackupZip(
 ): Promise<string> {
   const zip = new JSZip();
   const meta = {
-    app: "RoboShelf — Robotics Club Inventory",
+    app: "RC — Robotics Club Inventory",
     kind: "convex-import",
     generatedAt,
     note: "Import with: npx convex import <this-file>.zip --replace  (one <table>.json per table; Convex regenerates ids and keeps internal references consistent)",

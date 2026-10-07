@@ -11,7 +11,7 @@ describe("convexBackupFileName", () => {
   it("uses the requested timestamp, zero-padded", () => {
     // 2026-02-03 04:05 local
     const t = new Date(2026, 1, 3, 4, 5).getTime();
-    expect(convexBackupFileName(t)).toBe("roboshelf-convex-2026-02-03_04-05.zip");
+    expect(convexBackupFileName(t)).toBe("rc-convex-2026-02-03_04-05.zip");
   });
 });
 

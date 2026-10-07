@@ -84,7 +84,7 @@ export function inferColumnType(
 /** CREATE TABLE IF NOT EXISTS statements (SQLite flavor) for every table. */
 export function buildSchemaSql(tables: BackupTables): string {
   const out: string[] = [
-    `-- RoboShelf full backup schema (SQLite flavor)`,
+    `-- RC full backup schema (SQLite flavor)`,
     `-- generated ${new Date().toISOString()}`,
     `-- data lives in data.json and csv/*.csv in this archive`,
     "",
@@ -143,7 +143,7 @@ export function redactSecrets(tables: BackupTables): void {
 export function backupFileName(generatedAt: number): string {
   const d = new Date(generatedAt);
   const p = (n: number) => String(n).padStart(2, "0");
-  return `RoboShelf_Full_Backup_${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(
+  return `RC_Full_Backup_${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(
     d.getDate(),
   )}_${p(d.getHours())}${p(d.getMinutes())}.zip`;
 }
@@ -163,7 +163,7 @@ export async function buildBackupZip(
   zip.file(
     "README.txt",
     [
-      `RoboShelf — Robotics Club Inventory full backup`,
+      `RC — Robotics Club Inventory full backup`,
       `Generated: ${new Date(meta.generatedAt).toISOString()}`,
       ``,
       `Contents:`,

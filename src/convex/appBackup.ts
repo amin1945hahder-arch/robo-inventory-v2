@@ -178,7 +178,7 @@ async function buildAndSend(
   const tables = await ctx.runQuery(internal.appBackup.dumpAllTables, {});
   const generatedAt = Date.now();
   const meta: BackupMeta = {
-    app: "RoboShelf — Robotics Club Inventory",
+    app: "RC — Robotics Club Inventory",
     generatedAt,
     version: 1,
   };

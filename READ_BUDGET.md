@@ -1,6 +1,6 @@
 # READ_BUDGET.md — Convex read-cost audit & budget
 
-This is the living read-cost ledger for RoboShelf. It records **what the cache
+This is the living read-cost ledger for RC. It records **what the cache
 already does**, **where reads are still high**, and **what changed** — with the
 numbers we can actually measure. Absolute Convex dashboard figures are supplied
 by the project owner (the agent has no dashboard access); everything else is

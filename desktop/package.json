@@ -1,9 +1,9 @@
 {
-  "name": "roboshelf-desktop",
+  "name": "rc-desktop",
   "version": "1.0.0",
   "private": true,
-  "description": "RoboShelf desktop shell (Windows / Linux) — Electron wrapper around the web app.",
-  "author": "RoboShelf",
+  "description": "RC desktop shell (Windows / Linux) — Electron wrapper around the web app.",
+  "author": "RC",
   "license": "UNLICENSED",
   "main": "main.cjs",
   "scripts": {

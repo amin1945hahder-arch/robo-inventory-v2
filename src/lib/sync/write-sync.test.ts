@@ -66,7 +66,7 @@ describe("write-sync", () => {
     const setItem = vi.spyOn(Storage.prototype, "setItem");
     markWritten("rentals");
     expect(setItem).toHaveBeenCalled();
-    const raw = localStorage.getItem("roboshelf.syncWrite");
+    const raw = localStorage.getItem("rc.syncWrite");
     expect(raw).toBeTruthy();
     expect(JSON.parse(raw!).table).toBe("rentals");
     setItem.mockRestore();
@@ -78,7 +78,7 @@ describe("write-sync", () => {
     installWriteSyncReceiver();
     window.dispatchEvent(
       new StorageEvent("storage", {
-        key: "roboshelf.syncWrite",
+        key: "rc.syncWrite",
         newValue: JSON.stringify({ table: "groups", at: Date.now() }),
       }),
     );
@@ -103,7 +103,7 @@ describe("write-sync", () => {
     installWriteSyncReceiver();
     window.dispatchEvent(
       new StorageEvent("storage", {
-        key: "roboshelf.syncWrite",
+        key: "rc.syncWrite",
         newValue: JSON.stringify({ table: "*", at: Date.now() }),
       }),
     );
@@ -117,7 +117,7 @@ describe("write-sync", () => {
     installWriteSyncReceiver();
     expect(() =>
       window.dispatchEvent(
-        new StorageEvent("storage", { key: "roboshelf.syncWrite", newValue: "{not json" }),
+        new StorageEvent("storage", { key: "rc.syncWrite", newValue: "{not json" }),
       ),
     ).not.toThrow();
     expect(fn).not.toHaveBeenCalled();

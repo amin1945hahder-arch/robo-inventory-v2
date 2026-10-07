@@ -1,4 +1,4 @@
-package club.roboshelf.app;
+package club.rc.app;
 
 import com.getcapacitor.BridgeActivity;
 

@@ -49,13 +49,13 @@ describe("QR payloads", () => {
     });
 
     it("extracts the payload from a full printed label URL", () => {
-      const url = `https://roboshelf.example.com/qr?p=${encodeURIComponent("closet:c9")}`;
+      const url = `https://rc.example.com/qr?p=${encodeURIComponent("closet:c9")}`;
       expect(normalizeScan(url)).toBe("closet:c9");
     });
 
     it("falls back to the raw text when the URL has no p param", () => {
-      expect(normalizeScan("https://roboshelf.example.com/other")).toBe(
-        "https://roboshelf.example.com/other",
+      expect(normalizeScan("https://rc.example.com/other")).toBe(
+        "https://rc.example.com/other",
       );
     });
   });
