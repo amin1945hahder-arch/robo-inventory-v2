@@ -4,6 +4,7 @@ import { api } from "./_generated/api";
 import { listAdmins, requireAdmin, requireInventory, requireNonGuest, requireInteractingMember, requireUser, safeImage } from "./lib";
 import { adminPhones } from "./whatsapp";
 import { telegramDM, telegramGroup, notifyTelegram } from "./notify";
+import { knockToAdmins, knockToUser } from "./knock";
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { planMeasureTake, describePlan } from "../lib/measure-alloc";
@@ -679,6 +680,19 @@ export const requestRental = mutation({
       rentalId,
       note,
     );
+    // Knock: same admin fan-out over the notification platform — a no-op until
+    // KNOCK_API_KEY is set (workflow keys documented in src/convex/knockSend.ts).
+    await knockToAdmins(ctx, {
+      workflow: "rental-request",
+      actor: { id: user._id, name: studentLabel },
+      data: {
+        student: studentLabel,
+        partName: group?.name ?? "a part",
+        partTag: part.tag,
+        rentalId,
+        note: note?.trim() ?? "",
+      },
+    });
     // WhatsApp to every admin (no-op until TWILIO_* keys are set). Sends run
     // in a scheduled action — fetch is not allowed inside mutations.
     for (const phone of await adminPhones(ctx)) {
@@ -1057,6 +1071,18 @@ export const decideRental = mutation({
         approved: approve,
       });
     }
+    if (student) {
+      // Knock: the member hears back regardless of email/phone on file — this
+      // path can also run from an email action link (no admin session).
+      await knockToUser(ctx, student, {
+        workflow: "rental-decision",
+        data: {
+          partName: group?.name ?? "a part",
+          partTag: part.tag,
+          approved: approve,
+        },
+      });
+    }
     if (student?.phone) {
       await ctx.scheduler.runAfter(0, internal.whatsapp.sendWhatsAppAction, {
         to: student.phone,
@@ -1190,6 +1216,17 @@ export const adminRentalAction = mutation({
           approved: true,
         });
       }
+      if (student) {
+        await knockToUser(ctx, student, {
+          workflow: "rental-decision",
+          actor: { id: admin._id, name: admin.name ?? admin.email ?? "Club admin" },
+          data: {
+            partName: group?.name ?? "a part",
+            partTag: part.tag,
+            approved: true,
+          },
+        });
+      }
       if (student?.phone) {
         await ctx.scheduler.runAfter(0, internal.whatsapp.sendWhatsAppAction, {
           to: student.phone,
@@ -1234,6 +1271,17 @@ export const adminRentalAction = mutation({
           student: student.name ?? student.email,
           partName: group?.name ?? "a part",
           approved: false,
+        });
+      }
+      if (student) {
+        await knockToUser(ctx, student, {
+          workflow: "rental-decision",
+          actor: { id: admin._id, name: admin.name ?? admin.email ?? "Club admin" },
+          data: {
+            partName: group?.name ?? "a part",
+            partTag: part.tag,
+            approved: false,
+          },
         });
       }
       if (student?.phone) {
@@ -3169,6 +3217,17 @@ export const decidePackage = mutation({
         student: member.name ?? member.email,
         partName: `package (${summaryText})`,
         approved: approve,
+      });
+    }
+    if (member) {
+      await knockToUser(ctx, member, {
+        workflow: "rental-decision",
+        actor: { id: admin._id, name: admin.name ?? admin.email ?? "Club admin" },
+        data: {
+          partName: `package (${summaryText})`,
+          partTag: "",
+          approved: approve,
+        },
       });
     }
     return { ok: true };
