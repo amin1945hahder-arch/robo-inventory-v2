@@ -218,48 +218,241 @@ function TrackingFlip() {
 }
 
 /**
- * A PCB trace that solders itself together as it scrolls into view, with a
- * signal pulse running the wire forever after — the page's connective tissue
- * between big ideas.
+ * Wireframe gear — one shared geometry (ring, teeth, hub, spokes) used both
+ * standalone and inline on the circuit schematic. Spins via --animate-gear /
+ * --animate-gear-rev, which the reduced-motion block turns off.
  */
-function CircuitTrace({ className }: { className?: string }) {
+function GearShape({ teeth = 9 }: { teeth?: number }) {
+  return (
+    <g fill="none" stroke="currentColor" strokeLinecap="round">
+      <circle r={30} strokeWidth={5} />
+      <circle r={11} strokeWidth={5} />
+      {Array.from({ length: teeth }, (_, i) => {
+        const a = (i / teeth) * Math.PI * 2 - Math.PI / 2;
+        return (
+          <line
+            key={`t${i}`}
+            x1={Math.cos(a) * 30}
+            y1={Math.sin(a) * 30}
+            x2={Math.cos(a) * 45}
+            y2={Math.sin(a) * 45}
+            strokeWidth={7}
+          />
+        );
+      })}
+      {[0, 1, 2, 3].map((i) => {
+        const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+        return (
+          <line
+            key={`s${i}`}
+            x1={Math.cos(a) * 11}
+            y1={Math.sin(a) * 11}
+            x2={Math.cos(a) * 30}
+            y2={Math.sin(a) * 30}
+            strokeWidth={4}
+          />
+        );
+      })}
+    </g>
+  );
+}
+
+function Gear({ className }: { className?: string }) {
+  return (
+    <svg viewBox="-50 -50 100 100" fill="none" className={className} aria-hidden>
+      <GearShape />
+    </svg>
+  );
+}
+
+/**
+ * The signature separator: a PCB schematic that solders itself together as
+ * it scrolls into view — resistor zigzag, right-angle jogs, vias, junction
+ * pads, an IC chip, and gears driving the bus at both ends. After the draw,
+ * TWO glowing signals run the wire in opposite directions, forever.
+ */
+const TRACE_D =
+  "M64 32 H150 l9 -11 l9 22 l9 -22 l9 22 l9 -11 H300 V52 H360 V32 H600 V14 H660 V32 H736";
+
+function CircuitTrace({ className, reverse = false }: { className?: string; reverse?: boolean }) {
+  const pads: [number, number][] = [
+    [240, 32],
+    [420, 32],
+  ];
+  const rings: [number, number][] = [
+    [240, 56],
+    [420, 10],
+  ];
+  const vias: [number, number][] = [
+    [300, 52],
+    [660, 14],
+  ];
+  const inView = { once: true, margin: "-60px" } as const;
+  const pop = (i: number) => ({
+    initial: { scale: 0 as const, opacity: 0 },
+    whileInView: { scale: 1, opacity: 1 },
+    viewport: inView,
+    style: { transformBox: "fill-box" as const, transformOrigin: "center" },
+    transition: { delay: 1.35 + i * 0.1, type: "spring" as const, stiffness: 320, damping: 18 },
+  });
+
   return (
     <div className={cn("relative z-10 mx-auto w-full max-w-5xl px-6", className)} aria-hidden>
-      <svg viewBox="0 0 800 56" fill="none" className="w-full text-primary">
+      <svg viewBox="0 0 800 72" fill="none" className="w-full text-primary">
+        {/* the bus draws itself, left to right */}
         <motion.path
-          d="M0 28 H140 L176 12 H300 L330 28 H470 L500 44 H624 L660 28 H800"
+          d={TRACE_D}
           stroke="currentColor"
-          strokeOpacity={0.45}
-          strokeWidth={1.5}
+          strokeOpacity={0.5}
+          strokeWidth={2}
           initial={{ pathLength: 0, opacity: 0 }}
           whileInView={{ pathLength: 1, opacity: 1 }}
-          viewport={{ once: true, margin: "-60px" }}
-          transition={{ duration: 1.6, ease: "easeInOut" }}
+          viewport={inView}
+          transition={{ duration: 1.8, ease: "easeInOut" }}
         />
-        {/* the signal: a bright dash running the whole trace, forever */}
+
+        {/* branch stubs with pads — drawn after the bus reaches them */}
         <motion.path
-          d="M0 28 H140 L176 12 H300 L330 28 H470 L500 44 H624 L660 28 H800"
+          d="M240 32 V56"
           stroke="currentColor"
-          strokeWidth={2.5}
+          strokeOpacity={0.5}
+          strokeWidth={2}
+          initial={{ pathLength: 0 }}
+          whileInView={{ pathLength: 1 }}
+          viewport={inView}
+          transition={{ duration: 0.4, delay: 0.9 }}
+        />
+        <motion.path
+          d="M420 32 V10"
+          stroke="currentColor"
+          strokeOpacity={0.5}
+          strokeWidth={2}
+          initial={{ pathLength: 0 }}
+          whileInView={{ pathLength: 1 }}
+          viewport={inView}
+          transition={{ duration: 0.4, delay: 1.15 }}
+        />
+
+        {/* IC chip riding the bus, with pins */}
+        <motion.g {...pop(0)}>
+          <rect
+            x={450}
+            y={16}
+            width={60}
+            height={32}
+            rx={7}
+            fill="currentColor"
+            fillOpacity={0.08}
+            stroke="currentColor"
+            strokeOpacity={0.7}
+            strokeWidth={2}
+          />
+          {[462, 478, 494].map((x) => (
+            <g key={x} stroke="currentColor" strokeWidth={2} strokeOpacity={0.7}>
+              <line x1={x} y1={10} x2={x} y2={16} />
+              <line x1={x} y1={48} x2={x} y2={54} />
+            </g>
+          ))}
+        </motion.g>
+
+        {/* junction dots, ring pads, vias — they pop in as the wire arrives */}
+        {pads.map(([cx, cy], i) => (
+          <motion.circle key={`p${cx}`} cx={cx} cy={cy} r={4} fill="currentColor" {...pop(i + 1)} />
+        ))}
+        {rings.map(([cx, cy], i) => (
+          <motion.circle
+            key={`r${cx}`}
+            cx={cx}
+            cy={cy}
+            r={5}
+            stroke="currentColor"
+            strokeWidth={2.5}
+            {...pop(i + 3)}
+          />
+        ))}
+        {vias.map(([cx, cy], i) => (
+          <motion.g key={`v${cx}`} {...pop(i + 5)}>
+            <circle cx={cx} cy={cy} r={6} stroke="currentColor" strokeWidth={2} strokeOpacity={0.8} />
+            <circle cx={cx} cy={cy} r={2.5} fill="currentColor" />
+          </motion.g>
+        ))}
+
+        {/* schematic annotations */}
+        <motion.text
+          x={70}
+          y={16}
+          fontSize={10}
+          fontFamily="monospace"
+          fill="currentColor"
+          opacity={0.55}
+          initial={{ opacity: 0 }}
+          whileInView={{ opacity: 0.55 }}
+          viewport={inView}
+          transition={{ delay: 1.5 }}
+        >
+          RC-BUS
+        </motion.text>
+        <motion.text
+          x={736}
+          y={16}
+          fontSize={10}
+          fontFamily="monospace"
+          fill="currentColor"
+          opacity={0.55}
+          textAnchor="end"
+          initial={{ opacity: 0 }}
+          whileInView={{ opacity: 0.55 }}
+          viewport={inView}
+          transition={{ delay: 1.6 }}
+        >
+          I²C
+        </motion.text>
+
+        {/* gears driving the bus at both ends (meshed ratios: big → small) */}
+        <g transform="translate(36 32)">
+          <g className="animate-gear [transform-box:fill-box] [transform-origin:center]">
+            <GearShape />
+          </g>
+        </g>
+        <g transform="translate(764 32)">
+          <g className="animate-gear-rev [transform-box:fill-box] [transform-origin:center]">
+            <GearShape teeth={7} />
+          </g>
+        </g>
+
+        {/* two glowing signals running the wire in opposite directions */}
+        <motion.path
+          d={TRACE_D}
+          stroke="currentColor"
+          strokeWidth={3.5}
           strokeLinecap="round"
           pathLength={1}
-          strokeDasharray="0.045 0.955"
-          initial={{ strokeDashoffset: 1, opacity: 0 }}
-          whileInView={{ strokeDashoffset: 0, opacity: 0.9 }}
-          viewport={{ once: true, margin: "-60px" }}
+          strokeDasharray="0.035 0.965"
+          style={{ filter: "drop-shadow(0 0 6px currentColor)" }}
+          initial={{ strokeDashoffset: reverse ? 0 : 1, opacity: 0 }}
+          whileInView={{ strokeDashoffset: reverse ? 1 : 0, opacity: 1 }}
+          viewport={inView}
           transition={{
-            strokeDashoffset: { duration: 2.6, repeat: Infinity, ease: "linear", delay: 1.2 },
-            opacity: { duration: 0.4, delay: 1.2 },
+            strokeDashoffset: { duration: 2.4, repeat: Infinity, ease: "linear", delay: 1.6 },
+            opacity: { duration: 0.4, delay: 1.6 },
           }}
         />
-        {[
-          [140, 28],
-          [330, 28],
-          [500, 44],
-          [660, 28],
-        ].map(([cx, cy]) => (
-          <circle key={cx} cx={cx} cy={cy} r={3.5} fill="currentColor" className="animate-breathe" />
-        ))}
+        <motion.path
+          d={TRACE_D}
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          pathLength={1}
+          strokeDasharray="0.018 0.982"
+          style={{ filter: "drop-shadow(0 0 4px currentColor)" }}
+          initial={{ strokeDashoffset: reverse ? 1 : 0, opacity: 0 }}
+          whileInView={{ strokeDashoffset: reverse ? 0 : 1, opacity: 0.65 }}
+          viewport={inView}
+          transition={{
+            strokeDashoffset: { duration: 3.4, repeat: Infinity, ease: "linear", delay: 2.5 },
+            opacity: { duration: 0.4, delay: 2.5 },
+          }}
+        />
       </svg>
     </div>
   );
@@ -934,7 +1127,7 @@ export default function Landing() {
         {/* ── voices from clubs already running it ────────────────── */}
         <Testimonials />
 
-        <CircuitTrace className="pt-8" />
+        <CircuitTrace className="pt-8" reverse />
 
         {/* ── CTA ─────────────────────────────────────────────────── */}
         <CtaSection
@@ -1876,16 +2069,30 @@ function CtaSection({ onPrimary, label }: { onPrimary: () => void; label: string
         transition={{ duration: 0.5 }}
         className="neon-ring relative overflow-hidden rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/12 via-card/60 to-violet-500/10 px-8 py-16 text-center"
       >
+      {/* meshing gears — the machine room behind the open-door CTA */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -left-16 -top-20 hidden text-primary/15 md:block"
+      >
+        <Gear className="animate-gear size-52" />
+      </div>
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -bottom-24 -right-12 hidden items-end text-primary/12 md:flex"
+      >
+        <Gear className="animate-gear size-44" />
+        <Gear className="animate-gear-rev -ml-12 size-28" />
+      </div>
         <div className="relative mx-auto flex size-16 items-center justify-center">
           <span className="absolute inset-0 animate-ping-ring rounded-2xl border border-primary/50" />
           <Boxes className="size-8 text-primary" />
         </div>
-        <h2 className="mt-6 text-3xl font-bold tracking-tight sm:text-4xl">The lab is open</h2>
-        <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+        <h2 className="relative mt-6 text-3xl font-bold tracking-tight sm:text-4xl">The lab is open</h2>
+        <p className="relative mx-auto mt-2 max-w-md text-sm text-muted-foreground">
           Sign in with your club email and start scanning. Admins are set by email allow-list — and
           once you're in, the app keeps working even when the wifi doesn't.
         </p>
-        <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+        <div className="relative mt-8 flex flex-col justify-center gap-3 sm:flex-row">
           <Button
             size="lg"
             className="neon-glow press-3d relative gap-2 overflow-hidden"

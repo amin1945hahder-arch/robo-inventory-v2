@@ -511,6 +511,8 @@ html:not(.dark) .neon-glow {
   --animate-orbit: orbit 18s linear infinite;
   --animate-laser: laser-y 3.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
   --animate-glint: glint-x 3.8s ease-in-out infinite;
+  --animate-gear: gear-cw 18s linear infinite;
+  --animate-gear-rev: gear-ccw 12s linear infinite;
 }
 
 @keyframes marquee-x {
@@ -617,6 +619,19 @@ html:not(.dark) .neon-glow {
   }
 }
 
+/* Wireframe gears: slow, mechanical, deliberately unhurried. */
+@keyframes gear-cw {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes gear-ccw {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
 /* Respect the OS "reduce motion" setting. framer-motion animations are
    already covered by <MotionConfig reducedMotion="user">; these are the
    pure-CSS ones (tickers, aurora, pulses). */
@@ -630,7 +645,9 @@ html:not(.dark) .neon-glow {
   .animate-sweep,
   .animate-breathe,
   .animate-laser,
-  .animate-glint {
+  .animate-glint,
+  .animate-gear,
+  .animate-gear-rev {
     animation: none !important;
   }
   html {
